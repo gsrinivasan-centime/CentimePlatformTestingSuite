@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Backend
+backend/.env
+backend/test_db.sqlite
+backend/app.db
+
+# Test reports
+test_suite/reports/
+test_suite/.pytest_cache/
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Reports
+*.pdf
+*.xlsx
+*.html
+
+# Selenium
+geckodriver.log
+chromedriver.log

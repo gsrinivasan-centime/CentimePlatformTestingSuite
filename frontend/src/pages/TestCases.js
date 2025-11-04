@@ -21,6 +21,7 @@ import {
   TableHead,
   TableRow,
   TablePagination,
+  Autocomplete,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -32,6 +33,7 @@ import {
 } from '@mui/icons-material';
 import { testCasesAPI, modulesAPI } from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
+import ScenarioExamplesTable from '../components/ScenarioExamplesTable';
 import { useToast } from '../context/ToastContext';
 
 const TestCases = () => {
@@ -55,10 +57,12 @@ const TestCases = () => {
     description: '',
     test_type: 'manual',
     tag: 'ui',
+    tags: [],  // NEW: Additional categorization tags (smoke, regression, etc.)
     module_id: '',
     sub_module: '',
     feature_section: '',
     automation_status: 'working',
+    scenario_examples: null,  // NEW: JSON for scenario outline parameters
     steps_to_reproduce: '',
     expected_result: '',
     preconditions: '',
@@ -225,7 +229,15 @@ const TestCases = () => {
 
   const handleOpenDialog = async (testCase = null) => {
     if (testCase) {
-      setFormData(testCase);
+      // Convert tags from comma-separated string to array for Autocomplete
+      const tagsArray = testCase.tags 
+        ? testCase.tags.split(',').map(tag => tag.trim()).filter(tag => tag)
+        : [];
+      
+      setFormData({
+        ...testCase,
+        tags: tagsArray
+      });
       setSelectedTestCase(testCase);
       
       // Load hierarchy data for editing
@@ -245,10 +257,12 @@ const TestCases = () => {
           description: '',
           test_type: 'manual',
           tag: 'ui',
+          tags: [],
           module_id: '',
           sub_module: '',
           feature_section: '',
           automation_status: 'working',
+          scenario_examples: null,
           steps_to_reproduce: '',
           expected_result: '',
           preconditions: '',
@@ -263,10 +277,12 @@ const TestCases = () => {
           description: '',
           test_type: 'manual',
           tag: 'ui',
+          tags: [],
           module_id: '',
           sub_module: '',
           feature_section: '',
           automation_status: 'working',
+          scenario_examples: null,
           steps_to_reproduce: '',
           expected_result: '',
           preconditions: '',
@@ -345,11 +361,19 @@ const TestCases = () => {
     setSuccess('');
 
     try {
+      // Convert tags array to comma-separated string for backend
+      const dataToSubmit = {
+        ...formData,
+        tags: Array.isArray(formData.tags) 
+          ? formData.tags.join(',') 
+          : formData.tags || ''
+      };
+      
       if (selectedTestCase) {
-        await testCasesAPI.update(selectedTestCase.id, formData);
+        await testCasesAPI.update(selectedTestCase.id, dataToSubmit);
         setSuccess('Test case updated successfully');
       } else {
-        await testCasesAPI.create(formData);
+        await testCasesAPI.create(dataToSubmit);
         setSuccess('Test case created successfully');
       }
       handleCloseDialog();
@@ -394,8 +418,9 @@ const TestCases = () => {
 
   const handleDownloadTemplate = () => {
     // Create sample CSV content
-    const csvContent = `title,description,test_type,tag,module_id,sub_module,feature_section,automation_status,steps_to_reproduce,expected_result,preconditions,test_data
-"Sample Test Case","Description of the test case",manual,ui,1,Sub-Module Name,Feature Name,,"1. Step one\\n2. Step two","Expected result",Preconditions,"Test data"`;
+    const csvContent = `title,description,test_type,tag,tags,module_id,sub_module,feature_section,automation_status,scenario_examples,steps_to_reproduce,expected_result,preconditions,test_data
+"Sample Test Case","Description of the test case",manual,ui,"smoke,regression",1,Sub-Module Name,Feature Name,,,"1. Step one\\n2. Step two","Expected result",Preconditions,"Test data"
+"Payment Test with Scenarios","Test payment with different amounts",manual,ui,smoke,1,Payments,Validation,,"{""columns"": [""Amount"", ""Status""], ""rows"": [[""$0"", ""Invalid""], [""$10"", ""Valid"]]}","1. Enter amount\\n2. Submit","Should validate correctly","","See examples"`;
     
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -565,7 +590,7 @@ const TestCases = () => {
 
       <Paper>
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 1320, tableLayout: 'fixed' }}>
+          <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
@@ -575,6 +600,7 @@ const TestCases = () => {
                 <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Feature</ResizableTableCell>
                 <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Type</ResizableTableCell>
                 <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Tag</ResizableTableCell>
+                <ResizableTableCell minWidth={180} initialWidth={180} isHeader>Tags</ResizableTableCell>
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Status</ResizableTableCell>
                 <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Actions</ResizableTableCell>
               </TableRow>
@@ -640,6 +666,29 @@ const TestCases = () => {
                         }
                         variant="outlined"
                       />
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {testCase.tags ? (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {testCase.tags.split(',').map((tag, idx) => (
+                            <Chip
+                              key={idx}
+                              label={tag.trim()}
+                              size="small"
+                              color={
+                                tag.trim() === 'smoke' ? 'error' :
+                                tag.trim() === 'regression' ? 'primary' :
+                                tag.trim() === 'sanity' ? 'success' :
+                                tag.trim() === 'integration' ? 'warning' :
+                                tag.trim() === 'e2e' ? 'info' :
+                                'default'
+                              }
+                            />
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">-</Typography>
+                      )}
                     </TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {testCase.test_type === 'automated' ? (
@@ -718,6 +767,34 @@ const TestCases = () => {
               <MenuItem value="api">API</MenuItem>
               <MenuItem value="hybrid">Hybrid</MenuItem>
             </TextField>
+            
+            <Autocomplete
+              multiple
+              freeSolo
+              options={['smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance']}
+              value={formData.tags}
+              onChange={(event, newValue) => {
+                setFormData({ ...formData, tags: newValue });
+              }}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    label={option}
+                    {...getTagProps({ index })}
+                    size="small"
+                  />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Additional Tags"
+                  placeholder="Add tags like smoke, regression, etc."
+                  margin="normal"
+                  helperText="Select or type custom tags for categorization"
+                />
+              )}
+            />
             
             <TextField
               fullWidth
@@ -875,6 +952,12 @@ const TestCases = () => {
               multiline
               rows={2}
             />
+            
+            <ScenarioExamplesTable
+              value={formData.scenario_examples}
+              onChange={(value) => setFormData({ ...formData, scenario_examples: value })}
+            />
+            
             <TextField
               fullWidth
               label="Test Data"
@@ -982,6 +1065,31 @@ const TestCases = () => {
                 />
               </Box>
 
+              {selectedTestCase.tags && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Additional Tags
+                  </Typography>
+                  <Box mb={2} sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    {selectedTestCase.tags.split(',').map((tag, idx) => (
+                      <Chip
+                        key={idx}
+                        label={tag.trim()}
+                        size="small"
+                        color={
+                          tag.trim() === 'smoke' ? 'error' :
+                          tag.trim() === 'regression' ? 'primary' :
+                          tag.trim() === 'sanity' ? 'success' :
+                          tag.trim() === 'integration' ? 'warning' :
+                          tag.trim() === 'e2e' ? 'info' :
+                          'default'
+                        }
+                      />
+                    ))}
+                  </Box>
+                </>
+              )}
+
               {selectedTestCase.test_type === 'automated' && (
                 <>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
@@ -1039,6 +1147,45 @@ const TestCases = () => {
                   </Typography>
                 </>
               )}
+
+              {selectedTestCase.scenario_examples && (() => {
+                try {
+                  const examples = JSON.parse(selectedTestCase.scenario_examples);
+                  return (
+                    <>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Scenario Examples / Parameters
+                      </Typography>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              {examples.columns.map((col, idx) => (
+                                <TableCell key={idx}>
+                                  <Typography variant="body2" fontWeight="bold">
+                                    {col}
+                                  </Typography>
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {examples.rows.map((row, rowIdx) => (
+                              <TableRow key={rowIdx}>
+                                {row.map((cell, cellIdx) => (
+                                  <TableCell key={cellIdx}>{cell}</TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </>
+                  );
+                } catch (e) {
+                  return null;
+                }
+              })()}
             </Box>
           )}
         </DialogContent>

@@ -1,48 +1,52 @@
-title,description,test_type,tag,module_id,sub_module,feature_section,automation_status,steps_to_reproduce,expected_result,preconditions,test_data
-"Verify user login with valid credentials","Test that a user can successfully login with correct email and password",manual,ui,1,User Management,Login Form,,"1. Navigate to login page
+title,description,test_type,tag,tags,module_id,sub_module,feature_section,automation_status,scenario_examples,steps_to_reproduce,expected_result,preconditions,test_data
+Verify user login with valid credentials,Test that a user can successfully login with correct email and password,manual,ui,"smoke,regression",1,User Management,Login Form,,,"1. Navigate to login page
 2. Enter valid email
 3. Enter valid password
-4. Click Login button","User should be logged in and redirected to dashboard","User account must exist in the system","Email: test@example.com
+4. Click Login button",User should be logged in and redirected to dashboard,User account must exist in the system,"Email: test@example.com
 Password: Test123!"
-"Verify invalid login attempt","Test that system prevents login with incorrect credentials",manual,ui,1,User Management,Login Form,,"1. Navigate to login page
+Verify invalid login attempt,Test that system prevents login with incorrect credentials,manual,ui,smoke,1,User Management,Login Form,,,"1. Navigate to login page
 2. Enter invalid email
 3. Enter invalid password
-4. Click Login button","Error message 'Invalid credentials' should be displayed","","Email: wrong@example.com
+4. Click Login button",Error message 'Invalid credentials' should be displayed,,"Email: wrong@example.com
 Password: WrongPass123"
-"Verify invoice creation via API","Test invoice creation through REST API endpoint",automated,api,2,Invoices,API Endpoints,working,"1. Send POST request to /api/invoices
+Verify invoice creation via API,Test invoice creation through REST API endpoint,automated,api,"regression,integration",2,Invoices,API Endpoints,working,"1. Send POST request to /api/invoices
 2. Include valid invoice data in request body
-3. Verify response status code","API returns 201 status with created invoice details","Valid authentication token must be available","{""vendor_id"": 123, ""amount"": 1000.00, ""due_date"": ""2025-12-31""}"
-"Verify payment processing end-to-end","Complete payment flow from UI to backend validation",manual,hybrid,3,Payments,Payment Processing,,"1. Login as admin user
+3. Verify response status code",API returns 201 status with created invoice details,Valid authentication token must be available,"{""vendor_id"": 123, ""amount"": 1000.00, ""due_date"": ""2025-12-31""}",
+Verify payment processing end-to-end,Complete payment flow from UI to backend validation,manual,hybrid,"smoke,e2e",3,Payments,Payment Processing,,"1. Login as admin user
 2. Navigate to Payments section
 3. Initiate new payment
 4. Fill payment details
 5. Submit payment
-6. Verify in database","Payment is processed successfully and status is updated","1. Admin user logged in
+6. Verify in database",Payment is processed successfully and status is updated,"1. Admin user logged in
 2. Valid vendor exists
 3. Sufficient balance available","Payment Amount: $500.00
-Vendor ID: VEN-001"
-"Verify supplier profile update","Test updating supplier information",manual,ui,1,Suppliers,Supplier Profile,,"1. Navigate to Suppliers page
+Vendor ID: VEN-001",
+Verify supplier profile update,Test updating supplier information,manual,ui,regression,1,Suppliers,Supplier Profile,,"1. Navigate to Suppliers page
 2. Click on a supplier
 3. Click Edit button
 4. Update supplier name and email
-5. Save changes","Supplier details are updated successfully","Supplier record exists in database","Supplier Name: ACME Corp
-Email: acme@example.com"
-"Verify ACH payment validation","Test ACH payment validation rules",automated,api,3,Payments,ACH,working,"1. Call ACH validation API
+5. Save changes",Supplier details are updated successfully,Supplier record exists in database,"Supplier Name: ACME Corp
+Email: acme@example.com",
+Verify ACH payment validation,Test ACH payment validation rules,automated,api,"regression,sanity",3,Payments,ACH,working,"1. Call ACH validation API
 2. Pass invalid routing number
-3. Verify error response","API returns 400 error with validation message","Test environment configured","Routing Number: 000000000"
-"Verify dashboard data display","Test that dashboard shows correct summary data",manual,ui,4,Dashboard,Summary View,,"1. Login as admin user
+3. Verify error response",API returns 400 error with validation message,Test environment configured,Routing Number: 000000000,
+Verify dashboard data display,Test that dashboard shows correct summary data,manual,ui,"smoke,sanity",4,Dashboard,Summary View,,"1. Login as admin user
 2. Navigate to dashboard
 3. Verify all widgets are displayed
-4. Check data accuracy","All dashboard widgets display with correct data","User has admin role and data exists in system",""
-"Verify report generation","Test monthly report generation functionality",manual,ui,5,Reports,Monthly Reports,,"1. Navigate to Reports section
+4. Check data accuracy",All dashboard widgets display with correct data,User has admin role and data exists in system,,
+Verify report generation,Test monthly report generation functionality,manual,ui,regression,5,Reports,Monthly Reports,,"1. Navigate to Reports section
 2. Select month and year
 3. Click Generate Report
-4. Wait for generation to complete","Report is generated successfully and downloadable","Historical data exists for selected month",""
-"Verify API rate limiting","Test that API enforces rate limits correctly",automated,api,6,API Gateway,Rate Limiting,broken,"1. Send 100 requests per second
+4. Wait for generation to complete",Report is generated successfully and downloadable,Historical data exists for selected month,,
+Verify API rate limiting,Test that API enforces rate limits correctly,automated,api,"regression,performance",6,API Gateway,Rate Limiting,broken,"1. Send 100 requests per second
 2. Verify 429 response after threshold
 3. Wait for cooldown period
-4. Verify requests are accepted again","Rate limit enforced at 50 requests/second","Test API keys configured",""
-"Verify bulk data import","Test importing multiple records via CSV",manual,hybrid,7,Data Management,Import,,"1. Navigate to Import section
+4. Verify requests are accepted again",Rate limit enforced at 50 requests/second,Test API keys configured,,
+Verify bulk data import,Test importing multiple records via CSV,manual,hybrid,"smoke,integration",7,Data Management,Import,,"1. Navigate to Import section
 2. Select CSV file with test data
 3. Click Import button
-4. Verify import results","All valid records imported successfully with summary","CSV file with valid format available","Sample file: import_test.csv"
+4. Verify import results",All valid records imported successfully with summary,CSV file with valid format available,Sample file: import_test.csv,
+"Verify payment amount validation","Test payment processing with different amounts",manual,hybrid,"smoke,regression",3,Payments,Payment Validation,,"{""columns"": [""Amount"", ""Expected Status""], ""rows"": [[""$0"", ""Invalid""], [""$10.00"", ""Valid""], [""$-10.00"", ""Invalid""], [""$1000.00"", ""Valid""]]}","1. Navigate to payment page
+2. Enter amount from scenario examples
+3. Submit payment
+4. Verify response","Payment should be validated according to amount rules","Test environment is configured","See scenario examples",

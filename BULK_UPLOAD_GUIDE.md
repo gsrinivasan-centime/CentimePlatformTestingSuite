@@ -39,9 +39,11 @@ The CSV file must include these columns (case-sensitive):
 | Column | Required | Valid Values | Description |
 |--------|----------|--------------|-------------|
 | `description` | No | Any text | Detailed test description |
+| `tags` | No | Comma-separated text | Additional categorization tags (e.g., "smoke,regression") |
 | `sub_module` | No | Any text | Sub-module name |
 | `feature_section` | No | Any text | Feature/section name |
 | `automation_status` | No | `working` or `broken` | Status for automated tests |
+| `scenario_examples` | No | JSON string | Data-driven testing parameters (see format below) |
 | `steps_to_reproduce` | No | Multi-line text | Test execution steps |
 | `expected_result` | No | Any text | Expected outcome |
 | `preconditions` | No | Multi-line text | Prerequisites |
@@ -54,7 +56,19 @@ The CSV file must include these columns (case-sensitive):
    - `api` → TC_API_1, TC_API_2, ...
    - `hybrid` → TC_HYBRID_1, TC_HYBRID_2, ...
 
-2. **Multi-line Text**: For fields like `steps_to_reproduce`, use actual line breaks in your CSV editor:
+2. **Tags vs Tag**: 
+   - `tag` (singular, required): Used for test ID generation - must be `ui`, `api`, or `hybrid`
+   - `tags` (plural, optional): Additional categorization tags like "smoke", "regression", "sanity", "integration", "e2e", "performance"
+   - Multiple tags should be comma-separated: `"smoke,regression"` or `"sanity,integration,e2e"`
+
+3. **Scenario Examples** (Data-Driven Testing):
+   - Used for parameterized/data-driven test scenarios (similar to Gherkin Scenario Outline)
+   - Must be valid JSON with format: `{"columns": ["Column1", "Column2"], "rows": [["value1", "value2"], ["value3", "value4"]]}`
+   - Example: `"{""columns"": [""Amount"", ""Status""], ""rows"": [[""$0"", ""Invalid""], [""$10"", ""Valid""]]}"`
+   - Note: Use double quotes inside JSON and escape them with double-double quotes (`""`) in CSV
+   - Leave empty if test case doesn't need multiple parameter sets
+
+4. **Multi-line Text**: For fields like `steps_to_reproduce`, use actual line breaks in your CSV editor:
    ```
    "1. First step
    2. Second step
@@ -65,15 +79,32 @@ The CSV file must include these columns (case-sensitive):
 
 4. **Module IDs**: You must know the numeric IDs of your modules. These can be found in the Modules section of the application.
 
-## Example CSV Row
+## Example CSV Rows
 
+### Basic Example (No Scenario Examples)
 ```csv
-title,description,test_type,tag,module_id,sub_module,feature_section,automation_status,steps_to_reproduce,expected_result,preconditions,test_data
-"Login with valid credentials","Verify successful login",manual,ui,1,Authentication,Login,,"1. Open login page
+title,description,test_type,tag,tags,module_id,sub_module,feature_section,automation_status,scenario_examples,steps_to_reproduce,expected_result,preconditions,test_data
+"Login with valid credentials","Verify successful login",manual,ui,"smoke,regression",1,Authentication,Login,,,"1. Open login page
 2. Enter valid credentials
 3. Click Login","User is redirected to dashboard","Valid user account exists","Email: test@example.com
 Password: Test123!"
 ```
+
+### Data-Driven Example (With Scenario Examples)
+```csv
+title,description,test_type,tag,tags,module_id,sub_module,feature_section,automation_status,scenario_examples,steps_to_reproduce,expected_result,preconditions,test_data
+"Payment amount validation","Test payment with various amounts",manual,ui,"smoke,regression",3,Payments,Validation,,"{""columns"": [""Amount"", ""Expected Status""], ""rows"": [[""$0"", ""Invalid""], [""$10.00"", ""Valid""], [""$-10.00"", ""Invalid""], [""$1000.00"", ""Valid"]]}","1. Enter amount from scenario
+2. Submit payment
+3. Verify status","Payment validates correctly","Test environment configured","See scenario examples"
+```
+
+The scenario examples will be displayed as a table in the UI:
+| Amount | Expected Status |
+|--------|-----------------|
+| $0 | Invalid |
+| $10.00 | Valid |
+| $-10.00 | Invalid |
+| $1000.00 | Valid |
 
 ## Error Handling
 

@@ -139,10 +139,13 @@ async def bulk_upload_test_cases(
     Bulk upload test cases from CSV file.
     
     CSV Format:
-    title,description,test_type,tag,module_id,sub_module,feature_section,automation_status,
-    steps_to_reproduce,expected_result,preconditions,test_data
+    title,description,test_type,tag,tags,module_id,sub_module,feature_section,automation_status,
+    scenario_examples,steps_to_reproduce,expected_result,preconditions,test_data
     
-    Note: test_id will be auto-generated based on tag
+    Note: 
+    - test_id will be auto-generated based on tag (ui/api/hybrid)
+    - tags field is for additional categorization (e.g., "smoke,regression", "sanity")
+    - scenario_examples must be valid JSON: {"columns": ["Amount"], "rows": [["$0"], ["$10"]]}
     """
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
@@ -204,6 +207,24 @@ async def bulk_upload_test_cases(
                     if row['automation_status'].lower() in ['working', 'broken']:
                         automation_status = row['automation_status'].lower()
                 
+                # Handle tags (additional categorization tags like smoke, regression, etc.)
+                tags_value = None
+                if row.get('tags') and row['tags'].strip():
+                    tags_value = row['tags'].strip()
+                
+                # Handle scenario_examples (JSON format for data-driven testing)
+                scenario_examples_value = None
+                if row.get('scenario_examples') and row['scenario_examples'].strip():
+                    import json
+                    try:
+                        # Validate JSON format
+                        json.loads(row['scenario_examples'].strip())
+                        scenario_examples_value = row['scenario_examples'].strip()
+                    except json.JSONDecodeError:
+                        errors.append(f"Row {row_num}: Invalid JSON format in scenario_examples")
+                        failed_count += 1
+                        continue
+                
                 # Create test case
                 test_case_data = TestCaseCreate(
                     test_id=test_id,
@@ -211,10 +232,12 @@ async def bulk_upload_test_cases(
                     description=row.get('description', '').strip() or None,
                     test_type=row['test_type'].lower(),
                     tag=tag,
+                    tags=tags_value,
                     module_id=module_id,
                     sub_module=row.get('sub_module', '').strip() or None,
                     feature_section=row.get('feature_section', '').strip() or None,
                     automation_status=automation_status,
+                    scenario_examples=scenario_examples_value,
                     steps_to_reproduce=row.get('steps_to_reproduce', '').strip() or None,
                     expected_result=row.get('expected_result', '').strip() or None,
                     preconditions=row.get('preconditions', '').strip() or None,

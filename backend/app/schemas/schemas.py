@@ -138,7 +138,9 @@ class TestCaseBase(BaseModel):
     sub_module: Optional[str] = None  # NEW: e.g., "Suppliers", "Invoices"
     feature_section: Optional[str] = None  # NEW: e.g., "Supplier Profile", "List View"
     tag: TestTag  # NEW: ui/api/hybrid - used for auto-generating test_id
+    tags: Optional[str] = None  # NEW: Additional tags like smoke, regression (comma-separated)
     automation_status: Optional[AutomationStatus] = None  # NEW: working/broken for automated, null for manual
+    scenario_examples: Optional[str] = None  # NEW: JSON string for scenario outline examples/parameters
     steps_to_reproduce: Optional[str] = None
     expected_result: Optional[str] = None
     preconditions: Optional[str] = None
@@ -157,7 +159,9 @@ class TestCaseUpdate(BaseModel):
     sub_module: Optional[str] = None  # NEW
     feature_section: Optional[str] = None  # NEW
     tag: Optional[TestTag] = None  # NEW
+    tags: Optional[str] = None  # NEW
     automation_status: Optional[AutomationStatus] = None  # NEW
+    scenario_examples: Optional[str] = None  # NEW
     steps_to_reproduce: Optional[str] = None
     expected_result: Optional[str] = None
     preconditions: Optional[str] = None

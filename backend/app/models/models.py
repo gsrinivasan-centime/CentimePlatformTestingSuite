@@ -117,8 +117,15 @@ class TestCase(Base):
     # Test categorization tag - UI, API, or Hybrid
     tag = Column(SQLEnum(TestTag, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)  # ui/api/hybrid
     
+    # Additional tags for test categorization (smoke, regression, etc.) - stored as comma-separated string
+    tags = Column(String, nullable=True)  # e.g., "smoke,regression" or "smoke,sanity"
+    
     # Automation status - only applicable for automated tests
     automation_status = Column(SQLEnum(AutomationStatus, values_callable=lambda x: [e.value for e in x]), nullable=True)  # working/broken for automated, null for manual
+    
+    # Scenario examples/parameters for data-driven testing (stored as JSON)
+    # Example: {"columns": ["Amount", "Status"], "rows": [["$0", "Invalid"], ["$10", "Valid"], ["$-10", "Invalid"]]}
+    scenario_examples = Column(Text, nullable=True)
     
     steps_to_reproduce = Column(Text)
     expected_result = Column(Text)

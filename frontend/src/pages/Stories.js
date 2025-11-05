@@ -35,6 +35,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Link as LinkIcon,
+  LinkOff as LinkOffIcon,
   ExpandMore as ExpandMoreIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
@@ -405,6 +406,21 @@ const Stories = () => {
     }
   };
 
+  const handleUnlinkTestCase = async (storyId, testCaseId, testCaseTitle) => {
+    if (!window.confirm(`Are you sure you want to unlink test case "${testCaseTitle}" from this story?`)) {
+      return;
+    }
+
+    try {
+      await jiraStoriesAPI.unlinkTestCase(storyId, testCaseId);
+      showSnackbar('Test case unlinked successfully', 'success');
+      fetchStoryTestCases(storyId);
+    } catch (error) {
+      console.error('Error unlinking test case:', error);
+      showSnackbar(error.response?.data?.detail || 'Failed to unlink test case', 'error');
+    }
+  };
+
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
   };
@@ -660,6 +676,7 @@ const Stories = () => {
                                 <TableCell>Tag</TableCell>
                                 <TableCell>Sub-Module</TableCell>
                                 <TableCell>Feature</TableCell>
+                                <TableCell>Actions</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -680,6 +697,16 @@ const Stories = () => {
                                   </TableCell>
                                   <TableCell>{tc.sub_module || '-'}</TableCell>
                                   <TableCell>{tc.feature_section || '-'}</TableCell>
+                                  <TableCell>
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleUnlinkTestCase(story.story_id, tc.id, tc.test_id)}
+                                      title="Unlink test case"
+                                    >
+                                      <LinkOffIcon fontSize="small" />
+                                    </IconButton>
+                                  </TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>

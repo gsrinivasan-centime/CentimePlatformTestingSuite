@@ -357,7 +357,7 @@ def unlink_test_case_from_story(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Unlink a test case from a story"""
+    """Unlink a test case from a story and remove it from any releases"""
     test_case = db.query(TestCase).filter(TestCase.id == test_case_id).first()
     if not test_case:
         raise HTTPException(status_code=404, detail="Test case not found")
@@ -365,13 +365,30 @@ def unlink_test_case_from_story(
     if test_case.jira_story_id != story_id:
         raise HTTPException(status_code=400, detail="Test case is not linked to this story")
     
+    # Get the story to find its release
+    story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
+    
+    # Remove test case from any releases that match the story's release
+    if story and story.release:
+        # Find releases with matching version
+        releases = db.query(Release).filter(Release.version == story.release).all()
+        
+        for release in releases:
+            # Remove the test case from this release
+            db.query(ReleaseTestCase).filter(
+                ReleaseTestCase.release_id == release.id,
+                ReleaseTestCase.test_case_id == test_case_id
+            ).delete()
+    
     # Unlink test case from story
     test_case.jira_story_id = None
     test_case.jira_epic_id = None
     
     db.commit()
     
-    return {"message": f"Test case {test_case.test_id} unlinked from story {story_id}"}
+    return {
+        "message": f"Test case {test_case.test_id} unlinked from story {story_id} and removed from associated releases"
+    }
 
 @router.get("/epic/{epic_id}/stories")
 def get_stories_by_epic(

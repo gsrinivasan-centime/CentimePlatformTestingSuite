@@ -311,8 +311,8 @@ const Reports = () => {
           {reportData.module_summary && reportData.module_summary.length > 0 && (
             <>
               <Paper sx={{ mb: 3 }}>
-                <Box sx={{ p: 2 }}>
-                  <Typography variant="h6" gutterBottom>
+                <Box sx={{ p: 2, bgcolor: 'primary.main' }}>
+                  <Typography variant="h6" color="white">
                     Module-wise Summary
                   </Typography>
                 </Box>
@@ -373,8 +373,8 @@ const Reports = () => {
 
               {/* Detailed Test Cases by Module, Sub-Module, and Feature */}
               <Paper sx={{ mb: 3 }}>
-                <Box sx={{ p: 2 }}>
-                  <Typography variant="h6" gutterBottom>
+                <Box sx={{ p: 2, bgcolor: 'primary.main' }}>
+                  <Typography variant="h6" color="white">
                     Detailed Test Cases by Module
                   </Typography>
                 </Box>
@@ -504,6 +504,89 @@ const Reports = () => {
                 </Box>
               </Paper>
             </>
+          )}
+
+          {/* Story-wise Test Coverage */}
+          {reportData.story_summary && reportData.story_summary.length > 0 && (
+            <Paper sx={{ mb: 3 }}>
+              <Box sx={{ p: 2, bgcolor: 'primary.main' }}>
+                <Typography variant="h6" color="white">
+                  User Story-wise Test Coverage
+                </Typography>
+              </Box>
+              <Divider />
+              <TableContainer sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 1100, tableLayout: 'fixed' }}>
+                  <TableHead>
+                    <TableRow>
+                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Story ID</ResizableTableCell>
+                      <ResizableTableCell minWidth={250} initialWidth={300} isHeader>Story Title</ResizableTableCell>
+                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Epic ID</ResizableTableCell>
+                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Status</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Total</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Passed</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Failed</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Blocked</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>In Progress</ResizableTableCell>
+                      <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Pass Rate</ResizableTableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {reportData.story_summary.map((story) => (
+                      <TableRow key={story.story_id}>
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {story.story_id}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={story.story_title}>
+                          {story.story_title}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {story.epic_id || 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={story.story_status} 
+                            size="small"
+                            color={
+                              story.story_status === 'Done' ? 'success' :
+                              story.story_status === 'In Progress' ? 'info' :
+                              'default'
+                            }
+                            variant="outlined"
+                          />
+                        </TableCell>
+                        <TableCell align="center">{story.total}</TableCell>
+                        <TableCell align="center" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                          {story.passed}
+                        </TableCell>
+                        <TableCell align="center" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                          {story.failed}
+                        </TableCell>
+                        <TableCell align="center" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                          {story.blocked}
+                        </TableCell>
+                        <TableCell align="center" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                          {story.in_progress}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: parseFloat(story.pass_percentage) >= 80
+                                ? 'success.main'
+                                : 'error.main',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {story.pass_percentage}%
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
           )}
 
           {/* Failed Tests Detail */}

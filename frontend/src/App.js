@@ -15,6 +15,7 @@ import Reports from './pages/Reports';
 import Modules from './pages/Modules';
 import Releases from './pages/Releases';
 import Users from './pages/Users';
+import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 
 const theme = createTheme({
   palette: {
@@ -101,6 +102,16 @@ function AppContent() {
                 <ProtectedRoute>
                   <Layout>
                     <Releases />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/releases/:releaseId"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ReleaseDetail />
                   </Layout>
                 </ProtectedRoute>
               }

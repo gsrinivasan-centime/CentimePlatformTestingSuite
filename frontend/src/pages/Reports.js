@@ -19,12 +19,17 @@ import {
   TableRow,
   CircularProgress,
   Alert,
-  Divider
+  Divider,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Chip,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
@@ -75,7 +80,7 @@ const Reports = () => {
         params.append('module_id', selectedModule);
       }
 
-      const response = await api.get(`/api/reports/summary?${params.toString()}`);
+      const response = await api.get(`/reports/summary?${params.toString()}`);
       setReportData(response.data);
     } catch (error) {
       console.error('Error fetching report data:', error);
@@ -93,13 +98,7 @@ const Reports = () => {
 
     setDownloading(true);
     try {
-      const params = new URLSearchParams();
-      params.append('release_id', selectedRelease);
-      if (selectedModule) {
-        params.append('module_id', selectedModule);
-      }
-
-      const response = await api.get(`/api/reports/pdf?${params.toString()}`, {
+      const response = await api.get(`/reports/pdf/${selectedRelease}`, {
         responseType: 'blob'
       });
 
@@ -211,11 +210,11 @@ const Reports = () => {
       {!loading && reportData && (
         <>
           {/* Statistics Cards */}
-          <Grid container spacing={3} sx={{ mb: 3 }}>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={6} md={3}>
               <Card>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
+                  <Typography color="textSecondary" gutterBottom variant="body2">
                     Total Test Cases
                   </Typography>
                   <Typography variant="h4">{reportData.total_tests}</Typography>
@@ -225,7 +224,7 @@ const Reports = () => {
             <Grid item xs={12} sm={6} md={3}>
               <Card sx={{ bgcolor: 'success.light' }}>
                 <CardContent>
-                  <Typography color="white" gutterBottom>
+                  <Typography color="white" gutterBottom variant="body2">
                     Passed
                   </Typography>
                   <Typography variant="h4" color="white">
@@ -237,7 +236,7 @@ const Reports = () => {
             <Grid item xs={12} sm={6} md={3}>
               <Card sx={{ bgcolor: 'error.light' }}>
                 <CardContent>
-                  <Typography color="white" gutterBottom>
+                  <Typography color="white" gutterBottom variant="body2">
                     Failed
                   </Typography>
                   <Typography variant="h4" color="white">
@@ -249,7 +248,7 @@ const Reports = () => {
             <Grid item xs={12} sm={6} md={3}>
               <Card sx={{ bgcolor: 'primary.light' }}>
                 <CardContent>
-                  <Typography color="white" gutterBottom>
+                  <Typography color="white" gutterBottom variant="body2">
                     Pass Rate
                   </Typography>
                   <Typography variant="h4" color="white">
@@ -258,62 +257,253 @@ const Reports = () => {
                 </CardContent>
               </Card>
             </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'warning.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom variant="body2">
+                    Blocked
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {reportData.blocked_tests || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'info.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom variant="body2">
+                    In Progress
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {reportData.in_progress_tests || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'grey.400' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom variant="body2">
+                    Not Started
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {reportData.not_started_tests || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'grey.600' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom variant="body2">
+                    Skipped
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {reportData.skipped_tests || 0}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
           </Grid>
 
           {/* Module-wise Summary */}
           {reportData.module_summary && reportData.module_summary.length > 0 && (
-            <Paper sx={{ mb: 3 }}>
-              <Box sx={{ p: 2 }}>
-                <Typography variant="h6" gutterBottom>
-                  Module-wise Summary
-                </Typography>
-              </Box>
-              <Divider />
-              <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 800, tableLayout: 'fixed' }}>
-                  <TableHead>
-                    <TableRow>
-                      <ResizableTableCell minWidth={200} initialWidth={250} isHeader>Module</ResizableTableCell>
-                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Total Tests</ResizableTableCell>
-                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Passed</ResizableTableCell>
-                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Failed</ResizableTableCell>
-                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Pending</ResizableTableCell>
-                      <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Pass Rate</ResizableTableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {reportData.module_summary.map((module) => (
-                      <TableRow key={module.module_id}>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{module.module_name}</TableCell>
-                        <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{module.total}</TableCell>
-                        <TableCell align="center" sx={{ color: 'success.main', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {module.passed}
-                        </TableCell>
-                        <TableCell align="center" sx={{ color: 'error.main', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {module.failed}
-                        </TableCell>
-                        <TableCell align="center" sx={{ color: 'warning.main', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {module.pending}
-                        </TableCell>
-                        <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              color: parseFloat(calculatePassRate(module.passed, module.total)) >= 80
-                                ? 'success.main'
-                                : 'error.main',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            {calculatePassRate(module.passed, module.total)}%
-                          </Typography>
-                        </TableCell>
+            <>
+              <Paper sx={{ mb: 3 }}>
+                <Box sx={{ p: 2 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Module-wise Summary
+                  </Typography>
+                </Box>
+                <Divider />
+                <TableContainer sx={{ overflowX: 'auto' }}>
+                  <Table size="small" sx={{ minWidth: 900, tableLayout: 'fixed' }}>
+                    <TableHead>
+                      <TableRow>
+                        <ResizableTableCell minWidth={200} initialWidth={250} isHeader>Module</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Total</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Passed</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Failed</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Blocked</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>In Progress</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Not Started</ResizableTableCell>
+                        <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Pass Rate</ResizableTableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
+                    </TableHead>
+                    <TableBody>
+                      {reportData.module_summary.map((module) => (
+                        <TableRow key={module.module_id}>
+                          <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{module.module_name}</TableCell>
+                          <TableCell align="center">{module.total}</TableCell>
+                          <TableCell align="center" sx={{ color: 'success.main', fontWeight: 'bold' }}>
+                            {module.passed}
+                          </TableCell>
+                          <TableCell align="center" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                            {module.failed}
+                          </TableCell>
+                          <TableCell align="center" sx={{ color: 'warning.main', fontWeight: 'bold' }}>
+                            {module.blocked}
+                          </TableCell>
+                          <TableCell align="center" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                            {module.in_progress}
+                          </TableCell>
+                          <TableCell align="center" sx={{ color: 'grey.600' }}>
+                            {module.not_started}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                color: parseFloat(calculatePassRate(module.passed, module.total)) >= 80
+                                  ? 'success.main'
+                                  : 'error.main',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              {calculatePassRate(module.passed, module.total)}%
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+
+              {/* Detailed Test Cases by Module, Sub-Module, and Feature */}
+              <Paper sx={{ mb: 3 }}>
+                <Box sx={{ p: 2 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Detailed Test Cases by Module
+                  </Typography>
+                </Box>
+                <Divider />
+                <Box sx={{ p: 2 }}>
+                  {reportData.module_summary.map((module) => (
+                    <Accordion key={module.module_id} sx={{ mb: 1 }}>
+                      <AccordionSummary 
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{ bgcolor: '#e3f2fd' }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                          <Typography variant="subtitle1" fontWeight="bold" sx={{ flexGrow: 1 }}>
+                            {module.module_name}
+                          </Typography>
+                          <Chip label={`${module.total} tests`} size="small" />
+                          <Chip label={`${module.passed} passed`} size="small" color="success" />
+                          <Chip label={`${module.failed} failed`} size="small" color="error" />
+                        </Box>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        {module.sub_modules && module.sub_modules.map((subModule, smIdx) => (
+                          <Accordion key={smIdx} sx={{ mb: 1 }}>
+                            <AccordionSummary 
+                              expandIcon={<ExpandMoreIcon />}
+                              sx={{ bgcolor: '#f5f5f5' }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                                <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
+                                  {subModule.name}
+                                </Typography>
+                                <Chip label={`${subModule.total} tests`} size="small" variant="outlined" />
+                              </Box>
+                            </AccordionSummary>
+                            <AccordionDetails>
+                              {subModule.features && subModule.features.map((feature, fIdx) => (
+                                <Accordion key={fIdx} sx={{ mb: 1 }}>
+                                  <AccordionSummary 
+                                    expandIcon={<ExpandMoreIcon />}
+                                    sx={{ bgcolor: '#fafafa', minHeight: 40, '&.Mui-expanded': { minHeight: 40 } }}
+                                  >
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
+                                        {feature.name}
+                                      </Typography>
+                                      <Chip 
+                                        label={`${feature.test_cases.length} tests`} 
+                                        size="small" 
+                                        color="primary" 
+                                        variant="outlined" 
+                                      />
+                                    </Box>
+                                  </AccordionSummary>
+                                  <AccordionDetails>
+                                    <TableContainer>
+                                      <Table size="small">
+                                        <TableHead>
+                                          <TableRow>
+                                            <TableCell>Test ID</TableCell>
+                                            <TableCell>Title</TableCell>
+                                            <TableCell>Type</TableCell>
+                                            <TableCell>Priority</TableCell>
+                                            <TableCell>Status</TableCell>
+                                            <TableCell>Execution Date</TableCell>
+                                            <TableCell>Comments</TableCell>
+                                          </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                          {feature.test_cases.map((testCase) => (
+                                            <TableRow key={testCase.id}>
+                                              <TableCell>{testCase.test_id}</TableCell>
+                                              <TableCell>{testCase.title}</TableCell>
+                                              <TableCell>
+                                                <Chip 
+                                                  label={testCase.test_type} 
+                                                  size="small" 
+                                                  variant="outlined"
+                                                />
+                                              </TableCell>
+                                              <TableCell>
+                                                <Chip 
+                                                  label={testCase.priority || 'N/A'} 
+                                                  size="small"
+                                                  color={
+                                                    testCase.priority === 'high' ? 'error' :
+                                                    testCase.priority === 'medium' ? 'warning' :
+                                                    'default'
+                                                  }
+                                                  variant="outlined"
+                                                />
+                                              </TableCell>
+                                              <TableCell>
+                                                <Chip 
+                                                  label={testCase.execution_status.replace('_', ' ').toUpperCase()} 
+                                                  size="small"
+                                                  color={
+                                                    testCase.execution_status === 'passed' ? 'success' :
+                                                    testCase.execution_status === 'failed' ? 'error' :
+                                                    testCase.execution_status === 'in_progress' ? 'info' :
+                                                    testCase.execution_status === 'blocked' ? 'warning' :
+                                                    'default'
+                                                  }
+                                                />
+                                              </TableCell>
+                                              <TableCell>
+                                                {testCase.execution_date 
+                                                  ? new Date(testCase.execution_date).toLocaleString()
+                                                  : 'N/A'}
+                                              </TableCell>
+                                              <TableCell>
+                                                {testCase.comments || '-'}
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </TableContainer>
+                                  </AccordionDetails>
+                                </Accordion>
+                              ))}
+                            </AccordionDetails>
+                          </Accordion>
+                        ))}
+                      </AccordionDetails>
+                    </Accordion>
+                  ))}
+                </Box>
+              </Paper>
+            </>
           )}
 
           {/* Failed Tests Detail */}

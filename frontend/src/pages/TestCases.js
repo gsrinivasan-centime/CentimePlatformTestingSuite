@@ -22,6 +22,11 @@ import {
   TableRow,
   TablePagination,
   Autocomplete,
+  ToggleButton,
+  ToggleButtonGroup,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -30,6 +35,9 @@ import {
   Visibility as ViewIcon,
   CloudUpload as UploadIcon,
   Download as DownloadIcon,
+  ViewList as ViewListIcon,
+  AccountTree as TreeViewIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { testCasesAPI, modulesAPI } from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
@@ -83,6 +91,13 @@ const TestCases = () => {
   });
   const [filterSubModules, setFilterSubModules] = useState([]);
   const [filterFeatures, setFilterFeatures] = useState([]);
+
+  // View toggle state
+  const [viewType, setViewType] = useState('list'); // 'list' or 'tree'
+  const [hierarchyData, setHierarchyData] = useState(null);
+  const [expandedModules, setExpandedModules] = useState({});
+  const [expandedSubModules, setExpandedSubModules] = useState({});
+  const [expandedFeatures, setExpandedFeatures] = useState({});
 
   useEffect(() => {
     loadData();
@@ -191,6 +206,79 @@ const TestCases = () => {
     });
     setFilterSubModules([]);
     setFilterFeatures([]);
+  };
+
+  // Build hierarchy from flat test cases list
+  const buildHierarchy = () => {
+    const hierarchy = {};
+    
+    testCases.forEach(testCase => {
+      const moduleId = testCase.module_id;
+      const moduleName = getModuleName(moduleId);
+      const subModule = testCase.sub_module || 'Uncategorized';
+      const feature = testCase.feature_section || 'No Feature';
+      
+      if (!hierarchy[moduleId]) {
+        hierarchy[moduleId] = {
+          id: moduleId,
+          name: moduleName,
+          subModules: {}
+        };
+      }
+      
+      if (!hierarchy[moduleId].subModules[subModule]) {
+        hierarchy[moduleId].subModules[subModule] = {
+          name: subModule,
+          features: {}
+        };
+      }
+      
+      if (!hierarchy[moduleId].subModules[subModule].features[feature]) {
+        hierarchy[moduleId].subModules[subModule].features[feature] = {
+          name: feature,
+          testCases: []
+        };
+      }
+      
+      hierarchy[moduleId].subModules[subModule].features[feature].testCases.push(testCase);
+    });
+    
+    setHierarchyData(hierarchy);
+  };
+
+  // Toggle handlers for tree view
+  const handleModuleToggle = (moduleId) => {
+    setExpandedModules(prev => ({
+      ...prev,
+      [moduleId]: !prev[moduleId]
+    }));
+  };
+
+  const handleSubModuleToggle = (subModuleId) => {
+    setExpandedSubModules(prev => ({
+      ...prev,
+      [subModuleId]: !prev[subModuleId]
+    }));
+  };
+
+  const handleFeatureToggle = (featureId) => {
+    setExpandedFeatures(prev => ({
+      ...prev,
+      [featureId]: !prev[featureId]
+    }));
+  };
+
+  const handleViewTypeChange = (event, newView) => {
+    if (newView !== null) {
+      setViewType(newView);
+      if (newView === 'tree') {
+        buildHierarchy();
+        // Start with all collapsed
+        setExpandedModules({});
+        setExpandedSubModules({});
+        setExpandedFeatures({});
+      }
+    }
   };
 
   // NEW: Load sub-modules when module is selected
@@ -493,11 +581,29 @@ const TestCases = () => {
         </Alert>
       )}
 
-      {/* NEW: Filter Panel */}
+      {/* NEW: Filter Panel with View Toggle */}
       <Paper sx={{ p: 2, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Filters
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6">
+            Filters
+          </Typography>
+          <ToggleButtonGroup
+            value={viewType}
+            exclusive
+            onChange={handleViewTypeChange}
+            aria-label="view type"
+            size="small"
+          >
+            <ToggleButton value="list" aria-label="list view">
+              <ViewListIcon sx={{ mr: 0.5 }} fontSize="small" />
+              List
+            </ToggleButton>
+            <ToggleButton value="tree" aria-label="tree view">
+              <TreeViewIcon sx={{ mr: 0.5 }} fontSize="small" />
+              Tree
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
         <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
           <TextField
             select
@@ -588,9 +694,11 @@ const TestCases = () => {
         </Box>
       </Paper>
 
-      <Paper>
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+      {viewType === 'list' ? (
+        /* List View */
+        <Paper>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
@@ -611,7 +719,18 @@ const TestCases = () => {
                 .map((testCase) => (
                   <TableRow key={testCase.id} hover>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Typography variant="body2" fontWeight="medium">
+                      <Typography 
+                        variant="body2" 
+                        fontWeight="medium"
+                        onClick={() => handleViewTestCase(testCase)}
+                        sx={{
+                          cursor: 'pointer',
+                          color: 'primary.main',
+                          '&:hover': {
+                            textDecoration: 'underline',
+                          }
+                        }}
+                      >
                         {testCase.test_id}
                       </Typography>
                     </TableCell>
@@ -742,7 +861,224 @@ const TestCases = () => {
             setPage(0);
           }}
         />
-      </Paper>
+        </Paper>
+      ) : (
+        /* Tree View */
+        <Box>
+          {hierarchyData && Object.values(hierarchyData).map((module) => (
+            <Accordion 
+              key={module.id}
+              expanded={expandedModules[module.id] === true}
+              onChange={() => handleModuleToggle(module.id)}
+              sx={{ mb: 2 }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{ bgcolor: '#e3f2fd' }}
+              >
+                <Typography variant="h6" sx={{ flexGrow: 1 }}>{module.name}</Typography>
+                <Chip label={`${Object.values(module.subModules).reduce((sum, sm) => sum + Object.values(sm.features).reduce((fsum, f) => fsum + f.testCases.length, 0), 0)} tests`} size="small" />
+              </AccordionSummary>
+              <AccordionDetails>
+                {Object.entries(module.subModules).map(([subModuleName, subModule]) => (
+                  <Accordion 
+                    key={`${module.id}-${subModuleName}`}
+                    expanded={expandedSubModules[`${module.id}-${subModuleName}`] === true}
+                    onChange={() => handleSubModuleToggle(`${module.id}-${subModuleName}`)}
+                    sx={{ mb: 1 }}
+                  >
+                    <AccordionSummary
+                      expandIcon={<ExpandMoreIcon />}
+                      sx={{ bgcolor: '#f5f5f5' }}
+                    >
+                      <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>{subModuleName}</Typography>
+                      <Chip label={`${Object.values(subModule.features).reduce((sum, f) => sum + f.testCases.length, 0)} tests`} size="small" />
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      {Object.entries(subModule.features).map(([featureName, feature]) => (
+                        <Accordion 
+                          key={`${module.id}-${subModuleName}-${featureName}`}
+                          expanded={expandedFeatures[`${module.id}-${subModuleName}-${featureName}`] === true}
+                          onChange={() => handleFeatureToggle(`${module.id}-${subModuleName}-${featureName}`)}
+                          sx={{ mb: 1, '&:before': { display: 'none' } }}
+                        >
+                          <AccordionSummary
+                            expandIcon={<ExpandMoreIcon />}
+                            sx={{ 
+                              bgcolor: '#fafafa',
+                              minHeight: 48,
+                              '&.Mui-expanded': { minHeight: 48 }
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                              <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>{featureName}</Typography>
+                              <Chip label={`${feature.testCases.length} tests`} size="small" color="primary" variant="outlined" />
+                            </Box>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                              <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+                                <TableHead>
+                                  <TableRow>
+                                    <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
+                                    <ResizableTableCell minWidth={200} initialWidth={300} isHeader>Title</ResizableTableCell>
+                                    <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Module</ResizableTableCell>
+                                    <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Sub-Module</ResizableTableCell>
+                                    <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Feature</ResizableTableCell>
+                                    <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Type</ResizableTableCell>
+                                    <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Tag</ResizableTableCell>
+                                    <ResizableTableCell minWidth={180} initialWidth={180} isHeader>Tags</ResizableTableCell>
+                                    <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Status</ResizableTableCell>
+                                    <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Actions</ResizableTableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {feature.testCases.map((testCase) => (
+                                    <TableRow key={testCase.id} hover>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <Typography 
+                                          variant="body2" 
+                                          fontWeight="medium"
+                                          onClick={() => handleViewTestCase(testCase)}
+                                          sx={{
+                                            cursor: 'pointer',
+                                            color: 'primary.main',
+                                            '&:hover': {
+                                              textDecoration: 'underline',
+                                            }
+                                          }}
+                                        >
+                                          {testCase.test_id}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{testCase.title}</TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <Chip
+                                          label={getModuleName(testCase.module_id)}
+                                          size="small"
+                                          color="primary"
+                                          variant="outlined"
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {testCase.sub_module ? (
+                                          <Chip
+                                            label={testCase.sub_module}
+                                            size="small"
+                                            color="secondary"
+                                            variant="outlined"
+                                          />
+                                        ) : (
+                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {testCase.feature_section ? (
+                                          <Chip
+                                            label={testCase.feature_section}
+                                            size="small"
+                                            color="info"
+                                            variant="outlined"
+                                          />
+                                        ) : (
+                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <Chip
+                                          label={testCase.test_type}
+                                          size="small"
+                                          color={testCase.test_type === 'automated' ? 'success' : 'default'}
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <Chip
+                                          label={testCase.tag ? testCase.tag.toUpperCase() : 'UI'}
+                                          size="small"
+                                          color={
+                                            testCase.tag === 'api' ? 'success' : 
+                                            testCase.tag === 'hybrid' ? 'warning' : 
+                                            'info'
+                                          }
+                                          variant="outlined"
+                                        />
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {testCase.tags ? (
+                                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                                            {testCase.tags.split(',').map((tag, idx) => (
+                                              <Chip
+                                                key={idx}
+                                                label={tag.trim()}
+                                                size="small"
+                                                color={
+                                                  tag.trim() === 'smoke' ? 'error' :
+                                                  tag.trim() === 'regression' ? 'primary' :
+                                                  tag.trim() === 'sanity' ? 'success' :
+                                                  tag.trim() === 'integration' ? 'warning' :
+                                                  tag.trim() === 'e2e' ? 'info' :
+                                                  'default'
+                                                }
+                                              />
+                                            ))}
+                                          </Box>
+                                        ) : (
+                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {testCase.test_type === 'automated' ? (
+                                          <Chip
+                                            label={testCase.automation_status || 'working'}
+                                            size="small"
+                                            color={testCase.automation_status === 'broken' ? 'error' : 'success'}
+                                            variant="outlined"
+                                          />
+                                        ) : (
+                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', alignItems: 'center' }}>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleViewTestCase(testCase)}
+                                            color="info"
+                                          >
+                                            <ViewIcon />
+                                          </IconButton>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleOpenDialog(testCase)}
+                                            color="primary"
+                                          >
+                                            <EditIcon />
+                                          </IconButton>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleDelete(testCase.id)}
+                                            color="error"
+                                          >
+                                            <DeleteIcon />
+                                          </IconButton>
+                                        </Box>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                          </AccordionDetails>
+                        </Accordion>
+                      ))}
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </AccordionDetails>
+            </Accordion>
+          ))}
+        </Box>
+      )}
 
       {/* Create/Edit Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>

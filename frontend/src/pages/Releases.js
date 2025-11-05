@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -29,7 +30,8 @@ import {
   Delete as DeleteIcon,
   CheckCircle as CompleteIcon,
   Schedule as ScheduledIcon,
-  HourglassEmpty as InProgressIcon
+  HourglassEmpty as InProgressIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -38,6 +40,7 @@ import api from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
 
 const Releases = () => {
+  const navigate = useNavigate();
   const [releases, setReleases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -199,20 +202,8 @@ const Releases = () => {
   };
 
   const calculateProgress = (release) => {
-    // Mock calculation - in real app, calculate based on test completion
-    const releaseDate = new Date(release.release_date);
-    const today = new Date();
-    
-    if (releaseDate < today) {
-      return 100;
-    }
-    
-    // Simple progress based on how close to release date
-    const totalDays = 30; // Assume 30 day release cycle
-    const daysRemaining = Math.ceil((releaseDate - today) / (1000 * 60 * 60 * 24));
-    const progress = Math.max(0, Math.min(100, ((totalDays - daysRemaining) / totalDays) * 100));
-    
-    return Math.round(progress);
+    // Return progress from backend (based on test case execution)
+    return release.progress || 0;
   };
 
   const getStatistics = () => {
@@ -296,9 +287,25 @@ const Releases = () => {
             </TableHead>
             <TableBody>
               {releases.map((release) => (
-                <TableRow key={release.id} hover>
+                <TableRow 
+                  key={release.id} 
+                  hover
+                  onClick={() => navigate(`/releases/${release.id}`)}
+                  sx={{ 
+                    cursor: 'pointer',
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    }
+                  }}
+                >
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography variant="body1" fontWeight="bold">
+                    <Typography 
+                      variant="body1" 
+                      fontWeight="bold"
+                      sx={{ 
+                        color: 'primary.main',
+                      }}
+                    >
                       {release.version}
                     </Typography>
                   </TableCell>
@@ -342,15 +349,32 @@ const Releases = () => {
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <IconButton
                       size="small"
+                      color="info"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/releases/${release.id}`);
+                      }}
+                      title="View Release Management"
+                    >
+                      <ViewIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
                       color="primary"
-                      onClick={() => handleOpenDialog(release)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenDialog(release);
+                      }}
                     >
                       <EditIcon />
                     </IconButton>
                     <IconButton
                       size="small"
                       color="error"
-                      onClick={() => handleDelete(release.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(release.id);
+                      }}
                     >
                       <DeleteIcon />
                     </IconButton>

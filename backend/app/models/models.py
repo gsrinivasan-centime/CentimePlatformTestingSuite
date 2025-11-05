@@ -27,6 +27,26 @@ class TestTag(str, enum.Enum):
     API = "api"
     HYBRID = "hybrid"
 
+class ExecutionStatus(str, enum.Enum):
+    NOT_STARTED = "not_started"
+    PASSED = "passed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
+    IN_PROGRESS = "in_progress"
+
+class ApprovalStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CHANGES_REQUESTED = "changes_requested"
+
+class ApprovalRole(str, enum.Enum):
+    QA_LEAD = "qa_lead"
+    DEV_LEAD = "dev_lead"
+    PRODUCT_MANAGER = "product_manager"
+    RELEASE_MANAGER = "release_manager"
+
 class User(Base):
     __tablename__ = "users"
     
@@ -95,10 +115,17 @@ class Release(Base):
     name = Column(String)
     description = Column(Text)
     release_date = Column(DateTime)
+    environment = Column(String)  # dev, staging, production
+    overall_status = Column(String, default="not_started")  # not_started, in_progress, completed
+    qa_lead_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     test_executions = relationship("TestExecution", back_populates="release")
+    release_test_cases = relationship("ReleaseTestCase", back_populates="release", cascade="all, delete-orphan")
+    approvals = relationship("ReleaseApproval", back_populates="release", cascade="all, delete-orphan")
+    history = relationship("ReleaseHistory", back_populates="release", cascade="all, delete-orphan")
+    qa_lead = relationship("User", foreign_keys=[qa_lead_id])
 
 class TestCase(Base):
     __tablename__ = "test_cases"
@@ -173,3 +200,62 @@ class JiraDefect(Base):
     
     # Relationships
     test_execution = relationship("TestExecution", back_populates="jira_defects")
+
+class ReleaseTestCase(Base):
+    __tablename__ = "release_test_cases"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=False)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=False)
+    sub_module_id = Column(Integer, ForeignKey("sub_modules.id"))
+    feature_id = Column(Integer, ForeignKey("features.id"))
+    priority = Column(String)  # high, medium, low
+    execution_status = Column(SQLEnum(ExecutionStatus), default=ExecutionStatus.NOT_STARTED)
+    executed_by_id = Column(Integer, ForeignKey("users.id"))
+    execution_date = Column(DateTime)
+    execution_duration = Column(Integer)  # in seconds
+    comments = Column(Text)
+    bug_ids = Column(String)  # comma-separated bug IDs
+    screenshots = Column(Text)  # JSON array of screenshot paths
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    release = relationship("Release", back_populates="release_test_cases")
+    test_case = relationship("TestCase")
+    module = relationship("Module")
+    sub_module = relationship("SubModule")
+    feature = relationship("Feature")
+    executed_by = relationship("User")
+
+class ReleaseApproval(Base):
+    __tablename__ = "release_approvals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=False)
+    approver_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role = Column(SQLEnum(ApprovalRole), nullable=False)
+    approval_status = Column(SQLEnum(ApprovalStatus), default=ApprovalStatus.PENDING)
+    comments = Column(Text)
+    approved_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    release = relationship("Release", back_populates="approvals")
+    approver = relationship("User")
+
+class ReleaseHistory(Base):
+    __tablename__ = "release_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action = Column(String, nullable=False)  # created, updated, approved, rejected, etc.
+    details = Column(Text)  # JSON with details of the change
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    release = relationship("Release", back_populates="history")
+    user = relationship("User")

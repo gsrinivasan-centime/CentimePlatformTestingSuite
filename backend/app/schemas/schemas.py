@@ -26,6 +26,26 @@ class TestTag(str, Enum):
     API = "api"
     HYBRID = "hybrid"
 
+class ExecutionStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    PASSED = "passed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
+    IN_PROGRESS = "in_progress"
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CHANGES_REQUESTED = "changes_requested"
+
+class ApprovalRole(str, Enum):
+    QA_LEAD = "qa_lead"
+    DEV_LEAD = "dev_lead"
+    PRODUCT_MANAGER = "product_manager"
+    RELEASE_MANAGER = "release_manager"
+
 # User Schemas
 class UserBase(BaseModel):
     email: EmailStr
@@ -124,6 +144,7 @@ class ReleaseCreate(ReleaseBase):
 class Release(ReleaseBase):
     id: int
     created_at: datetime
+    progress: Optional[int] = 0  # Computed field for test execution progress percentage
     
     class Config:
         from_attributes = True
@@ -243,3 +264,151 @@ class ReleaseReport(BaseModel):
     pass_percentage: float
     module_reports: List[ModuleTestReport]
     generated_at: datetime
+
+# Release Test Case Schemas
+class ReleaseTestCaseBase(BaseModel):
+    release_id: int
+    test_case_id: int
+    module_id: int
+    sub_module_id: Optional[int] = None
+    feature_id: Optional[int] = None
+    priority: Optional[str] = None
+    execution_status: ExecutionStatus = ExecutionStatus.NOT_STARTED
+    comments: Optional[str] = None
+    bug_ids: Optional[str] = None
+    screenshots: Optional[str] = None
+    display_order: int = 0
+
+class ReleaseTestCaseCreate(ReleaseTestCaseBase):
+    pass
+
+class AddTestCasesToRelease(BaseModel):
+    test_case_ids: List[int]
+
+class ReleaseTestCaseUpdate(BaseModel):
+    execution_status: Optional[ExecutionStatus] = None
+    executed_by_id: Optional[int] = None
+    execution_date: Optional[datetime] = None
+    execution_duration: Optional[int] = None
+    comments: Optional[str] = None
+    bug_ids: Optional[str] = None
+    screenshots: Optional[str] = None
+    priority: Optional[str] = None
+    display_order: Optional[int] = None
+
+class ReleaseTestCase(ReleaseTestCaseBase):
+    id: int
+    executed_by_id: Optional[int] = None
+    execution_date: Optional[datetime] = None
+    execution_duration: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Release Approval Schemas
+class ReleaseApprovalBase(BaseModel):
+    release_id: int
+    approver_id: int
+    role: ApprovalRole
+    approval_status: ApprovalStatus = ApprovalStatus.PENDING
+    comments: Optional[str] = None
+
+class ReleaseApprovalCreate(ReleaseApprovalBase):
+    pass
+
+class ReleaseApprovalUpdate(BaseModel):
+    approval_status: Optional[ApprovalStatus] = None
+    comments: Optional[str] = None
+
+class ReleaseApproval(ReleaseApprovalBase):
+    id: int
+    approved_at: Optional[datetime] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Release History Schemas
+class ReleaseHistoryBase(BaseModel):
+    release_id: int
+    user_id: int
+    action: str
+    details: Optional[str] = None
+
+class ReleaseHistoryCreate(ReleaseHistoryBase):
+    pass
+
+class ReleaseHistory(ReleaseHistoryBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Dashboard Statistics Schema
+class ModuleStats(BaseModel):
+    module_id: int
+    module_name: str
+    total: int
+    passed: int
+    failed: int
+    blocked: int
+    not_started: int
+    in_progress: int
+    skipped: int
+    pass_rate: float
+
+class ReleaseDashboard(BaseModel):
+    release_id: int
+    release_version: str
+    release_name: Optional[str]
+    environment: Optional[str]
+    overall_status: str
+    total_test_cases: int
+    passed: int
+    failed: int
+    blocked: int
+    not_started: int
+    in_progress: int
+    skipped: int
+    pass_rate: float
+    module_stats: List[ModuleStats]
+    critical_issues: List[str]
+    last_updated: datetime
+
+# Tree View Schemas
+class TreeTestCase(BaseModel):
+    id: int
+    test_id: str
+    title: str
+    execution_status: ExecutionStatus
+    priority: Optional[str]
+    executed_by: Optional[str]
+    execution_date: Optional[datetime]
+    comments: Optional[str]
+    bug_ids: Optional[str]
+
+class TreeFeature(BaseModel):
+    id: int
+    name: str
+    test_cases: List[TreeTestCase]
+    stats: dict  # {total, passed, failed, blocked, not_started}
+
+class TreeSubModule(BaseModel):
+    id: int
+    name: str
+    features: List[TreeFeature]
+    stats: dict
+
+class TreeModule(BaseModel):
+    id: int
+    name: str
+    sub_modules: List[TreeSubModule]
+    stats: dict
+
+class ReleaseTreeView(BaseModel):
+    release_id: int
+    release_version: str
+    modules: List[TreeModule]

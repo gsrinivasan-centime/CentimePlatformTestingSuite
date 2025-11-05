@@ -18,9 +18,10 @@ import {
   AccountTree as TreeIcon,
   Refresh as RefreshIcon,
   Add as AddIcon,
-  Article as ArticleIcon
+  Article as ArticleIcon,
+  Sync as SyncIcon
 } from '@mui/icons-material';
-import api from '../../services/api';
+import api, { jiraStoriesAPI } from '../../services/api';
 import DashboardView from './DashboardView';
 import TreeView from './TreeView';
 import StoriesView from './StoriesView';
@@ -35,6 +36,8 @@ const ReleaseDetail = () => {
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
+  const [syncingStories, setSyncingStories] = useState(false);
+  const [syncMessage, setSyncMessage] = useState(null);
 
   useEffect(() => {
     fetchReleaseDetails();
@@ -62,6 +65,36 @@ const ReleaseDetail = () => {
   const handleRefresh = () => {
     setRefreshKey(prev => prev + 1);
     fetchReleaseDetails();
+  };
+
+  const handleSyncStories = async () => {
+    if (!release) return;
+    
+    setSyncingStories(true);
+    setSyncMessage(null);
+    
+    try {
+      const response = await jiraStoriesAPI.syncByRelease(release.version);
+      
+      setSyncMessage({
+        severity: 'success',
+        text: `${response.message}. Created: ${response.created_count}, Updated: ${response.updated_count}`
+      });
+      
+      // Refresh the page after a short delay to show the new stories
+      setTimeout(() => {
+        handleRefresh();
+      }, 1500);
+      
+    } catch (err) {
+      console.error('Error syncing stories:', err);
+      setSyncMessage({
+        severity: 'error',
+        text: err.response?.data?.detail || 'Failed to sync stories from JIRA'
+      });
+    } finally {
+      setSyncingStories(false);
+    }
   };
 
   if (loading) {
@@ -131,6 +164,16 @@ const ReleaseDetail = () => {
           </Tabs>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
+              variant="outlined"
+              color="secondary"
+              size="small"
+              startIcon={syncingStories ? <CircularProgress size={16} /> : <SyncIcon />}
+              onClick={handleSyncStories}
+              disabled={syncingStories}
+            >
+              {syncingStories ? 'Syncing...' : 'Sync Stories'}
+            </Button>
+            <Button
               variant="contained"
               color="primary"
               size="small"
@@ -145,6 +188,13 @@ const ReleaseDetail = () => {
           </Box>
         </Box>
       </Paper>
+
+      {/* Sync Message */}
+      {syncMessage && (
+        <Alert severity={syncMessage.severity} sx={{ mb: 2 }} onClose={() => setSyncMessage(null)}>
+          {syncMessage.text}
+        </Alert>
+      )}
 
       {/* Tab Content */}
       <Box>

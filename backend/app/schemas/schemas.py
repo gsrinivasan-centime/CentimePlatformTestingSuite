@@ -446,6 +446,7 @@ class JiraStory(JiraStoryBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    test_case_count: int = 0
     
     class Config:
         from_attributes = True

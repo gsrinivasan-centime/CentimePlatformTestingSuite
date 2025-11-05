@@ -171,6 +171,118 @@ class JiraService:
             return fix_versions[0].get('name', '')
         
         return ''
+    
+    def search_stories_by_release(self, release_version: str) -> list:
+        """
+        Search JIRA stories by fixVersion using JQL
+        
+        Args:
+            release_version: The release version to search for
+            
+        Returns:
+            List of story details
+            
+        Raises:
+            ValueError: If JIRA is not configured or search fails
+        """
+        if not self.is_configured:
+            raise ValueError(
+                "JIRA integration is not configured. Please set JIRA_SERVER, "
+                "JIRA_EMAIL, and JIRA_API_TOKEN in your .env file."
+            )
+        
+        # Construct JQL query to search by fixVersion
+        # Note: Using 'issuetype' instead of 'type' for better compatibility
+        jql = f'fixVersion = "{release_version}" AND issuetype = Story'
+        
+        # Use the new v3 JQL endpoint (v2 search has been deprecated)
+        api_url = f"{self.jira_server}/rest/api/3/search/jql"
+        
+        # Make API request
+        try:
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params={
+                    'jql': jql,
+                    'maxResults': 100,  # Adjust as needed
+                    'fields': 'summary,description,status,priority,assignee,parent,epic,customfield_10014,sprint,customfield_10020,fixVersions'
+                },
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                raise ValueError("JIRA authentication failed. Please check your credentials.")
+            elif e.response.status_code == 400:
+                # Try to get more details from the response
+                try:
+                    error_detail = e.response.json()
+                    error_messages = error_detail.get('errorMessages', [])
+                    if error_messages:
+                        raise ValueError(f"JIRA error: {', '.join(error_messages)}")
+                except:
+                    pass
+                raise ValueError(f"Invalid JQL query or release version: {release_version}")
+            elif e.response.status_code == 410:
+                raise ValueError(f"JIRA API endpoint deprecated. Response: {e.response.text[:200]}")
+            else:
+                # Include response body for debugging
+                try:
+                    error_detail = e.response.json()
+                    raise ValueError(f"JIRA API error ({e.response.status_code}): {error_detail}")
+                except:
+                    raise ValueError(f"JIRA API error: {e}")
+        except requests.exceptions.Timeout:
+            raise ValueError("JIRA API request timed out. Please try again.")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to connect to JIRA: {e}")
+        
+        # Parse response
+        data = response.json()
+        issues = data.get('issues', [])
+        
+        # Extract story details from each issue
+        stories = []
+        for issue in issues:
+            story_id = issue.get('key', '')
+            fields = issue.get('fields', {})
+            
+            # Extract description (handle both v2 plain text and v3 ADF format)
+            description = ''
+            desc_field = fields.get('description', '')
+            if isinstance(desc_field, dict):
+                # v3 ADF format
+                try:
+                    description = desc_field.get('content', [{}])[0].get('content', [{}])[0].get('text', '')
+                except (IndexError, AttributeError, TypeError):
+                    description = ''
+            elif isinstance(desc_field, str):
+                # v2 plain text format
+                description = desc_field
+            else:
+                description = str(desc_field) if desc_field else ''
+            
+            story_details = {
+                'story_id': story_id,
+                'title': fields.get('summary', ''),
+                'description': description,
+                'status': fields.get('status', {}).get('name', 'To Do'),
+                'priority': fields.get('priority', {}).get('name', 'Medium'),
+                'assignee': fields.get('assignee', {}).get('displayName', '') if fields.get('assignee') else '',
+                'epic_id': self._extract_epic_link(fields),
+                'sprint': self._extract_sprint(fields),
+                'release': release_version,  # Use the provided release version
+            }
+            stories.append(story_details)
+        
+        return stories
 
 # Singleton instance
 jira_service = JiraService()

@@ -400,6 +400,11 @@ export const jiraStoriesAPI = {
     const response = await api.post(`/jira-stories/${storyId}/refetch`);
     return response.data;
   },
+  
+  syncByRelease: async (releaseVersion) => {
+    const response = await api.post(`/jira-stories/sync-by-release/${releaseVersion}`);
+    return response.data;
+  },
 };
 
 export default api;

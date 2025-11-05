@@ -86,7 +86,28 @@ def get_all_stories(
         query = query.filter(JiraStory.status == status)
     
     stories = query.order_by(JiraStory.created_at.desc()).all()
-    return stories
+    
+    # Add test case count to each story
+    stories_with_counts = []
+    for story in stories:
+        story_dict = {
+            "id": story.id,
+            "story_id": story.story_id,
+            "epic_id": story.epic_id,
+            "title": story.title,
+            "description": story.description,
+            "status": story.status,
+            "priority": story.priority,
+            "assignee": story.assignee,
+            "sprint": story.sprint,
+            "release": story.release,
+            "created_at": story.created_at,
+            "updated_at": story.updated_at,
+            "test_case_count": db.query(TestCase).filter(TestCase.jira_story_id == story.story_id).count()
+        }
+        stories_with_counts.append(story_dict)
+    
+    return stories_with_counts
 
 @router.post("/", response_model=JiraStorySchema)
 def create_story(
@@ -443,6 +464,83 @@ def import_story_from_jira(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch story from JIRA: {str(e)}"
+        )
+
+
+@router.post("/sync-by-release/{release_version}")
+def sync_stories_by_release(
+    release_version: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Sync stories from JIRA by release version (fixVersion)
+    This will search JIRA for all stories with the specified fixVersion and import them
+    """
+    try:
+        # Search for stories in JIRA with this release version
+        stories_data = jira_service.search_stories_by_release(release_version)
+        
+        if not stories_data:
+            return {
+                "message": f"No stories found in JIRA with release version: {release_version}",
+                "synced_count": 0,
+                "stories": []
+            }
+        
+        synced_stories = []
+        updated_count = 0
+        created_count = 0
+        
+        for story_data in stories_data:
+            story_id = story_data['story_id']
+            
+            # Check if story already exists
+            existing_story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
+            
+            if existing_story:
+                # Update existing story
+                for key, value in story_data.items():
+                    if key != 'story_id':  # Don't update the ID
+                        setattr(existing_story, key, value)
+                updated_count += 1
+                synced_stories.append(existing_story)
+            else:
+                # Create new story
+                new_story = JiraStory(**story_data)
+                db.add(new_story)
+                created_count += 1
+                synced_stories.append(new_story)
+        
+        db.commit()
+        
+        # Refresh to get updated data
+        for story in synced_stories:
+            db.refresh(story)
+        
+        return {
+            "message": f"Successfully synced {len(synced_stories)} stories from JIRA",
+            "synced_count": len(synced_stories),
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "release_version": release_version,
+            "stories": [
+                {
+                    "story_id": s.story_id,
+                    "title": s.title,
+                    "status": s.status,
+                    "priority": s.priority
+                } for s in synced_stories
+            ]
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync stories from JIRA: {str(e)}"
         )
 
 

@@ -20,7 +20,8 @@ import {
   Divider,
   Card,
   CardContent,
-  Grid
+  Grid,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -384,8 +385,13 @@ const Modules = () => {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
-        {modules.map((module) => {
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Grid container spacing={3}>
+          {modules.map((module) => {
           const moduleHierarchy = hierarchyData[module.name] || {};
           const subModules = moduleHierarchy.sub_modules || {};
           const subModuleCount = Object.keys(subModules).length;
@@ -649,7 +655,8 @@ const Modules = () => {
             </Paper>
           </Grid>
         )}
-      </Grid>
+        </Grid>
+      )}
 
       {/* Add/Edit Module Dialog */}
       <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>

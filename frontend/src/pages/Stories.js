@@ -83,8 +83,9 @@ const Stories = () => {
     release: '',
   });
   const [expandedModules, setExpandedModules] = useState({});
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [refetchingStories, setRefetchingStories] = useState({});
+  const [loadingTestCases, setLoadingTestCases] = useState({});
 
   const statusOptions = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
   const priorityOptions = ['Low', 'Medium', 'High', 'Critical'];
@@ -94,6 +95,7 @@ const Stories = () => {
   }, []);
 
   const fetchStories = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await jiraStoriesAPI.getAll();
       console.log('Stories API response:', response);
@@ -102,6 +104,8 @@ const Stories = () => {
     } catch (error) {
       console.error('Error fetching stories:', error);
       showSnackbar('Failed to fetch stories', 'error');
+    } finally {
+      setLoading(false);
     }
   }, [showSnackbar]);
 
@@ -134,6 +138,7 @@ const Stories = () => {
   }, [fetchStories, fetchTestCases, fetchModules]);
 
   const fetchStoryTestCases = async (storyId) => {
+    setLoadingTestCases(prev => ({ ...prev, [storyId]: true }));
     try {
       const response = await jiraStoriesAPI.getTestCases(storyId);
       console.log('Story test cases response:', response);
@@ -142,6 +147,8 @@ const Stories = () => {
       setStoryTestCases(prev => ({ ...prev, [storyId]: testCases }));
     } catch (error) {
       console.error('Error fetching story test cases:', error);
+    } finally {
+      setLoadingTestCases(prev => ({ ...prev, [storyId]: false }));
     }
   };
 
@@ -399,6 +406,7 @@ const Stories = () => {
 
       showSnackbar('Test cases updated successfully', 'success');
       fetchStoryTestCases(selectedStory.story_id);
+      fetchStories(); // Refresh stories to update test case count
       handleCloseLinkDialog();
     } catch (error) {
       console.error('Error linking test cases:', error);
@@ -415,6 +423,7 @@ const Stories = () => {
       await jiraStoriesAPI.unlinkTestCase(storyId, testCaseId);
       showSnackbar('Test case unlinked successfully', 'success');
       fetchStoryTestCases(storyId);
+      fetchStories(); // Refresh stories to update test case count
     } catch (error) {
       console.error('Error unlinking test case:', error);
       showSnackbar(error.response?.data?.detail || 'Failed to unlink test case', 'error');
@@ -478,6 +487,11 @@ const Stories = () => {
         </Button>
       </Box>
 
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+          <CircularProgress />
+        </Box>
+      ) : (
       <Paper>
         <TableContainer sx={{ overflowX: 'auto' }}>
           <Table size="small" sx={{ minWidth: 1200, tableLayout: 'fixed' }}>
@@ -628,7 +642,7 @@ const Stories = () => {
                     </TableCell>
                     <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <Chip 
-                        label={storyTestCases[story.story_id]?.length || 0} 
+                        label={story.test_case_count || 0} 
                         size="small" 
                         color="info"
                       />
@@ -665,7 +679,11 @@ const Stories = () => {
                         <Typography variant="subtitle2" gutterBottom>
                           Linked Test Cases
                         </Typography>
-                        {storyTestCases[story.story_id]?.length > 0 ? (
+                        {loadingTestCases[story.story_id] ? (
+                          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                            <CircularProgress size={30} />
+                          </Box>
+                        ) : storyTestCases[story.story_id]?.length > 0 ? (
                           <Table size="small">
                             <TableHead>
                               <TableRow>
@@ -734,6 +752,7 @@ const Stories = () => {
           </Table>
         </TableContainer>
       </Paper>
+      )}
 
       {/* Create/Edit Story Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>

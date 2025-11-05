@@ -12,8 +12,8 @@ import {
   AccountTree,
   RocketLaunch,
   SmartToy,
-  PlayArrow,
   Assessment,
+  Article,
 } from '@mui/icons-material';
 import { testCasesAPI, modulesAPI, releasesAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -197,6 +197,7 @@ const Dashboard = () => {
       </Typography>
 
       <Grid container spacing={4} sx={{ mt: 1 }}>
+        {/* Row 1 */}
         {/* 1. Total Test Cases */}
         <Grid item xs={12} sm={6} md={4}>
           <NavigationTile
@@ -209,7 +210,19 @@ const Dashboard = () => {
           />
         </Grid>
 
-        {/* 2. Modules */}
+        {/* 2. User Story Test Case Management */}
+        <Grid item xs={12} sm={6} md={4}>
+          <NavigationTile
+            title="User Story Management"
+            value={<Article sx={{ fontSize: 50, color: '#1a1a1a' }} />}
+            subtitle="Link test cases to user stories"
+            icon={<Article sx={{ fontSize: 40, color: '#fb8c00' }} />}
+            gradient="linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%)"
+            onClick={() => navigate('/stories')}
+          />
+        </Grid>
+
+        {/* 3. Modules */}
         <Grid item xs={12} sm={6} md={4}>
           <NavigationTile
             title="Modules"
@@ -221,7 +234,20 @@ const Dashboard = () => {
           />
         </Grid>
 
-        {/* 3. Release Management */}
+        {/* Row 2 */}
+        {/* 4. Tests Automated */}
+        <Grid item xs={12} sm={6} md={4}>
+          <NavigationTile
+            title="Tests Automated"
+            value={stats.automatedTests}
+            subtitle="View automated test cases"
+            icon={<SmartToy sx={{ fontSize: 40, color: '#26a69a' }} />}
+            gradient="linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%)"
+            onClick={() => navigate('/test-cases')}
+          />
+        </Grid>
+
+        {/* 5. Release Management */}
         <Grid item xs={12} sm={6} md={4}>
           <NavigationTile
             icon={<RocketLaunch sx={{ fontSize: 40, color: '#26c6da' }} />}
@@ -279,30 +305,6 @@ const Dashboard = () => {
               </Typography>
             )}
           </NavigationTile>
-        </Grid>
-
-        {/* 4. Tests Automated */}
-        <Grid item xs={12} sm={6} md={4}>
-          <NavigationTile
-            title="Tests Automated"
-            value={stats.automatedTests}
-            subtitle="View automated test cases"
-            icon={<SmartToy sx={{ fontSize: 40, color: '#26a69a' }} />}
-            gradient="linear-gradient(135deg, #e0f2f1 0%, #b2dfdb 100%)"
-            onClick={() => navigate('/test-cases')}
-          />
-        </Grid>
-
-        {/* 5. Execute Tests */}
-        <Grid item xs={12} sm={6} md={4}>
-          <NavigationTile
-            title="Execute Tests"
-            value={<PlayArrow sx={{ fontSize: 50, color: '#1a1a1a' }} />}
-            subtitle="Run and manage test executions"
-            icon={<PlayArrow sx={{ fontSize: 40, color: '#ff7043' }} />}
-            gradient="linear-gradient(135deg, #fff3e0 0%, #ffccbc 100%)"
-            onClick={() => navigate('/executions')}
-          />
         </Grid>
 
         {/* 6. Release Reports */}

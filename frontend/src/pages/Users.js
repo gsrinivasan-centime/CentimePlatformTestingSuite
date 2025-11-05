@@ -24,7 +24,8 @@ import {
   MenuItem,
   Grid,
   Card,
-  CardContent
+  CardContent,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -206,8 +207,14 @@ const Users = () => {
         </Alert>
       )}
 
-      {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <>
+          {/* Statistics Cards */}
+          <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={4}>
           <Card>
             <CardContent>
@@ -395,6 +402,8 @@ const Users = () => {
           </Button>
         </DialogActions>
       </Dialog>
+        </>
+      )}
     </Box>
   );
 };

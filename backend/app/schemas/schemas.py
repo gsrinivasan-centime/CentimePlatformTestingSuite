@@ -164,6 +164,9 @@ class TestCaseBase(BaseModel):
     tags: Optional[str] = None  # NEW: Additional tags like smoke, regression (comma-separated)
     automation_status: Optional[AutomationStatus] = None  # NEW: working/broken for automated, null for manual
     scenario_examples: Optional[str] = None  # NEW: JSON string for scenario outline examples/parameters
+    jira_story_id: Optional[str] = None  # JIRA story ID (e.g., "CTP-1234")
+    jira_epic_id: Optional[str] = None  # JIRA epic ID (e.g., "CTP-100")
+    jira_labels: Optional[str] = None  # JIRA labels as JSON array string
     steps_to_reproduce: Optional[str] = None
     expected_result: Optional[str] = None
     preconditions: Optional[str] = None
@@ -185,6 +188,9 @@ class TestCaseUpdate(BaseModel):
     tags: Optional[str] = None  # NEW
     automation_status: Optional[AutomationStatus] = None  # NEW
     scenario_examples: Optional[str] = None  # NEW
+    jira_story_id: Optional[str] = None  # JIRA story ID
+    jira_epic_id: Optional[str] = None  # JIRA epic ID
+    jira_labels: Optional[str] = None  # JIRA labels
     steps_to_reproduce: Optional[str] = None
     expected_result: Optional[str] = None
     preconditions: Optional[str] = None
@@ -409,6 +415,40 @@ class TreeModule(BaseModel):
     name: str
     sub_modules: List[TreeSubModule]
     stats: dict
+
+# JIRA Story Schemas
+class JiraStoryBase(BaseModel):
+    story_id: str
+    epic_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assignee: Optional[str] = None
+    sprint: Optional[str] = None
+    release: Optional[str] = None
+
+class JiraStoryCreate(JiraStoryBase):
+    pass
+
+class JiraStoryUpdate(BaseModel):
+    story_id: Optional[str] = None
+    epic_id: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assignee: Optional[str] = None
+    sprint: Optional[str] = None
+    release: Optional[str] = None
+
+class JiraStory(JiraStoryBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
 
 class ReleaseTreeView(BaseModel):
     release_id: int

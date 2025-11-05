@@ -152,6 +152,11 @@ class TestCase(Base):
     # Automation status - only applicable for automated tests
     automation_status = Column(SQLEnum(AutomationStatus, values_callable=lambda x: [e.value for e in x]), nullable=True)  # working/broken for automated, null for manual
     
+    # JIRA Integration fields
+    jira_story_id = Column(String(50), nullable=True, index=True)  # e.g., "CTP-1234"
+    jira_epic_id = Column(String(50), nullable=True, index=True)  # e.g., "CTP-100"
+    jira_labels = Column(Text, nullable=True)  # Stored as JSON array
+    
     # Scenario examples/parameters for data-driven testing (stored as JSON)
     # Example: {"columns": ["Amount", "Status"], "rows": [["$0", "Invalid"], ["$10", "Valid"], ["$-10", "Invalid"]]}
     scenario_examples = Column(Text, nullable=True)
@@ -261,3 +266,24 @@ class ReleaseHistory(Base):
     # Relationships
     release = relationship("Release", back_populates="history")
     user = relationship("User")
+
+class JiraStory(Base):
+    __tablename__ = "jira_stories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    story_id = Column(String(50), unique=True, nullable=False, index=True)  # e.g., "CTP-1234"
+    epic_id = Column(String(50), nullable=True, index=True)  # e.g., "CTP-100"
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(50), nullable=True)  # e.g., "To Do", "In Progress", "Done"
+    priority = Column(String(20), nullable=True)  # e.g., "High", "Medium", "Low"
+    assignee = Column(String, nullable=True)
+    sprint = Column(String, nullable=True)
+    release = Column(String(100), nullable=True)  # Fix Version from JIRA
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    creator = relationship("User", foreign_keys=[created_by])
+

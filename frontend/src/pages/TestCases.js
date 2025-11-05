@@ -82,6 +82,9 @@ const TestCases = () => {
     feature_section: '',
     automation_status: 'working',
     scenario_examples: null,  // NEW: JSON for scenario outline parameters
+    jira_story_id: '',  // JIRA story ID (e.g., CTP-1234)
+    jira_epic_id: '',   // JIRA epic ID (e.g., CTP-100)
+    jira_labels: '',    // JIRA labels (comma-separated)
     steps_to_reproduce: '',
     expected_result: '',
     preconditions: '',
@@ -1736,6 +1739,28 @@ const TestCases = () => {
                 <MenuItem value="broken">Broken</MenuItem>
               </TextField>
             )}
+            
+            <TextField
+              fullWidth
+              label="JIRA Story ID"
+              name="jira_story_id"
+              value={formData.jira_story_id}
+              onChange={handleChange}
+              margin="normal"
+              placeholder="e.g., CTP-1234"
+              helperText="Link this test case to a JIRA story"
+            />
+            
+            <TextField
+              fullWidth
+              label="JIRA Epic ID"
+              name="jira_epic_id"
+              value={formData.jira_epic_id}
+              onChange={handleChange}
+              margin="normal"
+              placeholder="e.g., CTP-100"
+              helperText="Optional: Link to JIRA epic"
+            />
             
             <TextField
               fullWidth

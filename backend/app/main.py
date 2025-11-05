@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine
 from app.models import models
-from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management
+from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -30,6 +30,7 @@ app.include_router(modules.router, prefix="/api/modules", tags=["Modules"])
 app.include_router(sub_modules.router, prefix="/api/sub-modules", tags=["Sub-Modules"])
 app.include_router(features.router, prefix="/api/features", tags=["Features"])
 app.include_router(test_cases.router, prefix="/api/test-cases", tags=["Test Cases"])
+app.include_router(jira_stories.router, prefix="/api/jira-stories", tags=["JIRA Stories"])
 app.include_router(releases.router, prefix="/api/releases", tags=["Releases"])
 app.include_router(release_management.router, prefix="/api", tags=["Release Management"])
 app.include_router(executions.router, prefix="/api/executions", tags=["Executions"])

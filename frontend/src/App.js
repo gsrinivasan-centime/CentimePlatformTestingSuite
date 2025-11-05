@@ -16,6 +16,7 @@ import Reports from './pages/Reports';
 import Modules from './pages/Modules';
 import Releases from './pages/Releases';
 import Users from './pages/Users';
+import Stories from './pages/Stories';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 
 const theme = createTheme({
@@ -96,6 +97,16 @@ function AppContent() {
                     <Modules />
                   </Layout>
                 </AdminRoute>
+              }
+            />
+            <Route
+              path="/stories"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Stories />
+                  </Layout>
+                </ProtectedRoute>
               }
             />
             <Route

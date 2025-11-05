@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import csv
 import io
 import json
@@ -503,6 +503,110 @@ async def bulk_upload_feature_file(
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Failed to process feature file: {str(e)}")
 
+@router.get("/by-jira-story")
+def get_test_cases_by_jira_story(
+    release_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get test cases grouped by JIRA story for release management tree view
+    Returns hierarchical structure: Epic -> Story -> Test Cases
+    """
+    from collections import defaultdict
+    
+    # Get all test cases for the release (or all if no release specified)
+    query = db.query(TestCase)
+    
+    if release_id:
+        from app.models.models import ReleaseTestCase
+        # Filter test cases that are part of the release
+        test_case_ids = db.query(ReleaseTestCase.test_case_id).filter(
+            ReleaseTestCase.release_id == release_id
+        ).all()
+        test_case_ids = [tc_id[0] for tc_id in test_case_ids]
+        query = query.filter(TestCase.id.in_(test_case_ids))
+    
+    test_cases = query.all()
+    
+    # Group test cases by epic and story
+    epic_story_map = defaultdict(lambda: defaultdict(list))
+    no_story_cases = []
+    
+    for tc in test_cases:
+        if tc.jira_story_id:
+            epic_id = tc.jira_epic_id or "No Epic"
+            epic_story_map[epic_id][tc.jira_story_id].append({
+                "id": tc.id,
+                "test_id": tc.test_id,
+                "title": tc.title,
+                "test_type": tc.test_type.value,
+                "tag": tc.tag.value,
+                "automation_status": tc.automation_status.value if tc.automation_status else None,
+                "module_id": tc.module_id,
+                "sub_module": tc.sub_module,
+                "feature_section": tc.feature_section
+            })
+        else:
+            no_story_cases.append({
+                "id": tc.id,
+                "test_id": tc.test_id,
+                "title": tc.title,
+                "test_type": tc.test_type.value,
+                "tag": tc.tag.value,
+                "automation_status": tc.automation_status.value if tc.automation_status else None,
+                "module_id": tc.module_id,
+                "sub_module": tc.sub_module,
+                "feature_section": tc.feature_section
+            })
+    
+    # Fetch story titles from jira_stories table
+    from app.models.models import JiraStory
+    story_ids = [story_id for stories in epic_story_map.values() for story_id in stories.keys()]
+    story_details = {}
+    if story_ids:
+        stories_from_db = db.query(JiraStory).filter(JiraStory.story_id.in_(story_ids)).all()
+        story_details = {story.story_id: story.title for story in stories_from_db}
+    
+    # Convert to list format for frontend
+    result = []
+    for epic_id, stories in epic_story_map.items():
+        epic_node = {
+            "id": epic_id,
+            "name": epic_id,
+            "type": "epic",
+            "children": []
+        }
+        
+        for story_id, test_cases_list in stories.items():
+            story_node = {
+                "id": story_id,
+                "name": story_id,
+                "title": story_details.get(story_id, ""),  # Add story title
+                "type": "story",
+                "test_cases": test_cases_list,
+                "test_case_count": len(test_cases_list)
+            }
+            epic_node["children"].append(story_node)
+        
+        result.append(epic_node)
+    
+    # Add test cases without JIRA stories
+    if no_story_cases:
+        result.append({
+            "id": "no_story",
+            "name": "No JIRA Story",
+            "type": "unassigned",
+            "test_cases": no_story_cases,
+            "test_case_count": len(no_story_cases)
+        })
+    
+    return {
+        "view_type": "jira_story",
+        "epics": result,
+        "total_test_cases": len(test_cases)
+    }
+
 @router.get("/{test_case_id}", response_model=TestCaseSchema)
 def get_test_case(
     test_case_id: int,
@@ -905,4 +1009,3 @@ def delete_feature(
         "message": f"Feature '{feature_section}' deleted successfully",
         "updated_test_cases": updated_count
     }
-

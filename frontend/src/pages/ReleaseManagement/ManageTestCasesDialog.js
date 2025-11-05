@@ -24,30 +24,43 @@ import {
   Typography,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  ToggleButtonGroup,
+  ToggleButton
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  ViewModule as ViewModuleIcon,
+  Description as DescriptionIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { addTestCasesToRelease } from '../../services/releaseManagementApi';
 
 const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
+  const [selectionMode, setSelectionMode] = useState('module'); // 'module' or 'story'
   const [modules, setModules] = useState([]);
+  const [stories, setStories] = useState([]);
   const [testCases, setTestCases] = useState([]);
   const [selectedModule, setSelectedModule] = useState('');
   const [selectedSubModule, setSelectedSubModule] = useState('');
   const [selectedFeature, setSelectedFeature] = useState('');
+  const [selectedStories, setSelectedStories] = useState([]);
   const [selectedTestCases, setSelectedTestCases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expandedModules, setExpandedModules] = useState({});
+  const [expandedStories, setExpandedStories] = useState({});
+  const [storyTestCases, setStoryTestCases] = useState({});
 
   useEffect(() => {
     if (open) {
+      // Clear cached story test cases to ensure fresh data
+      setStoryTestCases({});
+      setExpandedStories({});
       fetchModules();
       fetchTestCases();
+      fetchStories();
     }
   }, [open]);
 
@@ -58,6 +71,16 @@ const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
     } catch (err) {
       console.error('Error fetching modules:', err);
       setError('Failed to load modules');
+    }
+  };
+
+  const fetchStories = async () => {
+    try {
+      const response = await api.get('/jira-stories');
+      setStories(Array.isArray(response.data) ? response.data : response);
+    } catch (err) {
+      console.error('Error fetching stories:', err);
+      setError('Failed to load stories');
     }
   };
 
@@ -74,11 +97,54 @@ const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
     }
   };
 
+  const fetchStoryTestCases = async (storyId) => {
+    try {
+      const response = await api.get(`/jira-stories/${storyId}/test-cases`);
+      const testCases = response.data?.test_cases || response.test_cases || [];
+      setStoryTestCases(prev => ({ ...prev, [storyId]: testCases }));
+      return testCases;
+    } catch (err) {
+      console.error('Error fetching story test cases:', err);
+      return [];
+    }
+  };
+
   const handleModuleToggle = (moduleId) => {
     setExpandedModules(prev => ({
       ...prev,
       [moduleId]: !prev[moduleId]
     }));
+  };
+
+  const handleStoryToggle = async (storyId) => {
+    const isExpanding = !expandedStories[storyId];
+    setExpandedStories(prev => ({
+      ...prev,
+      [storyId]: isExpanding
+    }));
+    
+    // Fetch test cases if expanding and not already loaded
+    if (isExpanding && !storyTestCases[storyId]) {
+      await fetchStoryTestCases(storyId);
+    }
+  };
+
+  const handleStorySelect = async (storyId) => {
+    const isSelected = selectedStories.includes(storyId);
+    
+    if (isSelected) {
+      // Deselect story and remove its test cases
+      setSelectedStories(prev => prev.filter(id => id !== storyId));
+      const storyTCs = storyTestCases[storyId] || await fetchStoryTestCases(storyId);
+      const storyTestCaseIds = storyTCs.map(tc => tc.id);
+      setSelectedTestCases(prev => prev.filter(id => !storyTestCaseIds.includes(id)));
+    } else {
+      // Select story and add its test cases
+      setSelectedStories(prev => [...prev, storyId]);
+      const storyTCs = storyTestCases[storyId] || await fetchStoryTestCases(storyId);
+      const storyTestCaseIds = storyTCs.map(tc => tc.id);
+      setSelectedTestCases(prev => [...new Set([...prev, ...storyTestCaseIds])]);
+    }
   };
 
   const handleTestCaseToggle = (testCaseId) => {
@@ -162,9 +228,12 @@ const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
 
   const handleClose = () => {
     setSelectedTestCases([]);
+    setSelectedStories([]);
     setSelectedModule('');
     setSelectedSubModule('');
     setSelectedFeature('');
+    setExpandedModules({});
+    setExpandedStories({});
     setError('');
     onClose();
   };
@@ -195,8 +264,43 @@ const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mb: 3, mt: 1 }}>
-          {/* Filters */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          {/* Selection Mode Toggle */}
+          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+            <ToggleButtonGroup
+              value={selectionMode}
+              exclusive
+              onChange={(e, newMode) => {
+                if (newMode) {
+                  setSelectionMode(newMode);
+                  setSelectedTestCases([]);
+                  setSelectedStories([]);
+                  setSelectedModule('');
+                  setSelectedSubModule('');
+                  setSelectedFeature('');
+                  // Clear story test cases cache when switching to story mode
+                  if (newMode === 'story') {
+                    setStoryTestCases({});
+                    setExpandedStories({});
+                  }
+                }
+              }}
+              aria-label="selection mode"
+            >
+              <ToggleButton value="module" aria-label="by module">
+                <ViewModuleIcon sx={{ mr: 1 }} />
+                By Module
+              </ToggleButton>
+              <ToggleButton value="story" aria-label="by story">
+                <DescriptionIcon sx={{ mr: 1 }} />
+                By Story
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {selectionMode === 'module' ? (
+            <>
+              {/* Module-based Filters */}
+              <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
             <FormControl fullWidth>
               <InputLabel>Filter by Module</InputLabel>
               <Select
@@ -372,6 +476,114 @@ const ManageTestCasesDialog = ({ open, onClose, releaseId, onSuccess }) => {
                 ))
               )}
             </Box>
+          )}
+            </>
+          ) : (
+            <>
+              {/* Story-based Selection */}
+              {/* Selection Summary */}
+              <Box sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="body2">
+                  <strong>{selectedStories.length}</strong> story(ies) selected, 
+                  <strong> {selectedTestCases.length}</strong> test case(s) will be added
+                </Typography>
+              </Box>
+
+              {/* Stories List */}
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Box>
+                  {stories.length === 0 ? (
+                    <Alert severity="info">No stories found. Please create stories first.</Alert>
+                  ) : (
+                    stories.map((story) => (
+                      <Accordion 
+                        key={story.story_id}
+                        expanded={expandedStories[story.story_id] || false}
+                        onChange={() => handleStoryToggle(story.story_id)}
+                      >
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                            <Checkbox
+                              checked={selectedStories.includes(story.story_id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleStorySelect(story.story_id);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <Box sx={{ flexGrow: 1 }}>
+                              <Typography variant="subtitle1">
+                                <Chip label={story.story_id} size="small" color="primary" sx={{ mr: 1 }} />
+                                {story.title}
+                              </Typography>
+                              {story.epic_id && (
+                                <Typography variant="caption" color="text.secondary">
+                                  Epic: {story.epic_id}
+                                </Typography>
+                              )}
+                            </Box>
+                            <Chip 
+                              label={`${storyTestCases[story.story_id]?.length || 0} test cases`}
+                              size="small"
+                              color="info"
+                            />
+                            <Chip label={story.status} size="small" />
+                          </Box>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          {storyTestCases[story.story_id]?.length > 0 ? (
+                            <TableContainer component={Paper} variant="outlined">
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell>Test ID</TableCell>
+                                    <TableCell>Title</TableCell>
+                                    <TableCell>Module</TableCell>
+                                    <TableCell>Type</TableCell>
+                                    <TableCell>Tag</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {storyTestCases[story.story_id].map((tc) => (
+                                    <TableRow key={tc.id}>
+                                      <TableCell>{tc.test_id}</TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                                          {tc.title}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell>{tc.module_name}</TableCell>
+                                      <TableCell>
+                                        <Chip label={tc.test_type} size="small" />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Chip 
+                                          label={tc.tag} 
+                                          size="small"
+                                          color={tc.tag === 'ui' ? 'primary' : tc.tag === 'api' ? 'secondary' : 'default'}
+                                        />
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              No test cases linked to this story
+                            </Typography>
+                          )}
+                        </AccordionDetails>
+                      </Accordion>
+                    ))
+                  )}
+                </Box>
+              )}
+            </>
           )}
         </Box>
       </DialogContent>

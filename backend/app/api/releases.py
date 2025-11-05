@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from app.core.database import get_db
-from app.models.models import Release, User, ReleaseTestCase, ExecutionStatus
+from app.models.models import Release, User, ReleaseTestCase, ExecutionStatus, JiraStory, TestCase, SubModule, Feature
 from app.schemas.schemas import Release as ReleaseSchema, ReleaseCreate
 from app.api.auth import get_current_active_user
 
@@ -101,3 +101,116 @@ def delete_release(
     db.delete(release)
     db.commit()
     return None
+
+@router.get("/{release_id}/stories")
+def get_release_stories(
+    release_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all JIRA stories associated with this release based on release version"""
+    release = db.query(Release).filter(Release.id == release_id).first()
+    if not release:
+        raise HTTPException(status_code=404, detail="Release not found")
+    
+    # Find all stories with matching release version
+    stories = db.query(JiraStory).filter(
+        JiraStory.release == release.version
+    ).order_by(JiraStory.updated_at.desc()).all()
+    
+    return {
+        "release_id": release.id,
+        "release_version": release.version,
+        "stories": [{
+            "id": story.id,
+            "story_id": story.story_id,
+            "epic_id": story.epic_id,
+            "title": story.title,
+            "description": story.description,
+            "status": story.status,
+            "priority": story.priority,
+            "assignee": story.assignee,
+            "release": story.release,
+            "created_at": story.created_at,
+            "updated_at": story.updated_at
+        } for story in stories],
+        "total_stories": len(stories)
+    }
+
+@router.post("/{release_id}/sync-story-test-cases")
+def sync_story_test_cases_to_release(
+    release_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Sync all test cases from stories to this release.
+    This will link all test cases from stories that have matching release version.
+    """
+    release = db.query(Release).filter(Release.id == release_id).first()
+    if not release:
+        raise HTTPException(status_code=404, detail="Release not found")
+    
+    # Find all stories with matching release version
+    stories = db.query(JiraStory).filter(
+        JiraStory.release == release.version
+    ).all()
+    
+    linked_count = 0
+    skipped_count = 0
+    
+    for story in stories:
+        # Find all test cases linked to this story
+        test_cases = db.query(TestCase).filter(TestCase.jira_story_id == story.story_id).all()
+        
+        for test_case in test_cases:
+            # Check if already linked to this release
+            existing_link = db.query(ReleaseTestCase).filter(
+                ReleaseTestCase.release_id == release.id,
+                ReleaseTestCase.test_case_id == test_case.id
+            ).first()
+            
+            if not existing_link:
+                # Look up sub_module_id and feature_id based on string values
+                sub_module_id = None
+                feature_id = None
+                
+                if test_case.sub_module:
+                    sub_module = db.query(SubModule).filter(
+                        SubModule.module_id == test_case.module_id,
+                        SubModule.name == test_case.sub_module
+                    ).first()
+                    if sub_module:
+                        sub_module_id = sub_module.id
+                
+                if test_case.feature_section:
+                    feature = db.query(Feature).filter(
+                        Feature.name == test_case.feature_section
+                    ).first()
+                    if feature:
+                        feature_id = feature.id
+                
+                # Create the link
+                release_test_case = ReleaseTestCase(
+                    release_id=release.id,
+                    test_case_id=test_case.id,
+                    module_id=test_case.module_id,
+                    sub_module_id=sub_module_id,
+                    feature_id=feature_id,
+                    priority="medium"  # Default priority for release test cases
+                )
+                db.add(release_test_case)
+                linked_count += 1
+            else:
+                skipped_count += 1
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": f"Synced test cases from {len(stories)} stories to release {release.version}",
+        "linked_count": linked_count,
+        "skipped_count": skipped_count,
+        "total_stories": len(stories)
+    }
+

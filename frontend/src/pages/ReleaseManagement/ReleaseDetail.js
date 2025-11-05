@@ -17,11 +17,13 @@ import {
   Dashboard as DashboardIcon,
   AccountTree as TreeIcon,
   Refresh as RefreshIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  Article as ArticleIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import DashboardView from './DashboardView';
 import TreeView from './TreeView';
+import StoriesView from './StoriesView';
 import ManageTestCasesDialog from './ManageTestCasesDialog';
 
 const ReleaseDetail = () => {
@@ -121,6 +123,11 @@ const ReleaseDetail = () => {
               iconPosition="start" 
               label="Test Cases Tree" 
             />
+            <Tab 
+              icon={<ArticleIcon />} 
+              iconPosition="start" 
+              label="Stories" 
+            />
           </Tabs>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
@@ -150,6 +157,9 @@ const ReleaseDetail = () => {
         )}
         {currentTab === 1 && (
           <TreeView releaseId={releaseId} key={`tree-${refreshKey}`} />
+        )}
+        {currentTab === 2 && (
+          <StoriesView releaseId={releaseId} key={`stories-${refreshKey}`} />
         )}
       </Box>
 

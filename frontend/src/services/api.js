@@ -273,6 +273,14 @@ export const testCasesAPI = {
     const response = await api.get('/test-cases/hierarchy/options', { params });
     return response.data;
   },
+  
+  // JIRA Story View
+  getByJiraStory: async (releaseId = null) => {
+    const params = {};
+    if (releaseId) params.release_id = releaseId;
+    const response = await api.get('/test-cases/by-jira-story', { params });
+    return response.data;
+  },
 };
 
 // Releases API
@@ -327,6 +335,69 @@ export const reportsAPI = {
     const response = await api.get(`/reports/pdf/${releaseId}`, {
       responseType: 'blob',
     });
+    return response.data;
+  },
+};
+
+// JIRA Stories API
+export const jiraStoriesAPI = {
+  getAll: async (params = {}) => {
+    const response = await api.get('/jira-stories', { params });
+    return response.data;
+  },
+  
+  create: async (storyData) => {
+    const response = await api.post('/jira-stories', storyData);
+    return response.data;
+  },
+  
+  getById: async (storyId) => {
+    const response = await api.get(`/jira-stories/${storyId}`);
+    return response.data;
+  },
+  
+  update: async (storyId, storyData) => {
+    const response = await api.put(`/jira-stories/${storyId}`, storyData);
+    return response.data;
+  },
+  
+  delete: async (storyId) => {
+    const response = await api.delete(`/jira-stories/${storyId}`);
+    return response.data;
+  },
+  
+  getTestCases: async (storyId) => {
+    const response = await api.get(`/jira-stories/${storyId}/test-cases`);
+    return response.data;
+  },
+  
+  linkTestCase: async (storyId, testCaseId) => {
+    const response = await api.post(`/jira-stories/${storyId}/link-test-case/${testCaseId}`);
+    return response.data;
+  },
+  
+  unlinkTestCase: async (storyId, testCaseId) => {
+    const response = await api.delete(`/jira-stories/${storyId}/unlink-test-case/${testCaseId}`);
+    return response.data;
+  },
+  
+  getByEpic: async (epicId) => {
+    const response = await api.get(`/jira-stories/epic/${epicId}/stories`);
+    return response.data;
+  },
+  
+  importFromJira: async (storyUrl) => {
+    const response = await api.post('/jira-stories/import-from-jira', { story_url: storyUrl });
+    return response.data;
+  },
+  
+  checkJiraConfig: async () => {
+    const response = await api.get('/jira-stories/jira-config-status');
+    return response.data;
+  },
+  
+  refetchFromJira: async (storyId) => {
+    const response = await api.post(`/jira-stories/${storyId}/refetch`);
     return response.data;
   },
 };

@@ -63,10 +63,11 @@ const Layout = ({ children }) => {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Test Cases', icon: <AssignmentIcon />, path: '/test-cases' },
-    { text: 'Execute Tests', icon: <PlayArrowIcon />, path: '/executions' },
-    { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
+    { text: 'Stories', icon: <AssignmentIcon />, path: '/stories' },
     { text: 'Modules', icon: <AccountTreeIcon />, path: '/modules' },
     { text: 'Releases', icon: <LocalOfferIcon />, path: '/releases' },
+    { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
+    { text: 'Execute Tests', icon: <PlayArrowIcon />, path: '/executions' },
   ];
 
   if (isAdmin()) {

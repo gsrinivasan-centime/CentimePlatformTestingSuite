@@ -6,9 +6,18 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./test_management.db"
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
     ALLOWED_EMAIL_DOMAIN: str = "centime.com"
+    
+    # Email Configuration (Gmail SMTP - Free)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""  # Your Gmail address
+    SMTP_PASSWORD: str = ""  # Gmail app password (not regular password)
+    SMTP_FROM_EMAIL: str = ""  # Sender email
+    SMTP_FROM_NAME: str = "Centime Test Management"
+    EMAIL_VERIFICATION_EXPIRE_HOURS: int = 24
     
     # JIRA Integration
     JIRA_SERVER: str = ""

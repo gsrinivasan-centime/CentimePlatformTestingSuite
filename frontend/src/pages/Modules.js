@@ -397,10 +397,28 @@ const Modules = () => {
                 <CardContent>
                   {/* Module Header */}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+                    <Box 
+                      sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 2, 
+                        flex: 1,
+                        cursor: subModuleCount > 0 ? 'pointer' : 'default',
+                        '&:hover': subModuleCount > 0 ? {
+                          backgroundColor: 'action.hover',
+                          borderRadius: 1,
+                        } : {},
+                        p: 1,
+                        ml: -1,
+                      }}
+                      onClick={() => subModuleCount > 0 && handleToggleModule(module.id)}
+                    >
                       <IconButton
                         size="small"
-                        onClick={() => handleToggleModule(module.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleModule(module.id);
+                        }}
                         disabled={subModuleCount === 0}
                       >
                         {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -435,21 +453,30 @@ const Modules = () => {
                         variant="outlined"
                         size="small"
                         startIcon={<AddIcon />}
-                        onClick={() => handleOpenSubModuleDialog(module)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenSubModuleDialog(module);
+                        }}
                       >
                         Add Sub-Module
                       </Button>
                       <IconButton
                         size="small"
                         color="primary"
-                        onClick={() => handleOpenDialog(module)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDialog(module);
+                        }}
                       >
                         <EditIcon />
                       </IconButton>
                       <IconButton
                         size="small"
                         color="error"
-                        onClick={() => handleDelete(module.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(module.id);
+                        }}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -476,12 +503,20 @@ const Modules = () => {
                                   border: '1px solid',
                                   borderColor: 'divider',
                                   borderRadius: 1,
-                                  bgcolor: 'background.default'
+                                  bgcolor: 'background.default',
+                                  cursor: featureCount > 0 ? 'pointer' : 'default',
+                                  '&:hover': featureCount > 0 ? {
+                                    backgroundColor: 'action.hover',
+                                  } : {},
                                 }}
+                                onClick={() => featureCount > 0 && handleToggleSubModule(module.id, subModuleName)}
                               >
                                 <IconButton
                                   size="small"
-                                  onClick={() => handleToggleSubModule(module.id, subModuleName)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleSubModule(module.id, subModuleName);
+                                  }}
                                   disabled={featureCount === 0}
                                   sx={{ mr: 1 }}
                                 >
@@ -506,7 +541,10 @@ const Modules = () => {
                                   <Button
                                     size="small"
                                     startIcon={<AddIcon />}
-                                    onClick={() => handleOpenFeatureDialog(module, subModuleData, subModuleName)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenFeatureDialog(module, subModuleData, subModuleName);
+                                    }}
                                     sx={{ mr: 1 }}
                                   >
                                     Add Feature
@@ -514,7 +552,10 @@ const Modules = () => {
                                   <IconButton
                                     size="small"
                                     color="primary"
-                                    onClick={() => handleOpenSubModuleDialog(module, { name: subModuleName, id: subModuleData.id })}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenSubModuleDialog(module, { name: subModuleName, id: subModuleData.id });
+                                    }}
                                     sx={{ mr: 0.5 }}
                                   >
                                     <EditIcon />
@@ -522,7 +563,10 @@ const Modules = () => {
                                   <IconButton
                                     size="small"
                                     color="error"
-                                    onClick={() => handleDeleteSubModule(subModuleData.id, subModuleName)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteSubModule(subModuleData.id, subModuleName);
+                                    }}
                                   >
                                     <DeleteIcon />
                                   </IconButton>

@@ -266,7 +266,17 @@ const Executions = () => {
               {executions
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((execution) => (
-                  <TableRow key={execution.id} hover>
+                  <TableRow 
+                    key={execution.id} 
+                    hover
+                    onClick={() => handleViewDetails(execution)}
+                    sx={{ 
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.id}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.test_case?.title || 'N/A'}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.release?.version || 'N/A'}</TableCell>
@@ -289,7 +299,10 @@ const Executions = () => {
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
-                          onClick={() => handleViewDetails(execution)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewDetails(execution);
+                          }}
                         >
                           <ViewIcon />
                         </IconButton>

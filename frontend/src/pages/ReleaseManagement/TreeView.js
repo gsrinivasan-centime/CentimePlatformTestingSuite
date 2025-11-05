@@ -327,18 +327,23 @@ const TreeView = ({ releaseId }) => {
                           </TableHead>
                           <TableBody>
                             {feature.test_cases.map((testCase) => (
-                              <TableRow key={testCase.id} hover>
+                              <TableRow 
+                                key={testCase.id} 
+                                hover
+                                onClick={() => handleViewTestCase(testCase)}
+                                sx={{ 
+                                  cursor: 'pointer',
+                                  '&:hover': {
+                                    backgroundColor: 'action.hover',
+                                  }
+                                }}
+                              >
                                 <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   <Typography 
                                     variant="body2" 
                                     fontWeight="medium"
-                                    onClick={() => handleViewTestCase(testCase)}
                                     sx={{
-                                      cursor: 'pointer',
                                       color: 'primary.main',
-                                      '&:hover': {
-                                        textDecoration: 'underline',
-                                      }
                                     }}
                                   >
                                     {testCase.test_id}
@@ -393,7 +398,10 @@ const TreeView = ({ releaseId }) => {
                                     <Tooltip title="View Details">
                                       <IconButton 
                                         size="small" 
-                                        onClick={() => handleViewTestCase(testCase)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleViewTestCase(testCase);
+                                        }}
                                         color="info"
                                       >
                                         <ViewIcon fontSize="small" />
@@ -402,7 +410,10 @@ const TreeView = ({ releaseId }) => {
                                     <Tooltip title="Edit Status">
                                       <IconButton 
                                         size="small" 
-                                        onClick={() => handleEditTestCase(testCase)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleEditTestCase(testCase);
+                                        }}
                                         color="primary"
                                       >
                                         <EditIcon fontSize="small" />
@@ -411,7 +422,10 @@ const TreeView = ({ releaseId }) => {
                                     <Tooltip title="Remove from Release">
                                       <IconButton 
                                         size="small" 
-                                        onClick={() => handleDeleteTestCase(testCase)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteTestCase(testCase);
+                                        }}
                                         color="error"
                                       >
                                         <DeleteIcon fontSize="small" />

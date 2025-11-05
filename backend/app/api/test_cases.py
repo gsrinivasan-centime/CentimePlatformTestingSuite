@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
 import csv
 import io
+import json
 from app.core.database import get_db
 from app.models.models import TestCase, User, Module
 from app.schemas.schemas import (
@@ -253,7 +254,7 @@ async def bulk_upload_test_cases(
                 
                 # Generate file path for automated tests
                 if db_test_case.test_type == "automated":
-                    file_path = TestCaseSync.generate_file_path(
+                    file_path = TestCaseSync.get_test_file_path(
                         db_test_case.test_type,
                         module_name,
                         db_test_case.test_id
@@ -281,6 +282,226 @@ async def bulk_upload_test_cases(
         
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process CSV file: {str(e)}")
+
+@router.post("/bulk-upload-feature")
+async def bulk_upload_feature_file(
+    file: UploadFile = File(...),
+    module_id: int = Form(...),
+    sub_module: str = Form(None),
+    feature_section: str = Form(None),
+    test_type: str = Form("automated"),
+    tag: str = Form("ui"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Bulk upload test cases from BDD Feature file.
+    
+    Supports:
+    - Scenarios (converted to individual test cases)
+    - Scenario Outlines with Examples (converted to test cases with scenario_examples)
+    
+    Parameters:
+    - module_id: Required. The module ID for all test cases
+    - sub_module: Optional. Sub-module name
+    - feature_section: Optional. Feature section name
+    - test_type: Default 'automated'. Can be 'manual' or 'automated'
+    - tag: Default 'ui'. Can be 'ui', 'api', or 'hybrid'
+    
+    Note: test_id will be auto-generated for each scenario
+    """
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    
+    if not file.filename.endswith('.feature'):
+        raise HTTPException(status_code=400, detail="File must be a .feature file")
+    
+    if not module_id:
+        raise HTTPException(status_code=400, detail="module_id is required")
+    
+    # Validate module exists
+    module = db.query(Module).filter(Module.id == module_id).first()
+    if not module:
+        raise HTTPException(status_code=404, detail=f"Module with id {module_id} not found")
+    
+    # Validate test_type and tag
+    if test_type.lower() not in ['manual', 'automated']:
+        raise HTTPException(status_code=400, detail="test_type must be 'manual' or 'automated'")
+    
+    if tag.lower() not in ['ui', 'api', 'hybrid']:
+        raise HTTPException(status_code=400, detail="tag must be 'ui', 'api', or 'hybrid'")
+    
+    try:
+        # Read feature file
+        contents = await file.read()
+        feature_text = contents.decode('utf-8')
+        
+        # Check if file is empty
+        if not feature_text or feature_text.strip() == "":
+            raise HTTPException(status_code=400, detail="Uploaded feature file is empty")
+        
+        # Parse feature file
+        parser = Parser()
+        token_scanner = TokenScanner(feature_text)
+        gherkin_document = parser.parse(token_scanner)
+        
+        created_count = 0
+        failed_count = 0
+        errors = []
+        
+        # Get feature
+        feature = gherkin_document.get('feature')
+        if not feature:
+            raise HTTPException(status_code=400, detail="No feature found in file")
+        
+        feature_name = feature.get('name', 'Unknown Feature')
+        # Use provided feature_section, or fall back to feature name from file
+        feature_section_to_use = feature_section or feature_name
+        
+        # Process each child (Scenario or Scenario Outline)
+        for child in feature.get('children', []):
+            scenario_name = "Unknown"  # Initialize to avoid UnboundLocalError
+            try:
+                # In the gherkin parser, the scenario IS the child, not nested under it
+                if child.get('type') not in ['Scenario', 'ScenarioOutline']:
+                    continue
+                
+                scenario = child  # The child IS the scenario
+                scenario_name = scenario.get('name', 'Unnamed Scenario')
+                scenario_keyword = scenario.get('keyword', 'Scenario').strip()
+                
+                # Collect steps
+                steps_list = []
+                for step in scenario.get('steps', []):
+                    keyword = step.get('keyword', '').strip()
+                    text = step.get('text', '').strip()
+                    steps_list.append(f"{keyword} {text}")
+                
+                steps_text = '\n'.join(steps_list)
+                
+                # Check if it's a Scenario Outline with Examples
+                examples = scenario.get('examples', [])
+                
+                if examples and len(examples) > 0:
+                    # Scenario Outline with Examples
+                    for example_set in examples:
+                        # Get table header and rows
+                        table_header = example_set.get('tableHeader')
+                        table_body = example_set.get('tableBody', [])
+                        
+                        if not table_header or not table_body:
+                            continue
+                        
+                        # Build scenario_examples JSON
+                        columns = [cell.get('value', '') for cell in table_header.get('cells', [])]
+                        rows = []
+                        for table_row in table_body:
+                            row_values = [cell.get('value', '') for cell in table_row.get('cells', [])]
+                            rows.append(row_values)
+                        
+                        scenario_examples_json = {
+                            "columns": columns,
+                            "rows": rows
+                        }
+                        
+                        # Generate test ID
+                        test_id = generate_test_id(tag.lower(), db)
+                        
+                        # Create test case with scenario_examples
+                        test_case_data = TestCaseCreate(
+                            test_id=test_id,
+                            title=f"{scenario_name}",
+                            description=f"Feature: {feature_name}\n\nScenario Outline: {scenario_name}",
+                            test_type=test_type.lower(),
+                            tag=tag.lower(),
+                            tags="bdd,gherkin",
+                            module_id=module_id,
+                            sub_module=sub_module,
+                            feature_section=feature_section_to_use,
+                            automation_status='working' if test_type.lower() == 'automated' else None,
+                            scenario_examples=json.dumps(scenario_examples_json),
+                            steps_to_reproduce=steps_text,
+                            expected_result=None,
+                            preconditions=None,
+                            test_data=None,
+                            automated_script_path=None
+                        )
+                        
+                        # Create database record
+                        db_test_case = TestCase(**test_case_data.dict())
+                        
+                        # Generate file path for automated tests
+                        if db_test_case.test_type == "automated":
+                            file_path = TestCaseSync.get_test_file_path(
+                                db_test_case.test_type,
+                                module.name,
+                                db_test_case.test_id
+                            )
+                            if file_path:
+                                db_test_case.automated_script_path = file_path
+                        
+                        db.add(db_test_case)
+                        db.commit()
+                        created_count += 1
+                else:
+                    # Regular Scenario (no examples)
+                    # Generate test ID
+                    test_id = generate_test_id(tag.lower(), db)
+                    
+                    # Create test case
+                    test_case_data = TestCaseCreate(
+                        test_id=test_id,
+                        title=f"{scenario_name}",
+                        description=f"Feature: {feature_name}\n\n{scenario_keyword}: {scenario_name}",
+                        test_type=test_type.lower(),
+                        tag=tag.lower(),
+                        tags="bdd,gherkin",
+                        module_id=module_id,
+                        sub_module=sub_module,
+                        feature_section=feature_section_to_use,
+                        automation_status='working' if test_type.lower() == 'automated' else None,
+                        scenario_examples=None,
+                        steps_to_reproduce=steps_text,
+                        expected_result=None,
+                        preconditions=None,
+                        test_data=None,
+                        automated_script_path=None
+                    )
+                    
+                    # Create database record
+                    db_test_case = TestCase(**test_case_data.dict())
+                    
+                    # Generate file path for automated tests
+                    if db_test_case.test_type == "automated":
+                        file_path = TestCaseSync.get_test_file_path(
+                            db_test_case.test_type,
+                            module.name,
+                            db_test_case.test_id
+                        )
+                        if file_path:
+                            db_test_case.automated_script_path = file_path
+                    
+                    db.add(db_test_case)
+                    db.commit()
+                    created_count += 1
+                    
+            except Exception as e:
+                failed_count += 1
+                errors.append(f"Scenario '{scenario_name}': {str(e)}")
+                db.rollback()
+                continue
+        
+        return {
+            "message": "Feature file upload completed",
+            "created": created_count,
+            "failed": failed_count,
+            "errors": errors[:10] if errors else []
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Failed to process feature file: {str(e)}")
 
 @router.get("/{test_case_id}", response_model=TestCaseSchema)
 def get_test_case(

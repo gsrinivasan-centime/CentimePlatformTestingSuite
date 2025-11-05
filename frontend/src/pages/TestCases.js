@@ -27,6 +27,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Select,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -56,9 +57,19 @@ const TestCases = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadFileType, setUploadFileType] = useState('csv'); // 'csv' or 'feature'
+  const [featureUploadConfig, setFeatureUploadConfig] = useState({
+    module_id: '',
+    sub_module: '',
+    feature_section: '',
+    test_type: 'automated',
+    tag: 'ui'
+  });
+  const [featureUploadSubModules, setFeatureUploadSubModules] = useState([]);
+  const [featureUploadFeatures, setFeatureUploadFeatures] = useState([]);
   const [formData, setFormData] = useState({
     test_id: '',
     title: '',
@@ -98,6 +109,10 @@ const TestCases = () => {
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubModules, setExpandedSubModules] = useState({});
   const [expandedFeatures, setExpandedFeatures] = useState({});
+
+  // Inline editing state
+  const [editingCell, setEditingCell] = useState(null); // { testCaseId, field }
+  const [editValue, setEditValue] = useState('');
 
   useEffect(() => {
     loadData();
@@ -140,6 +155,16 @@ const TestCases = () => {
       setTestCases(testCasesData);
     } catch (err) {
       setError('Failed to load filtered data');
+    }
+  };
+
+  // Helper function to reload data respecting current filters
+  const reloadData = () => {
+    const hasFilters = filters.module_id || filters.sub_module || filters.feature_section || filters.test_type;
+    if (hasFilters) {
+      loadFilteredData();
+    } else {
+      loadData();
     }
   };
   
@@ -206,6 +231,57 @@ const TestCases = () => {
     });
     setFilterSubModules([]);
     setFilterFeatures([]);
+  };
+
+  // NEW: Load sub-modules for feature upload
+  const loadFeatureUploadSubModules = async (moduleId) => {
+    if (!moduleId) {
+      setFeatureUploadSubModules([]);
+      setFeatureUploadFeatures([]);
+      return;
+    }
+    
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId);
+      setFeatureUploadSubModules(options);
+      setFeatureUploadFeatures([]);
+    } catch (err) {
+      console.error('Failed to load feature upload sub-modules:', err);
+      setFeatureUploadSubModules([]);
+    }
+  };
+
+  // NEW: Load features for feature upload
+  const loadFeatureUploadFeatures = async (moduleId, subModule) => {
+    if (!moduleId || !subModule) {
+      setFeatureUploadFeatures([]);
+      return;
+    }
+    
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId, subModule);
+      setFeatureUploadFeatures(options);
+    } catch (err) {
+      console.error('Failed to load feature upload features:', err);
+      setFeatureUploadFeatures([]);
+    }
+  };
+
+  // NEW: Handle feature upload config changes
+  const handleFeatureUploadConfigChange = async (name, value) => {
+    const newConfig = { ...featureUploadConfig, [name]: value };
+    
+    // Reset cascading fields
+    if (name === 'module_id') {
+      newConfig.sub_module = '';
+      newConfig.feature_section = '';
+      await loadFeatureUploadSubModules(value);
+    } else if (name === 'sub_module') {
+      newConfig.feature_section = '';
+      await loadFeatureUploadFeatures(featureUploadConfig.module_id, value);
+    }
+    
+    setFeatureUploadConfig(newConfig);
   };
 
   // Build hierarchy from flat test cases list
@@ -473,8 +549,16 @@ const TestCases = () => {
 
   const handleBulkUpload = async () => {
     if (!uploadFile) {
-      showError('Please select a CSV file');
+      showError(`Please select a ${uploadFileType === 'csv' ? 'CSV' : 'Feature'} file`);
       return;
+    }
+
+    // Validate feature file upload configuration
+    if (uploadFileType === 'feature') {
+      if (!featureUploadConfig.module_id) {
+        showError('Please select a module for feature file upload');
+        return;
+      }
     }
 
     try {
@@ -482,10 +566,36 @@ const TestCases = () => {
       const formData = new FormData();
       formData.append('file', uploadFile);
 
-      const response = await testCasesAPI.bulkUpload(formData);
+      let response;
+      if (uploadFileType === 'csv') {
+        response = await testCasesAPI.bulkUpload(formData);
+      } else {
+        // Feature file upload with additional parameters
+        formData.append('module_id', featureUploadConfig.module_id);
+        if (featureUploadConfig.sub_module) {
+          formData.append('sub_module', featureUploadConfig.sub_module);
+        }
+        if (featureUploadConfig.feature_section) {
+          formData.append('feature_section', featureUploadConfig.feature_section);
+        }
+        formData.append('test_type', featureUploadConfig.test_type);
+        formData.append('tag', featureUploadConfig.tag);
+        
+        response = await testCasesAPI.bulkUploadFeature(formData);
+      }
       
       setOpenBulkUploadDialog(false);
       setUploadFile(null);
+      setUploadFileType('csv');
+      setFeatureUploadConfig({
+        module_id: '',
+        sub_module: '',
+        feature_section: '',
+        test_type: 'automated',
+        tag: 'ui'
+      });
+      setFeatureUploadSubModules([]);
+      setFeatureUploadFeatures([]);
       
       if (response.failed > 0) {
         showError(`Bulk upload completed with errors. Created: ${response.created}, Failed: ${response.failed}`);
@@ -526,7 +636,7 @@ const TestCases = () => {
       try {
         await testCasesAPI.delete(id);
         setSuccess('Test case deleted successfully');
-        loadData();
+        reloadData();
       } catch (err) {
         setError('Failed to delete test case');
       }
@@ -536,6 +646,97 @@ const TestCases = () => {
   const getModuleName = (moduleId) => {
     const module = modules.find((m) => m.id === moduleId);
     return module ? module.name : 'Unknown';
+  };
+
+  // Tag options for dropdown
+  const tagOptions = ['smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
+
+  // Inline editing handlers
+  const handleCellClick = (testCase, field, e) => {
+    e.stopPropagation(); // Prevent row click
+    setEditingCell({ testCaseId: testCase.id, field });
+    
+    // Set initial value based on field
+    if (field === 'tags') {
+      // Convert comma-separated string to array for Autocomplete
+      const tagsArray = testCase.tags ? testCase.tags.split(',').map(t => t.trim()) : [];
+      setEditValue(tagsArray);
+    } else {
+      setEditValue(testCase[field] || '');
+    }
+  };
+
+  const handleInlineEditChange = async (testCase, field, newValue) => {
+    // For Select dropdowns (test_type, tag, automation_status), save immediately on change
+    // Check if value actually changed
+    let oldValue = testCase[field] || '';
+    
+    if (oldValue === newValue) {
+      // No change, just close the editor
+      setEditingCell(null);
+      setEditValue('');
+      return;
+    }
+
+    try {
+      const updateData = {
+        ...testCase,
+        [field]: newValue
+      };
+
+      await testCasesAPI.update(testCase.id, updateData);
+      showSuccess(`${field} updated successfully`);
+      reloadData();
+      setEditingCell(null);
+      setEditValue('');
+    } catch (err) {
+      showError(`Failed to update ${field}`);
+    }
+  };
+
+  const handleInlineEdit = async (testCase, field, newValue) => {
+    // For tags (Autocomplete), save on blur
+    // Check if value actually changed
+    let oldValue = testCase[field] || '';
+    
+    if (field === 'tags') {
+      // For tags, convert both to comparable formats
+      const oldTags = oldValue ? oldValue.split(',').map(t => t.trim()).sort().join(',') : '';
+      const newTags = Array.isArray(newValue) ? newValue.sort().join(',') : newValue;
+      
+      if (oldTags === newTags) {
+        // No change, just close the editor
+        setEditingCell(null);
+        setEditValue('');
+        return;
+      }
+    }
+
+    try {
+      // Prepare update data
+      const updateData = {
+        ...testCase,
+        [field]: newValue
+      };
+
+      // For tags field, ensure it's a string
+      if (field === 'tags') {
+        updateData.tags = Array.isArray(newValue) ? newValue.join(',') : newValue;
+      }
+
+      await testCasesAPI.update(testCase.id, updateData);
+      showSuccess(`${field} updated successfully`);
+      reloadData();
+      setEditingCell(null);
+      setEditValue('');
+    } catch (err) {
+      showError(`Failed to update ${field}`);
+    }
+  };
+
+  const handleInlineEditCancel = () => {
+    setEditingCell(null);
+    setEditValue('');
   };
 
   if (loading) {
@@ -717,18 +918,23 @@ const TestCases = () => {
               {testCases
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((testCase) => (
-                  <TableRow key={testCase.id} hover>
+                  <TableRow 
+                    key={testCase.id} 
+                    hover
+                    onClick={() => handleViewTestCase(testCase)}
+                    sx={{ 
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <Typography 
                         variant="body2" 
                         fontWeight="medium"
-                        onClick={() => handleViewTestCase(testCase)}
                         sx={{
-                          cursor: 'pointer',
                           color: 'primary.main',
-                          '&:hover': {
-                            textDecoration: 'underline',
-                          }
                         }}
                       >
                         {testCase.test_id}
@@ -767,27 +973,129 @@ const TestCases = () => {
                         <Typography variant="body2" color="text.secondary">-</Typography>
                       )}
                     </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Chip
-                        label={testCase.test_type}
-                        size="small"
-                        color={testCase.test_type === 'automated' ? 'success' : 'default'}
-                      />
+                    <TableCell 
+                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={(e) => handleCellClick(testCase, 'test_type', e)}
+                    >
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'test_type' ? (
+                        <Select
+                          open={true}
+                          value={editValue}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setEditValue(newValue);
+                            handleInlineEditChange(testCase, 'test_type', newValue);
+                          }}
+                          onClose={() => {
+                            // Always cancel on close - onChange will have already saved if a selection was made
+                            setTimeout(() => handleInlineEditCancel(), 0);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                          }}
+                          size="small"
+                          autoFocus
+                          sx={{ minWidth: 100 }}
+                        >
+                          <MenuItem value="manual">Manual</MenuItem>
+                          <MenuItem value="automated">Automated</MenuItem>
+                        </Select>
+                      ) : (
+                        <Chip
+                          label={testCase.test_type}
+                          size="small"
+                          color={testCase.test_type === 'automated' ? 'success' : 'default'}
+                        />
+                      )}
                     </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Chip
-                        label={testCase.tag ? testCase.tag.toUpperCase() : 'UI'}
-                        size="small"
-                        color={
-                          testCase.tag === 'api' ? 'success' : 
-                          testCase.tag === 'hybrid' ? 'warning' : 
-                          'info'
+                    <TableCell 
+                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={(e) => handleCellClick(testCase, 'tag', e)}
+                    >
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'tag' ? (
+                        <Select
+                          open={true}
+                          value={editValue}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setEditValue(newValue);
+                            handleInlineEditChange(testCase, 'tag', newValue);
+                          }}
+                          onClose={() => {
+                            // Always cancel on close - onChange will have already saved if a selection was made
+                            setTimeout(() => handleInlineEditCancel(), 0);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                          }}
+                          size="small"
+                          autoFocus
+                          sx={{ minWidth: 100 }}
+                        >
+                          <MenuItem value="ui">UI</MenuItem>
+                          <MenuItem value="api">API</MenuItem>
+                          <MenuItem value="hybrid">Hybrid</MenuItem>
+                        </Select>
+                      ) : (
+                        <Chip
+                          label={testCase.tag ? testCase.tag.toUpperCase() : 'UI'}
+                          size="small"
+                          color={
+                            testCase.tag === 'api' ? 'success' : 
+                            testCase.tag === 'hybrid' ? 'warning' : 
+                            'info'
+                          }
+                          variant="outlined"
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell 
+                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={(e) => {
+                        // Only open editor if not already editing
+                        if (!(editingCell?.testCaseId === testCase.id && editingCell?.field === 'tags')) {
+                          handleCellClick(testCase, 'tags', e);
                         }
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {testCase.tags ? (
+                      }}
+                    >
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'tags' ? (
+                        <Box onClick={(e) => e.stopPropagation()}>
+                          <Autocomplete
+                            multiple
+                            options={tagOptions}
+                            value={editValue}
+                            onChange={(event, newValue) => {
+                              setEditValue(newValue);
+                            }}
+                            onBlur={() => {
+                              // Save when focus leaves the component
+                              handleInlineEdit(testCase, 'tags', editValue);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.stopPropagation();
+                                handleInlineEditCancel();
+                              }
+                              if (e.key === 'Enter' && !e.target.value) {
+                                // If Enter is pressed and input is empty, save and close
+                                e.preventDefault();
+                                handleInlineEdit(testCase, 'tags', editValue);
+                              }
+                            }}
+                            freeSolo
+                            disableCloseOnSelect
+                            size="small"
+                            sx={{ minWidth: 180 }}
+                            renderInput={(params) => (
+                              <TextField
+                                {...params}
+                                autoFocus
+                                placeholder="Select tags"
+                              />
+                            )}
+                          />
+                        </Box>
+                      ) : testCase.tags ? (
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                           {testCase.tags.split(',').map((tag, idx) => (
                             <Chip
@@ -809,14 +1117,42 @@ const TestCases = () => {
                         <Typography variant="body2" color="text.secondary">-</Typography>
                       )}
                     </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <TableCell 
+                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      onClick={(e) => testCase.test_type === 'automated' && handleCellClick(testCase, 'automation_status', e)}
+                    >
                       {testCase.test_type === 'automated' ? (
-                        <Chip
-                          label={testCase.automation_status || 'working'}
-                          size="small"
-                          color={testCase.automation_status === 'broken' ? 'error' : 'success'}
-                          variant="outlined"
-                        />
+                        editingCell?.testCaseId === testCase.id && editingCell?.field === 'automation_status' ? (
+                          <Select
+                            open={true}
+                            value={editValue}
+                            onChange={(e) => {
+                              const newValue = e.target.value;
+                              setEditValue(newValue);
+                              handleInlineEditChange(testCase, 'automation_status', newValue);
+                            }}
+                            onClose={() => {
+                              // Always cancel on close - onChange will have already saved if a selection was made
+                              setTimeout(() => handleInlineEditCancel(), 0);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') handleInlineEditCancel();
+                            }}
+                            size="small"
+                            autoFocus
+                            sx={{ minWidth: 120 }}
+                          >
+                            <MenuItem value="working">Working</MenuItem>
+                            <MenuItem value="broken">Broken</MenuItem>
+                          </Select>
+                        ) : (
+                          <Chip
+                            label={testCase.automation_status || 'working'}
+                            size="small"
+                            color={testCase.automation_status === 'broken' ? 'error' : 'success'}
+                            variant="outlined"
+                          />
+                        )
                       ) : (
                         <Typography variant="body2" color="text.secondary">-</Typography>
                       )}
@@ -824,21 +1160,30 @@ const TestCases = () => {
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <IconButton
                         size="small"
-                        onClick={() => handleViewTestCase(testCase)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewTestCase(testCase);
+                        }}
                         color="info"
                       >
                         <ViewIcon />
                       </IconButton>
                       <IconButton
                         size="small"
-                        onClick={() => handleOpenDialog(testCase)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDialog(testCase);
+                        }}
                         color="primary"
                       >
                         <EditIcon />
                       </IconButton>
                       <IconButton
                         size="small"
-                        onClick={() => handleDelete(testCase.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(testCase.id);
+                        }}
                         color="error"
                       >
                         <DeleteIcon />
@@ -934,18 +1279,23 @@ const TestCases = () => {
                                 </TableHead>
                                 <TableBody>
                                   {feature.testCases.map((testCase) => (
-                                    <TableRow key={testCase.id} hover>
+                                    <TableRow 
+                                      key={testCase.id} 
+                                      hover
+                                      onClick={() => handleViewTestCase(testCase)}
+                                      sx={{ 
+                                        cursor: 'pointer',
+                                        '&:hover': {
+                                          backgroundColor: 'action.hover',
+                                        }
+                                      }}
+                                    >
                                       <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         <Typography 
                                           variant="body2" 
                                           fontWeight="medium"
-                                          onClick={() => handleViewTestCase(testCase)}
                                           sx={{
-                                            cursor: 'pointer',
                                             color: 'primary.main',
-                                            '&:hover': {
-                                              textDecoration: 'underline',
-                                            }
                                           }}
                                         >
                                           {testCase.test_id}
@@ -984,27 +1334,129 @@ const TestCases = () => {
                                           <Typography variant="body2" color="text.secondary">-</Typography>
                                         )}
                                       </TableCell>
-                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <Chip
-                                          label={testCase.test_type}
-                                          size="small"
-                                          color={testCase.test_type === 'automated' ? 'success' : 'default'}
-                                        />
+                                      <TableCell 
+                                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                        onClick={(e) => handleCellClick(testCase, 'test_type', e)}
+                                      >
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'test_type' ? (
+                                          <Select
+                                            open={true}
+                                            value={editValue}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setEditValue(newValue);
+                                              handleInlineEditChange(testCase, 'test_type', newValue);
+                                            }}
+                                            onClose={() => {
+                                              // Always cancel on close - onChange will have already saved if a selection was made
+                                              setTimeout(() => handleInlineEditCancel(), 0);
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                            }}
+                                            size="small"
+                                            autoFocus
+                                            sx={{ minWidth: 100 }}
+                                          >
+                                            <MenuItem value="manual">Manual</MenuItem>
+                                            <MenuItem value="automated">Automated</MenuItem>
+                                          </Select>
+                                        ) : (
+                                          <Chip
+                                            label={testCase.test_type}
+                                            size="small"
+                                            color={testCase.test_type === 'automated' ? 'success' : 'default'}
+                                          />
+                                        )}
                                       </TableCell>
-                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <Chip
-                                          label={testCase.tag ? testCase.tag.toUpperCase() : 'UI'}
-                                          size="small"
-                                          color={
-                                            testCase.tag === 'api' ? 'success' : 
-                                            testCase.tag === 'hybrid' ? 'warning' : 
-                                            'info'
+                                      <TableCell 
+                                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                        onClick={(e) => handleCellClick(testCase, 'tag', e)}
+                                      >
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'tag' ? (
+                                          <Select
+                                            open={true}
+                                            value={editValue}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setEditValue(newValue);
+                                              handleInlineEditChange(testCase, 'tag', newValue);
+                                            }}
+                                            onClose={() => {
+                                              // Always cancel on close - onChange will have already saved if a selection was made
+                                              setTimeout(() => handleInlineEditCancel(), 0);
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                            }}
+                                            size="small"
+                                            autoFocus
+                                            sx={{ minWidth: 100 }}
+                                          >
+                                            <MenuItem value="ui">UI</MenuItem>
+                                            <MenuItem value="api">API</MenuItem>
+                                            <MenuItem value="hybrid">Hybrid</MenuItem>
+                                          </Select>
+                                        ) : (
+                                          <Chip
+                                            label={testCase.tag ? testCase.tag.toUpperCase() : 'UI'}
+                                            size="small"
+                                            color={
+                                              testCase.tag === 'api' ? 'success' : 
+                                              testCase.tag === 'hybrid' ? 'warning' : 
+                                              'info'
+                                            }
+                                            variant="outlined"
+                                          />
+                                        )}
+                                      </TableCell>
+                                      <TableCell 
+                                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                        onClick={(e) => {
+                                          // Only open editor if not already editing
+                                          if (!(editingCell?.testCaseId === testCase.id && editingCell?.field === 'tags')) {
+                                            handleCellClick(testCase, 'tags', e);
                                           }
-                                          variant="outlined"
-                                        />
-                                      </TableCell>
-                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        {testCase.tags ? (
+                                        }}
+                                      >
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'tags' ? (
+                                          <Box onClick={(e) => e.stopPropagation()}>
+                                            <Autocomplete
+                                              multiple
+                                              options={tagOptions}
+                                              value={editValue}
+                                              onChange={(event, newValue) => {
+                                                setEditValue(newValue);
+                                              }}
+                                              onBlur={() => {
+                                                // Save when focus leaves the component
+                                                handleInlineEdit(testCase, 'tags', editValue);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Escape') {
+                                                  e.stopPropagation();
+                                                  handleInlineEditCancel();
+                                                }
+                                                if (e.key === 'Enter' && !e.target.value) {
+                                                  // If Enter is pressed and input is empty, save and close
+                                                  e.preventDefault();
+                                                  handleInlineEdit(testCase, 'tags', editValue);
+                                                }
+                                              }}
+                                              freeSolo
+                                              disableCloseOnSelect
+                                              size="small"
+                                              sx={{ minWidth: 180 }}
+                                              renderInput={(params) => (
+                                                <TextField
+                                                  {...params}
+                                                  autoFocus
+                                                  placeholder="Select tags"
+                                                />
+                                              )}
+                                            />
+                                          </Box>
+                                        ) : testCase.tags ? (
                                           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                                             {testCase.tags.split(',').map((tag, idx) => (
                                               <Chip
@@ -1026,14 +1478,42 @@ const TestCases = () => {
                                           <Typography variant="body2" color="text.secondary">-</Typography>
                                         )}
                                       </TableCell>
-                                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                      <TableCell 
+                                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                        onClick={(e) => testCase.test_type === 'automated' && handleCellClick(testCase, 'automation_status', e)}
+                                      >
                                         {testCase.test_type === 'automated' ? (
-                                          <Chip
-                                            label={testCase.automation_status || 'working'}
-                                            size="small"
-                                            color={testCase.automation_status === 'broken' ? 'error' : 'success'}
-                                            variant="outlined"
-                                          />
+                                          editingCell?.testCaseId === testCase.id && editingCell?.field === 'automation_status' ? (
+                                            <Select
+                                              open={true}
+                                              value={editValue}
+                                              onChange={(e) => {
+                                                const newValue = e.target.value;
+                                                setEditValue(newValue);
+                                                handleInlineEditChange(testCase, 'automation_status', newValue);
+                                              }}
+                                              onClose={() => {
+                                                // Always cancel on close - onChange will have already saved if a selection was made
+                                                setTimeout(() => handleInlineEditCancel(), 0);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Escape') handleInlineEditCancel();
+                                              }}
+                                              size="small"
+                                              autoFocus
+                                              sx={{ minWidth: 120 }}
+                                              >
+                                              <MenuItem value="working">Working</MenuItem>
+                                              <MenuItem value="broken">Broken</MenuItem>
+                                            </Select>
+                                          ) : (
+                                            <Chip
+                                              label={testCase.automation_status || 'working'}
+                                              size="small"
+                                              color={testCase.automation_status === 'broken' ? 'error' : 'success'}
+                                              variant="outlined"
+                                            />
+                                          )
                                         ) : (
                                           <Typography variant="body2" color="text.secondary">-</Typography>
                                         )}
@@ -1042,21 +1522,30 @@ const TestCases = () => {
                                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', alignItems: 'center' }}>
                                           <IconButton
                                             size="small"
-                                            onClick={() => handleViewTestCase(testCase)}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleViewTestCase(testCase);
+                                            }}
                                             color="info"
                                           >
                                             <ViewIcon />
                                           </IconButton>
                                           <IconButton
                                             size="small"
-                                            onClick={() => handleOpenDialog(testCase)}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenDialog(testCase);
+                                            }}
                                             color="primary"
                                           >
                                             <EditIcon />
                                           </IconButton>
                                           <IconButton
                                             size="small"
-                                            onClick={() => handleDelete(testCase.id)}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDelete(testCase.id);
+                                            }}
                                             color="error"
                                           >
                                             <DeleteIcon />
@@ -1533,40 +2022,168 @@ const TestCases = () => {
       {/* Bulk Upload Dialog */}
       <Dialog 
         open={openBulkUploadDialog} 
-        onClose={() => setOpenBulkUploadDialog(false)}
-        maxWidth="sm"
+        onClose={() => {
+          setOpenBulkUploadDialog(false);
+          setUploadFile(null);
+          setUploadFileType('csv');
+        }}
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>Bulk Upload Test Cases</DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="text.secondary" paragraph>
-              Upload a CSV file with test case data. The file should include the following columns:
-            </Typography>
-            <Typography variant="body2" component="div" sx={{ pl: 2, mb: 2 }}>
-              • title (required)<br />
-              • description<br />
-              • test_type (required: manual or automated)<br />
-              • tag (required: ui, api, or hybrid)<br />
-              • module_id (required: numeric ID of the module)<br />
-              • sub_module<br />
-              • feature_section<br />
-              • automation_status (working or broken)<br />
-              • steps_to_reproduce<br />
-              • expected_result<br />
-              • preconditions<br />
-              • test_data
-            </Typography>
-            
-            <Button
-              variant="outlined"
-              startIcon={<DownloadIcon />}
-              onClick={handleDownloadTemplate}
-              fullWidth
-              sx={{ mb: 3 }}
-            >
-              Download Template
-            </Button>
+            {/* File Type Toggle */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Select Upload Type:
+              </Typography>
+              <ToggleButtonGroup
+                value={uploadFileType}
+                exclusive
+                onChange={(e, newType) => {
+                  if (newType !== null) {
+                    setUploadFileType(newType);
+                    setUploadFile(null);
+                  }
+                }}
+                fullWidth
+              >
+                <ToggleButton value="csv">CSV File</ToggleButton>
+                <ToggleButton value="feature">BDD Feature File</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            {/* CSV Instructions */}
+            {uploadFileType === 'csv' && (
+              <>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Upload a CSV file with test case data. The file should include the following columns:
+                </Typography>
+                <Typography variant="body2" component="div" sx={{ pl: 2, mb: 2 }}>
+                  • title (required)<br />
+                  • description<br />
+                  • test_type (required: manual or automated)<br />
+                  • tag (required: ui, api, or hybrid)<br />
+                  • module_id (required: numeric ID of the module)<br />
+                  • sub_module<br />
+                  • feature_section<br />
+                  • automation_status (working or broken)<br />
+                  • steps_to_reproduce<br />
+                  • expected_result<br />
+                  • preconditions<br />
+                  • test_data
+                </Typography>
+                
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadIcon />}
+                  onClick={handleDownloadTemplate}
+                  fullWidth
+                  sx={{ mb: 3 }}
+                >
+                  Download CSV Template
+                </Button>
+              </>
+            )}
+
+            {/* Feature File Instructions */}
+            {uploadFileType === 'feature' && (
+              <>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Upload a BDD Feature file (.feature) containing Scenarios and Scenario Outlines. 
+                  Test IDs will be automatically generated for each scenario.
+                </Typography>
+                <Typography variant="body2" component="div" sx={{ pl: 2, mb: 2 }}>
+                  ✓ Supports Gherkin syntax<br />
+                  ✓ Scenarios converted to individual test cases<br />
+                  ✓ Scenario Outlines with Examples supported<br />
+                  ✓ Steps automatically extracted<br />
+                  ✓ Tags added: bdd, gherkin
+                </Typography>
+
+                {/* Feature Upload Configuration */}
+                <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Configuration:
+                  </Typography>
+                  <TextField
+                    select
+                    label="Module *"
+                    value={featureUploadConfig.module_id}
+                    onChange={(e) => handleFeatureUploadConfigChange('module_id', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                    required
+                  >
+                    {modules.map((module) => (
+                      <MenuItem key={module.id} value={module.id}>
+                        {module.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Sub-Module (Optional)"
+                    value={featureUploadConfig.sub_module}
+                    onChange={(e) => handleFeatureUploadConfigChange('sub_module', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                    disabled={!featureUploadConfig.module_id || featureUploadSubModules.length === 0}
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    {featureUploadSubModules.map((subModule, index) => (
+                      <MenuItem key={index} value={subModule.name || subModule}>
+                        {subModule.name || subModule}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Feature (Optional)"
+                    value={featureUploadConfig.feature_section}
+                    onChange={(e) => handleFeatureUploadConfigChange('feature_section', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                    disabled={!featureUploadConfig.sub_module || featureUploadFeatures.length === 0}
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    {featureUploadFeatures.map((feature, index) => (
+                      <MenuItem key={index} value={feature.name || feature}>
+                        {feature.name || feature}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Test Type"
+                    value={featureUploadConfig.test_type}
+                    onChange={(e) => handleFeatureUploadConfigChange('test_type', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                  >
+                    <MenuItem value="automated">Automated</MenuItem>
+                    <MenuItem value="manual">Manual</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    label="Tag"
+                    value={featureUploadConfig.tag}
+                    onChange={(e) => handleFeatureUploadConfigChange('tag', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                  >
+                    <MenuItem value="ui">UI</MenuItem>
+                    <MenuItem value="api">API</MenuItem>
+                    <MenuItem value="hybrid">Hybrid</MenuItem>
+                  </TextField>
+                </Paper>
+              </>
+            )}
 
             <Box
               sx={{
@@ -1581,18 +2198,21 @@ const TestCases = () => {
                   bgcolor: 'action.hover',
                 },
               }}
-              onClick={() => document.getElementById('csv-upload').click()}
+              onClick={() => document.getElementById('file-upload').click()}
             >
               <input
-                id="csv-upload"
+                id="file-upload"
                 type="file"
-                accept=".csv"
+                accept={uploadFileType === 'csv' ? '.csv' : '.feature'}
                 style={{ display: 'none' }}
                 onChange={(e) => setUploadFile(e.target.files[0])}
               />
               <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
               <Typography variant="h6" gutterBottom>
-                {uploadFile ? uploadFile.name : 'Click to select CSV file'}
+                {uploadFile 
+                  ? uploadFile.name 
+                  : `Click to select ${uploadFileType === 'csv' ? 'CSV' : 'Feature'} file`
+                }
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 or drag and drop your file here
@@ -1604,6 +2224,7 @@ const TestCases = () => {
           <Button onClick={() => {
             setOpenBulkUploadDialog(false);
             setUploadFile(null);
+            setUploadFileType('csv');
           }}>
             Cancel
           </Button>

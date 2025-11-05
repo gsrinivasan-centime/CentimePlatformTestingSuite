@@ -151,19 +151,24 @@ const DashboardView = ({ releaseId, onNavigateToTree }) => {
             </TableHead>
             <TableBody>
               {dashboardData.module_stats.map((module) => (
-                <TableRow key={module.module_id} hover>
+                <TableRow 
+                  key={module.module_id} 
+                  hover
+                  onClick={() => onNavigateToTree && onNavigateToTree()}
+                  sx={{ 
+                    cursor: 'pointer',
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    }
+                  }}
+                >
                   <TableCell>
                     <Typography 
                       variant="body2" 
                       fontWeight="bold"
                       sx={{ 
                         color: 'primary.main',
-                        cursor: 'pointer',
-                        '&:hover': {
-                          textDecoration: 'underline'
-                        }
                       }}
-                      onClick={() => onNavigateToTree && onNavigateToTree()}
                     >
                       {module.module_name}
                     </Typography>

@@ -56,6 +56,8 @@ class User(Base):
     full_name = Column(String)
     role = Column(SQLEnum(UserRole), default=UserRole.TESTER)
     is_active = Column(Boolean, default=True)
+    is_email_verified = Column(Boolean, default=False)
+    email_verified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships

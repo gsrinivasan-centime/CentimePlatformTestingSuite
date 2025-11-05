@@ -255,7 +255,17 @@ const Users = () => {
             </TableHead>
             <TableBody>
               {users.map((user) => (
-                <TableRow key={user.id} hover>
+                <TableRow 
+                  key={user.id} 
+                  hover
+                  onClick={() => handleOpenDialog(user)}
+                  sx={{ 
+                    cursor: 'pointer',
+                    '&:hover': {
+                      backgroundColor: 'action.hover',
+                    }
+                  }}
+                >
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.id}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <Typography variant="body1" fontWeight="medium">
@@ -284,14 +294,20 @@ const Users = () => {
                     <IconButton
                       size="small"
                       color="primary"
-                      onClick={() => handleOpenDialog(user)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenDialog(user);
+                      }}
                     >
                       <EditIcon />
                     </IconButton>
                     <IconButton
                       size="small"
                       color="error"
-                      onClick={() => handleDelete(user.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(user.id);
+                      }}
                     >
                       <DeleteIcon />
                     </IconButton>

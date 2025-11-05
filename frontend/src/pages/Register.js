@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -17,7 +17,6 @@ import { Visibility, VisibilityOff, PersonAdd } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 
 const Register = () => {
-  const navigate = useNavigate();
   const { register } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -29,6 +28,7 @@ const Register = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
 
   const emailDomain = process.env.REACT_APP_ALLOWED_EMAIL_DOMAIN || 'centime.com';
 
@@ -76,9 +76,7 @@ const Register = () => {
     const result = await register(registerData);
 
     if (result.success) {
-      navigate('/login', {
-        state: { message: 'Registration successful! Please log in.' },
-      });
+      setRegistrationSuccess(true);
     } else {
       setError(result.error);
     }
@@ -111,7 +109,29 @@ const Register = () => {
             </Alert>
           )}
 
-          <form onSubmit={handleSubmit}>
+          {registrationSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              <Typography variant="body1" fontWeight="bold" gutterBottom>
+                Registration Successful!
+              </Typography>
+              <Typography variant="body2">
+                Please check your email inbox ({formData.email}) for a verification link.
+                You must verify your email before logging in.
+              </Typography>
+              <Button
+                component={RouterLink}
+                to="/login"
+                variant="outlined"
+                size="small"
+                sx={{ mt: 2 }}
+              >
+                Go to Login
+              </Button>
+            </Alert>
+          )}
+
+          {!registrationSuccess && (
+            <form onSubmit={handleSubmit}>
             <TextField
               fullWidth
               label="Full Name"
@@ -196,6 +216,7 @@ const Register = () => {
               {loading ? 'Creating account...' : 'Sign Up'}
             </Button>
           </form>
+          )}
 
           <Box sx={{ textAlign: 'center', mt: 2 }}>
             <Typography variant="body2">

@@ -250,6 +250,16 @@ export const testCasesAPI = {
     return response.data;
   },
   
+  // NEW: Bulk upload test cases from BDD Feature file
+  bulkUploadFeature: async (formData) => {
+    const response = await api.post('/test-cases/bulk-upload-feature', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+  
   // NEW: Hierarchy endpoints
   getHierarchyStructure: async () => {
     const response = await api.get('/test-cases/hierarchy/structure');

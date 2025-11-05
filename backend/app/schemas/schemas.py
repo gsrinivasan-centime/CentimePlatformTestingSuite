@@ -63,6 +63,8 @@ class UserUpdate(BaseModel):
 class User(UserBase):
     id: int
     is_active: bool
+    is_email_verified: bool
+    email_verified_at: Optional[datetime] = None
     created_at: datetime
     
     class Config:

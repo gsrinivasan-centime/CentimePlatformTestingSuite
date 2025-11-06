@@ -474,17 +474,63 @@ const Stories = () => {
     );
   });
 
+  const [syncingAllStories, setSyncingAllStories] = useState(false);
+
+  const handleSyncAllStories = async () => {
+    if (!window.confirm('This will update all existing stories from JIRA. Stories with changed fix versions will be automatically unlinked from releases. Continue?')) {
+      return;
+    }
+
+    setSyncingAllStories(true);
+    try {
+      const response = await jiraStoriesAPI.syncAllStories();
+      
+      if (response.success) {
+        let message = response.message;
+        
+        // Add details about unlinked releases if any
+        if (response.unlinked_releases && response.unlinked_releases.length > 0) {
+          const unlinkedCount = response.unlinked_releases.length;
+          message += `\n\nUnlinked ${unlinkedCount} test case(s) from releases due to fix version changes.`;
+        }
+        
+        showSnackbar(message, 'success');
+        
+        // Refresh the stories list
+        await fetchStories();
+      } else {
+        showSnackbar('Failed to sync stories', 'error');
+      }
+    } catch (error) {
+      console.error('Error syncing stories:', error);
+      const errorMessage = error.response?.data?.detail || 'Failed to sync stories from JIRA';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setSyncingAllStories(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Story Management</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          Add Story
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={handleSyncAllStories}
+            disabled={syncingAllStories}
+          >
+            {syncingAllStories ? 'Syncing...' : 'Sync Stories'}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+          >
+            Add Story
+          </Button>
+        </Box>
       </Box>
 
       {loading ? (

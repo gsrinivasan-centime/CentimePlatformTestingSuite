@@ -405,6 +405,11 @@ export const jiraStoriesAPI = {
     const response = await api.post(`/jira-stories/sync-by-release/${releaseVersion}`);
     return response.data;
   },
+  
+  syncAllStories: async () => {
+    const response = await api.post('/jira-stories/sync-all-stories');
+    return response.data;
+  },
 };
 
 export default api;

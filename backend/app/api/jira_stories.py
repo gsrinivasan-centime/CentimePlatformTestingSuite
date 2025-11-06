@@ -265,15 +265,64 @@ def delete_story(
 @router.get("/{story_id}/test-cases")
 def get_story_test_cases(
     story_id: str,
+    release_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get all test cases linked to a specific story"""
+    """Get all test cases linked to a specific story with optional execution status for a release"""
     story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
     test_cases = db.query(TestCase).options(joinedload(TestCase.module)).filter(TestCase.jira_story_id == story_id).all()
+    
+    test_cases_data = []
+    for tc in test_cases:
+        tc_data = {
+            "id": tc.id,
+            "test_id": tc.test_id,
+            "title": tc.title,
+            "description": tc.description,
+            "preconditions": tc.preconditions,
+            "steps_to_reproduce": tc.steps_to_reproduce,
+            "expected_result": tc.expected_result,
+            "test_type": tc.test_type.value,
+            "tag": tc.tag.value,
+            "tags": tc.tags,
+            "scenario_examples": tc.scenario_examples,
+            "module_id": tc.module_id,
+            "module_name": tc.module.name if tc.module else "Unknown",
+            "sub_module": tc.sub_module,
+            "feature_section": tc.feature_section,
+            "automation_status": tc.automation_status.value if tc.automation_status else None,
+            "jira_story_id": tc.jira_story_id,
+            "jira_epic_id": tc.jira_epic_id
+        }
+        
+        # If release_id is provided, get execution status
+        if release_id:
+            rtc = db.query(ReleaseTestCase).filter(
+                ReleaseTestCase.release_id == release_id,
+                ReleaseTestCase.test_case_id == tc.id
+            ).first()
+            
+            # Convert enum to frontend format
+            if rtc and rtc.execution_status:
+                status_value = rtc.execution_status.value if hasattr(rtc.execution_status, 'value') else str(rtc.execution_status)
+                status_map = {
+                    "not_started": "Not Started",
+                    "in_progress": "In Progress",
+                    "passed": "Passed",
+                    "failed": "Failed",
+                    "blocked": "Blocked"
+                }
+                tc_data["execution_status"] = status_map.get(status_value, "Not Started")
+            else:
+                tc_data["execution_status"] = "Not Started"
+            
+            tc_data["release_test_case_id"] = rtc.id if rtc else None
+        
+        test_cases_data.append(tc_data)
     
     return {
         "story": {
@@ -282,18 +331,7 @@ def get_story_test_cases(
             "epic_id": story.epic_id,
             "status": story.status
         },
-        "test_cases": [{
-            "id": tc.id,
-            "test_id": tc.test_id,
-            "title": tc.title,
-            "test_type": tc.test_type.value,
-            "tag": tc.tag.value,
-            "module_id": tc.module_id,
-            "module_name": tc.module.name if tc.module else "Unknown",
-            "sub_module": tc.sub_module,
-            "feature_section": tc.feature_section,
-            "automation_status": tc.automation_status.value if tc.automation_status else None
-        } for tc in test_cases],
+        "test_cases": test_cases_data,
         "total_test_cases": len(test_cases)
     }
 
@@ -541,6 +579,186 @@ def sync_stories_by_release(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to sync stories from JIRA: {str(e)}"
+        )
+
+
+@router.post("/sync-all-stories")
+def sync_all_existing_stories(
+    force_full_sync: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Sync existing stories from JIRA to update their details.
+    Uses incremental sync by default - only syncs stories updated in JIRA since last sync.
+    
+    Args:
+        force_full_sync: If True, syncs all stories regardless of last sync time (default: False)
+    
+    This does NOT fetch new stories, only updates existing ones.
+    If a story's fix version has changed, it will be unlinked from releases that don't match.
+    """
+    try:
+        from datetime import datetime, timezone
+        
+        # Get all stories from database
+        all_stories = db.query(JiraStory).all()
+        
+        if not all_stories:
+            return {
+                "success": True,
+                "message": "No stories found to sync",
+                "updated": 0,
+                "skipped": 0,
+                "errors": []
+            }
+        
+        # Determine which stories need syncing
+        if force_full_sync:
+            # Full sync - sync all stories
+            stories_to_sync = all_stories
+            sync_mode = "full"
+        else:
+            # Incremental sync - only sync stories updated in JIRA since last sync
+            # Find the oldest last_synced_at timestamp (or use a default lookback period)
+            oldest_sync = None
+            for story in all_stories:
+                if story.last_synced_at:
+                    if oldest_sync is None or story.last_synced_at < oldest_sync:
+                        oldest_sync = story.last_synced_at
+            
+            # If no stories have been synced before, look back 30 days
+            if oldest_sync is None:
+                from datetime import timedelta
+                oldest_sync = datetime.utcnow() - timedelta(days=30)
+            
+            # Format datetime for JIRA JQL (YYYY-MM-DD HH:mm)
+            sync_time_str = oldest_sync.strftime('%Y-%m-%d %H:%M')
+            
+            # Get all story IDs
+            story_ids = [story.story_id for story in all_stories]
+            
+            # Query JIRA for stories that were updated since last sync
+            try:
+                updated_stories_data = jira_service.search_stories_updated_after(story_ids, sync_time_str)
+                updated_story_ids = {s['story_id'] for s in updated_stories_data}
+                
+                # Create a map for quick lookup
+                jira_data_map = {s['story_id']: s for s in updated_stories_data}
+                
+                # Only sync stories that were updated in JIRA
+                stories_to_sync = [s for s in all_stories if s.story_id in updated_story_ids]
+                sync_mode = "incremental"
+            except Exception as e:
+                # If JIRA query fails, fall back to full sync
+                stories_to_sync = all_stories
+                sync_mode = "full (fallback)"
+                jira_data_map = {}
+        
+        updated_count = 0
+        skipped_count = len(all_stories) - len(stories_to_sync)
+        error_count = 0
+        errors = []
+        unlinked_releases = []
+        current_time = datetime.utcnow()
+        
+        for story in stories_to_sync:
+            try:
+                # If we have JIRA data from bulk query, use it; otherwise fetch individually
+                if not force_full_sync and sync_mode == "incremental" and story.story_id in jira_data_map:
+                    story_details = jira_data_map[story.story_id]
+                else:
+                    # Fetch latest details from JIRA
+                    story_details = jira_service.fetch_story_details(story.story_id)
+                
+                # Track old values
+                old_release = story.release
+                
+                # Update story fields
+                story.title = story_details.get('title', story.title)
+                story.description = story_details.get('description', story.description)
+                story.status = story_details.get('status', story.status)
+                story.priority = story_details.get('priority', story.priority)
+                story.assignee = story_details.get('assignee', story.assignee)
+                story.sprint = story_details.get('sprint', story.sprint)
+                story.epic_id = story_details.get('epic_id', story.epic_id)
+                story.release = story_details.get('release', story.release)
+                story.last_synced_at = current_time
+                
+                new_release = story.release
+                
+                # If release (fix version) has changed, handle release unlinking
+                if old_release != new_release:
+                    # Get all test cases linked to this story
+                    test_cases = db.query(TestCase).filter(TestCase.jira_story_id == story.story_id).all()
+                    test_case_ids = [tc.id for tc in test_cases]
+                    
+                    if test_case_ids:
+                        # Find releases that have these test cases linked
+                        release_links = db.query(ReleaseTestCase).filter(
+                            ReleaseTestCase.test_case_id.in_(test_case_ids)
+                        ).all()
+                        
+                        for link in release_links:
+                            release = db.query(Release).filter(Release.id == link.release_id).first()
+                            if release:
+                                # If the release version doesn't match the new fix version, unlink
+                                if release.version != new_release:
+                                    db.delete(link)
+                                    unlinked_releases.append({
+                                        "story_id": story.story_id,
+                                        "release_version": release.version,
+                                        "old_fix_version": old_release,
+                                        "new_fix_version": new_release
+                                    })
+                    
+                    # If new release exists and is different, auto-link test cases to it
+                    if new_release:
+                        auto_link_story_test_cases_to_release(db, story.story_id, new_release)
+                
+                updated_count += 1
+                
+            except ValueError as e:
+                error_count += 1
+                errors.append({
+                    "story_id": story.story_id,
+                    "error": str(e)
+                })
+            except Exception as e:
+                error_count += 1
+                errors.append({
+                    "story_id": story.story_id,
+                    "error": f"Unexpected error: {str(e)}"
+                })
+        
+        db.commit()
+        
+        message = f"Sync completed ({sync_mode} mode): {updated_count} stories updated"
+        if skipped_count > 0:
+            message += f", {skipped_count} stories skipped (no updates in JIRA)"
+        if error_count > 0:
+            message += f", {error_count} failed"
+        if unlinked_releases:
+            message += f", {len(unlinked_releases)} test cases unlinked from releases due to fix version changes"
+        
+        return {
+            "success": True,
+            "message": message,
+            "sync_mode": sync_mode,
+            "total_stories": len(all_stories),
+            "updated": updated_count,
+            "skipped": skipped_count,
+            "errors": errors[:10] if errors else [],  # Limit error details
+            "unlinked_releases": unlinked_releases[:20] if unlinked_releases else []
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to sync stories: {str(e)}"
         )
 
 

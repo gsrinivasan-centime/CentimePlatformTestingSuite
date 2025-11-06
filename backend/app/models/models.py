@@ -218,7 +218,7 @@ class ReleaseTestCase(Base):
     sub_module_id = Column(Integer, ForeignKey("sub_modules.id"))
     feature_id = Column(Integer, ForeignKey("features.id"))
     priority = Column(String)  # high, medium, low
-    execution_status = Column(SQLEnum(ExecutionStatus), default=ExecutionStatus.NOT_STARTED)
+    execution_status = Column(SQLEnum(ExecutionStatus, values_callable=lambda x: [e.value for e in x]), default=ExecutionStatus.NOT_STARTED)
     executed_by_id = Column(Integer, ForeignKey("users.id"))
     execution_date = Column(DateTime)
     execution_duration = Column(Integer)  # in seconds
@@ -283,6 +283,7 @@ class JiraStory(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_synced_at = Column(DateTime, nullable=True)  # Track when story was last synced from JIRA
     
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])

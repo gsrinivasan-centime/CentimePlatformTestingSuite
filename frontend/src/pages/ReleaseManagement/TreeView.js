@@ -66,14 +66,10 @@ const STATUS_ICONS = {
 const TreeView = ({ releaseId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [viewMode, setViewMode] = useState('module'); // 'module' or 'jira_story'
   const [treeData, setTreeData] = useState(null);
-  const [jiraTreeData, setJiraTreeData] = useState(null);
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubModules, setExpandedSubModules] = useState({});
   const [expandedFeatures, setExpandedFeatures] = useState({});
-  const [expandedEpics, setExpandedEpics] = useState({});
-  const [expandedStories, setExpandedStories] = useState({});
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -98,14 +94,10 @@ const TreeView = ({ releaseId }) => {
       setLoading(true);
       setError('');
       
-      // Fetch both module-based and JIRA story-based views
-      const [moduleResponse, jiraData] = await Promise.all([
-        getReleaseTreeView(releaseId),
-        testCasesAPI.getByJiraStory(releaseId)
-      ]);
+      // Fetch module-based view only
+      const moduleResponse = await getReleaseTreeView(releaseId);
       
       setTreeData(moduleResponse.data);
-      setJiraTreeData(jiraData);
       
       // Auto-expand all modules
       const modulesExpanded = {};
@@ -113,15 +105,6 @@ const TreeView = ({ releaseId }) => {
         modulesExpanded[module.id] = true;
       });
       setExpandedModules(modulesExpanded);
-      
-      // Auto-expand all epics
-      const epicsExpanded = {};
-      if (jiraData.epics) {
-        jiraData.epics.forEach(epic => {
-          epicsExpanded[epic.id] = true;
-        });
-      }
-      setExpandedEpics(epicsExpanded);
     } catch (err) {
       console.error('Error fetching tree view:', err);
       setError(err.response?.data?.detail || 'Failed to load tree data');
@@ -148,20 +131,6 @@ const TreeView = ({ releaseId }) => {
     setExpandedFeatures(prev => ({
       ...prev,
       [featureId]: !prev[featureId]
-    }));
-  };
-
-  const handleEpicToggle = (epicId) => {
-    setExpandedEpics(prev => ({
-      ...prev,
-      [epicId]: !prev[epicId]
-    }));
-  };
-
-  const handleStoryToggle = (storyId) => {
-    setExpandedStories(prev => ({
-      ...prev,
-      [storyId]: !prev[storyId]
     }));
   };
 
@@ -291,27 +260,8 @@ const TreeView = ({ releaseId }) => {
 
   return (
     <Box>
-      {/* View Mode Toggle */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center' }}>
-        <Typography variant="h6">View By:</Typography>
-        <Button
-          variant={viewMode === 'module' ? 'contained' : 'outlined'}
-          onClick={() => setViewMode('module')}
-          sx={{ textTransform: 'none' }}
-        >
-          Module Hierarchy
-        </Button>
-        <Button
-          variant={viewMode === 'jira_story' ? 'contained' : 'outlined'}
-          onClick={() => setViewMode('jira_story')}
-          sx={{ textTransform: 'none' }}
-        >
-          JIRA Stories
-        </Button>
-      </Box>
-
       {/* Module View */}
-      {viewMode === 'module' && treeData.modules.map((module) => (
+      {treeData.modules.map((module) => (
         <Accordion 
           key={module.id} 
           expanded={expandedModules[module.id] || false}
@@ -497,198 +447,6 @@ const TreeView = ({ releaseId }) => {
                 </AccordionDetails>
               </Accordion>
             ))}
-          </AccordionDetails>
-        </Accordion>
-      ))}
-
-      {/* JIRA Story View */}
-      {viewMode === 'jira_story' && jiraTreeData && jiraTreeData.epics && jiraTreeData.epics.map((epic) => (
-        <Accordion 
-          key={epic.id} 
-          expanded={expandedEpics[epic.id] || false}
-          onChange={() => handleEpicToggle(epic.id)}
-          sx={{ mb: 1 }}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-              <Typography variant="h6" sx={{ flexGrow: 1 }}>
-                {epic.name}
-                {epic.type === 'unassigned' && ' (Unassigned Test Cases)'}
-              </Typography>
-              <Chip 
-                label={`${epic.children?.length || 0} Stories`} 
-                size="small" 
-                color="primary"
-              />
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails>
-            {/* Stories */}
-            {epic.children?.map((story) => (
-              <Accordion 
-                key={story.id}
-                expanded={expandedStories[story.id] || false}
-                onChange={() => handleStoryToggle(story.id)}
-                sx={{ mb: 1, ml: 2 }}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                        <Chip label={story.name} size="small" color="primary" sx={{ mr: 1 }} />
-                        {story.title && story.title}
-                      </Typography>
-                    </Box>
-                    <Chip 
-                      label={`${story.test_case_count} Test Cases`} 
-                      size="small" 
-                      color="secondary"
-                    />
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Test ID</TableCell>
-                          <TableCell>Title</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell>Tag</TableCell>
-                          <TableCell>Module</TableCell>
-                          <TableCell>Sub-Module</TableCell>
-                          <TableCell>Feature</TableCell>
-                          <TableCell align="center">Actions</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {story.test_cases?.map((testCase) => (
-                          <TableRow key={testCase.id} hover>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="medium" color="primary">
-                                {testCase.test_id}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{testCase.title}</TableCell>
-                            <TableCell>
-                              <Chip
-                                label={testCase.test_type}
-                                size="small"
-                                color={testCase.test_type === 'automated' ? 'success' : 'default'}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={testCase.tag?.toUpperCase()}
-                                size="small"
-                                color={
-                                  testCase.tag === 'api' ? 'success' : 
-                                  testCase.tag === 'hybrid' ? 'warning' : 
-                                  'info'
-                                }
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Chip label={testCase.module_id} size="small" variant="outlined" />
-                            </TableCell>
-                            <TableCell>
-                              {testCase.sub_module ? (
-                                <Chip label={testCase.sub_module} size="small" variant="outlined" color="secondary" />
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell>
-                              {testCase.feature_section ? (
-                                <Chip label={testCase.feature_section} size="small" variant="outlined" color="info" />
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell align="center">
-                              <Tooltip title="View Details">
-                                <IconButton
-                                  size="small"
-                                  color="primary"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleViewTestCase(testCase);
-                                  }}
-                                >
-                                  <ViewIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </AccordionDetails>
-              </Accordion>
-            ))}
-            
-            {/* Direct test cases under epic (no story) */}
-            {epic.test_cases && epic.test_cases.length > 0 && (
-              <Box sx={{ ml: 2, mt: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Direct Test Cases
-                </Typography>
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Test ID</TableCell>
-                        <TableCell>Title</TableCell>
-                        <TableCell>Type</TableCell>
-                        <TableCell>Tag</TableCell>
-                        <TableCell align="center">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {epic.test_cases.map((testCase) => (
-                        <TableRow key={testCase.id} hover>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight="medium" color="primary">
-                              {testCase.test_id}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{testCase.title}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label={testCase.test_type}
-                              size="small"
-                              color={testCase.test_type === 'automated' ? 'success' : 'default'}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={testCase.tag?.toUpperCase()}
-                              size="small"
-                              color={
-                                testCase.tag === 'api' ? 'success' : 
-                                testCase.tag === 'hybrid' ? 'warning' : 
-                                'info'
-                              }
-                            />
-                          </TableCell>
-                          <TableCell align="center">
-                            <Tooltip title="View Details">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleViewTestCase(testCase);
-                                }}
-                              >
-                                <ViewIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Box>
-            )}
           </AccordionDetails>
         </Accordion>
       ))}

@@ -134,18 +134,6 @@ const Login = () => {
               </Link>
             </Typography>
           </Box>
-
-          <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-            <Typography variant="caption" color="text.secondary" display="block">
-              <strong>Demo Credentials:</strong>
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Admin: admin@centime.com / Admin123!
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block">
-              Tester: tester@centime.com / Tester123!
-            </Typography>
-          </Box>
         </Paper>
       </Container>
     </Box>

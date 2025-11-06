@@ -108,7 +108,7 @@ def get_release_stories(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get all JIRA stories associated with this release based on release version"""
+    """Get all JIRA stories associated with this release based on release version with test execution statistics"""
     release = db.query(Release).filter(Release.id == release_id).first()
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
@@ -118,10 +118,53 @@ def get_release_stories(
         JiraStory.release == release.version
     ).order_by(JiraStory.updated_at.desc()).all()
     
-    return {
-        "release_id": release.id,
-        "release_version": release.version,
-        "stories": [{
+    # Build stories with test execution stats
+    stories_with_stats = []
+    for story in stories:
+        # Get test cases linked to this story
+        test_cases = db.query(TestCase).filter(TestCase.jira_story_id == story.story_id).all()
+        
+        # Get execution statistics for these test cases in this release
+        total_tests = len(test_cases)
+        passed = 0
+        failed = 0
+        blocked = 0
+        in_progress = 0
+        not_started = 0
+        
+        for tc in test_cases:
+            # Find the execution status from release_test_cases
+            try:
+                rtc = db.query(ReleaseTestCase).filter(
+                    ReleaseTestCase.release_id == release.id,
+                    ReleaseTestCase.test_case_id == tc.id
+                ).first()
+                
+                if rtc and rtc.execution_status:
+                    # Handle enum comparison
+                    status_value = rtc.execution_status.value if hasattr(rtc.execution_status, 'value') else str(rtc.execution_status).lower()
+                    if status_value == 'passed':
+                        passed += 1
+                    elif status_value == 'failed':
+                        failed += 1
+                    elif status_value == 'blocked':
+                        blocked += 1
+                    elif status_value in ['in_progress', 'in progress']:
+                        in_progress += 1
+                    else:
+                        not_started += 1
+                else:
+                    not_started += 1
+            except (LookupError, ValueError) as e:
+                # Handle cases where execution_status has invalid enum value
+                print(f"Warning: Invalid execution status for test case {tc.id}: {e}")
+                not_started += 1
+        
+        # Calculate completion percentage (only count passed tests as completed)
+        # Failed tests should not be counted as completed
+        completion_percentage = (passed / total_tests * 100) if total_tests > 0 else 0
+        
+        stories_with_stats.append({
             "id": story.id,
             "story_id": story.story_id,
             "epic_id": story.epic_id,
@@ -132,8 +175,22 @@ def get_release_stories(
             "assignee": story.assignee,
             "release": story.release,
             "created_at": story.created_at,
-            "updated_at": story.updated_at
-        } for story in stories],
+            "updated_at": story.updated_at,
+            "test_stats": {
+                "total": total_tests,
+                "passed": passed,
+                "failed": failed,
+                "blocked": blocked,
+                "in_progress": in_progress,
+                "not_started": not_started,
+                "completion_percentage": round(completion_percentage, 1)
+            }
+        })
+    
+    return {
+        "release_id": release.id,
+        "release_version": release.version,
+        "stories": stories_with_stats,
         "total_stories": len(stories)
     }
 
@@ -213,4 +270,50 @@ def sync_story_test_cases_to_release(
         "skipped_count": skipped_count,
         "total_stories": len(stories)
     }
+
+@router.patch("/{release_id}/test-case/{test_case_id}/execution-status")
+def update_test_case_execution_status(
+    release_id: int,
+    test_case_id: int,
+    execution_status: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update execution status of a test case in a release"""
+    # Map frontend status format to enum format
+    status_mapping = {
+        "Not Started": ExecutionStatus.NOT_STARTED,
+        "In Progress": ExecutionStatus.IN_PROGRESS,
+        "Passed": ExecutionStatus.PASSED,
+        "Failed": ExecutionStatus.FAILED,
+        "Blocked": ExecutionStatus.BLOCKED
+    }
+    
+    if execution_status not in status_mapping:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid execution status. Must be one of: {', '.join(status_mapping.keys())}"
+        )
+    
+    # Find the release test case
+    rtc = db.query(ReleaseTestCase).filter(
+        ReleaseTestCase.release_id == release_id,
+        ReleaseTestCase.test_case_id == test_case_id
+    ).first()
+    
+    if not rtc:
+        raise HTTPException(status_code=404, detail="Test case not found in this release")
+    
+    # Update the execution status with enum value
+    rtc.execution_status = status_mapping[execution_status]
+    db.commit()
+    db.refresh(rtc)
+    
+    return {
+        "success": True,
+        "message": f"Execution status updated to {execution_status}",
+        "test_case_id": test_case_id,
+        "execution_status": execution_status
+    }
+
 

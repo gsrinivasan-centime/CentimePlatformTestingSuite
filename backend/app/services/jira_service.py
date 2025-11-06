@@ -283,6 +283,118 @@ class JiraService:
             stories.append(story_details)
         
         return stories
+    
+    def search_stories_updated_after(self, story_ids: list, updated_after: str) -> list:
+        """
+        Search JIRA stories by story IDs that were updated after a specific datetime using JQL
+        
+        Args:
+            story_ids: List of story IDs to check (e.g., ["CTP-123", "CTP-124"])
+            updated_after: ISO datetime string (e.g., "2025-11-05 10:30")
+            
+        Returns:
+            List of story details for stories that were updated after the given datetime
+            
+        Raises:
+            ValueError: If JIRA is not configured or search fails
+        """
+        if not self.is_configured:
+            raise ValueError(
+                "JIRA integration is not configured. Please set JIRA_SERVER, "
+                "JIRA_EMAIL, and JIRA_API_TOKEN in your .env file."
+            )
+        
+        if not story_ids:
+            return []
+        
+        # Split into batches of 100 to avoid JQL query length limits
+        batch_size = 100
+        all_stories = []
+        
+        for i in range(0, len(story_ids), batch_size):
+            batch = story_ids[i:i + batch_size]
+            
+            # Construct JQL query to search by story IDs and updated date
+            # Format: key in (CTP-123, CTP-124) AND updated >= "2025-11-05 10:30"
+            story_ids_str = ', '.join(batch)
+            jql = f'key in ({story_ids_str}) AND updated >= "{updated_after}"'
+            
+            # Use the v3 JQL endpoint
+            api_url = f"{self.jira_server}/rest/api/3/search/jql"
+            
+            try:
+                response = requests.get(
+                    api_url,
+                    auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                    headers={
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    params={
+                        'jql': jql,
+                        'maxResults': batch_size,
+                        'fields': 'summary,description,status,priority,assignee,parent,epic,customfield_10014,sprint,customfield_10020,fixVersions,updated'
+                    },
+                    timeout=30
+                )
+                
+                response.raise_for_status()
+                
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 401:
+                    raise ValueError("JIRA authentication failed. Please check your credentials.")
+                elif e.response.status_code == 400:
+                    try:
+                        error_detail = e.response.json()
+                        error_messages = error_detail.get('errorMessages', [])
+                        if error_messages:
+                            raise ValueError(f"JIRA error: {', '.join(error_messages)}")
+                    except:
+                        pass
+                    raise ValueError(f"Invalid JQL query")
+                else:
+                    raise ValueError(f"JIRA API error: {e}")
+            except requests.exceptions.Timeout:
+                raise ValueError("JIRA API request timed out. Please try again.")
+            except requests.exceptions.RequestException as e:
+                raise ValueError(f"Failed to connect to JIRA: {e}")
+            
+            # Parse response
+            data = response.json()
+            issues = data.get('issues', [])
+            
+            # Extract story details from each issue
+            for issue in issues:
+                story_id = issue.get('key', '')
+                fields = issue.get('fields', {})
+                
+                # Extract description
+                description = ''
+                desc_field = fields.get('description', '')
+                if isinstance(desc_field, dict):
+                    try:
+                        description = desc_field.get('content', [{}])[0].get('content', [{}])[0].get('text', '')
+                    except (IndexError, AttributeError, TypeError):
+                        description = ''
+                elif isinstance(desc_field, str):
+                    description = desc_field
+                else:
+                    description = str(desc_field) if desc_field else ''
+                
+                story_details = {
+                    'story_id': story_id,
+                    'title': fields.get('summary', ''),
+                    'description': description,
+                    'status': fields.get('status', {}).get('name', 'To Do'),
+                    'priority': fields.get('priority', {}).get('name', 'Medium'),
+                    'assignee': fields.get('assignee', {}).get('displayName', '') if fields.get('assignee') else '',
+                    'epic_id': self._extract_epic_link(fields),
+                    'sprint': self._extract_sprint(fields),
+                    'release': self._extract_fix_version(fields),
+                }
+                all_stories.append(story_details)
+        
+        return all_stories
 
 # Singleton instance
 jira_service = JiraService()

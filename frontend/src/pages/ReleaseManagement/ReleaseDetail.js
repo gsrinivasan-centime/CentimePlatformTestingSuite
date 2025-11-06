@@ -152,14 +152,14 @@ const ReleaseDetail = () => {
               label="Dashboard" 
             />
             <Tab 
-              icon={<TreeIcon />} 
-              iconPosition="start" 
-              label="Test Cases Tree" 
-            />
-            <Tab 
               icon={<ArticleIcon />} 
               iconPosition="start" 
               label="Stories" 
+            />
+            <Tab 
+              icon={<TreeIcon />} 
+              iconPosition="start" 
+              label="Modules" 
             />
           </Tabs>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -202,14 +202,14 @@ const ReleaseDetail = () => {
           <DashboardView 
             releaseId={releaseId} 
             key={`dashboard-${refreshKey}`}
-            onNavigateToTree={() => setCurrentTab(1)}
+            onNavigateToTree={() => setCurrentTab(2)}
           />
         )}
         {currentTab === 1 && (
-          <TreeView releaseId={releaseId} key={`tree-${refreshKey}`} />
+          <StoriesView releaseId={releaseId} key={`stories-${refreshKey}`} />
         )}
         {currentTab === 2 && (
-          <StoriesView releaseId={releaseId} key={`stories-${refreshKey}`} />
+          <TreeView releaseId={releaseId} key={`tree-${refreshKey}`} />
         )}
       </Box>
 

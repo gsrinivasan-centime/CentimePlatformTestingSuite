@@ -98,6 +98,8 @@ const TestCases = () => {
   
   // NEW: Filter state
   const [filters, setFilters] = useState({
+    test_id: '',
+    title: '',
     module_id: '',
     sub_module: '',
     feature_section: '',
@@ -222,18 +224,6 @@ const TestCases = () => {
     }
     
     setFilters(newFilters);
-  };
-  
-  // NEW: Clear all filters
-  const handleClearFilters = () => {
-    setFilters({
-      module_id: '',
-      sub_module: '',
-      feature_section: '',
-      test_type: '',
-    });
-    setFilterSubModules([]);
-    setFilterFeatures([]);
   };
 
   // NEW: Load sub-modules for feature upload
@@ -785,118 +775,25 @@ const TestCases = () => {
         </Alert>
       )}
 
-      {/* NEW: Filter Panel with View Toggle */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">
-            Filters
-          </Typography>
-          <ToggleButtonGroup
-            value={viewType}
-            exclusive
-            onChange={handleViewTypeChange}
-            aria-label="view type"
-            size="small"
-          >
-            <ToggleButton value="list" aria-label="list view">
-              <ViewListIcon sx={{ mr: 0.5 }} fontSize="small" />
-              List
-            </ToggleButton>
-            <ToggleButton value="tree" aria-label="tree view">
-              <TreeViewIcon sx={{ mr: 0.5 }} fontSize="small" />
-              Tree
-            </ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-        <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
-          <TextField
-            select
-            label="Module"
-            name="module_id"
-            value={filters.module_id}
-            onChange={handleFilterChange}
-            sx={{ minWidth: 200 }}
-            size="small"
-          >
-            <MenuItem value="">
-              <em>All Modules</em>
-            </MenuItem>
-            {modules.map((module) => (
-              <MenuItem key={module.id} value={module.id}>
-                {module.name}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          {filters.module_id && (
-            <TextField
-              select
-              label="Sub-Module"
-              name="sub_module"
-              value={filters.sub_module}
-              onChange={handleFilterChange}
-              sx={{ minWidth: 200 }}
-              size="small"
-            >
-              <MenuItem value="">
-                <em>All Sub-Modules</em>
-              </MenuItem>
-              {filterSubModules.map((sm) => (
-                <MenuItem key={sm.name} value={sm.name}>
-                  {sm.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-
-          {filters.module_id && filters.sub_module && (
-            <TextField
-              select
-              label="Feature/Section"
-              name="feature_section"
-              value={filters.feature_section}
-              onChange={handleFilterChange}
-              sx={{ minWidth: 200 }}
-              size="small"
-            >
-              <MenuItem value="">
-                <em>All Features</em>
-              </MenuItem>
-              {filterFeatures.map((f) => (
-                <MenuItem key={f.name} value={f.name}>
-                  {f.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-
-          <TextField
-            select
-            label="Test Type"
-            name="test_type"
-            value={filters.test_type}
-            onChange={handleFilterChange}
-            sx={{ minWidth: 150 }}
-            size="small"
-          >
-            <MenuItem value="">
-              <em>All Types</em>
-            </MenuItem>
-            <MenuItem value="manual">Manual</MenuItem>
-            <MenuItem value="automated">Automated</MenuItem>
-          </TextField>
-
-          {(filters.module_id || filters.test_type) && (
-            <Button
-              variant="outlined"
-              onClick={handleClearFilters}
-              size="small"
-            >
-              Clear Filters
-            </Button>
-          )}
-        </Box>
-      </Paper>
+      {/* View Toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <ToggleButtonGroup
+          value={viewType}
+          exclusive
+          onChange={handleViewTypeChange}
+          aria-label="view type"
+          size="small"
+        >
+          <ToggleButton value="list" aria-label="list view">
+            <ViewListIcon sx={{ mr: 0.5 }} fontSize="small" />
+            All Test Cases
+          </ToggleButton>
+          <ToggleButton value="tree" aria-label="tree view">
+            <TreeViewIcon sx={{ mr: 0.5 }} fontSize="small" />
+            By Module
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
 
       {viewType === 'list' ? (
         /* List View */
@@ -916,9 +813,125 @@ const TestCases = () => {
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Status</ResizableTableCell>
                 <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Actions</ResizableTableCell>
               </TableRow>
+              {/* Filter Row */}
+              <TableRow>
+                <TableCell>
+                  <TextField
+                    size="small"
+                    placeholder="Filter..."
+                    value={filters.test_id}
+                    onChange={(e) => setFilters({ ...filters, test_id: e.target.value })}
+                    fullWidth
+                    variant="standard"
+                  />
+                </TableCell>
+                <TableCell>
+                  <TextField
+                    size="small"
+                    placeholder="Filter..."
+                    value={filters.title}
+                    onChange={(e) => setFilters({ ...filters, title: e.target.value })}
+                    fullWidth
+                    variant="standard"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.module_id}
+                    onChange={handleFilterChange}
+                    name="module_id"
+                    displayEmpty
+                    fullWidth
+                    variant="standard"
+                  >
+                    <MenuItem value="">
+                      <em>All</em>
+                    </MenuItem>
+                    {modules.map((module) => (
+                      <MenuItem key={module.id} value={module.id}>
+                        {module.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.sub_module}
+                    onChange={handleFilterChange}
+                    name="sub_module"
+                    displayEmpty
+                    fullWidth
+                    variant="standard"
+                    disabled={!filters.module_id}
+                  >
+                    <MenuItem value="">
+                      <em>All</em>
+                    </MenuItem>
+                    {filterSubModules.map((sm) => (
+                      <MenuItem key={sm.name} value={sm.name}>
+                        {sm.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.feature_section}
+                    onChange={handleFilterChange}
+                    name="feature_section"
+                    displayEmpty
+                    fullWidth
+                    variant="standard"
+                    disabled={!filters.module_id || !filters.sub_module}
+                  >
+                    <MenuItem value="">
+                      <em>All</em>
+                    </MenuItem>
+                    {filterFeatures.map((f) => (
+                      <MenuItem key={f.name} value={f.name}>
+                        {f.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.test_type}
+                    onChange={handleFilterChange}
+                    name="test_type"
+                    displayEmpty
+                    fullWidth
+                    variant="standard"
+                  >
+                    <MenuItem value="">
+                      <em>All</em>
+                    </MenuItem>
+                    <MenuItem value="manual">Manual</MenuItem>
+                    <MenuItem value="automated">Automated</MenuItem>
+                  </Select>
+                </TableCell>
+                <TableCell />
+                <TableCell />
+                <TableCell />
+                <TableCell />
+              </TableRow>
             </TableHead>
             <TableBody>
               {testCases
+                .filter((testCase) => {
+                  // Client-side filtering for test_id and title
+                  if (filters.test_id && !testCase.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) {
+                    return false;
+                  }
+                  if (filters.title && !testCase.title.toLowerCase().includes(filters.title.toLowerCase())) {
+                    return false;
+                  }
+                  return true;
+                })
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((testCase) => (
                   <TableRow 
@@ -1200,7 +1213,15 @@ const TestCases = () => {
         <TablePagination
           rowsPerPageOptions={[5, 10, 25]}
           component="div"
-          count={testCases.length}
+          count={testCases.filter((testCase) => {
+            if (filters.test_id && !testCase.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) {
+              return false;
+            }
+            if (filters.title && !testCase.title.toLowerCase().includes(filters.title.toLowerCase())) {
+              return false;
+            }
+            return true;
+          }).length}
           rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={(e, newPage) => setPage(newPage)}

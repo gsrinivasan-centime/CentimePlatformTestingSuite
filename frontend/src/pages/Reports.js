@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Paper,
@@ -28,7 +28,6 @@ import {
 import {
   Download as DownloadIcon,
   PictureAsPdf as PdfIcon,
-  Assessment as AssessmentIcon,
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
@@ -66,9 +65,8 @@ const Reports = () => {
     }
   };
 
-  const fetchReportData = async () => {
+  const fetchReportData = useCallback(async () => {
     if (!selectedRelease) {
-      alert('Please select a release');
       return;
     }
 
@@ -88,7 +86,14 @@ const Reports = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedRelease, selectedModule]);
+
+  // Auto-generate report when release or module changes
+  useEffect(() => {
+    if (selectedRelease) {
+      fetchReportData();
+    }
+  }, [selectedRelease, selectedModule, fetchReportData]);
 
   const handleDownloadPDF = async () => {
     if (!selectedRelease) {
@@ -144,10 +149,10 @@ const Reports = () => {
       {/* Filters */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
-          Generate Report
+          Select Release
         </Typography>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={6}>
             <FormControl fullWidth>
               <InputLabel>Release *</InputLabel>
               <Select
@@ -166,13 +171,14 @@ const Reports = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={6}>
             <FormControl fullWidth>
               <InputLabel>Module (Optional)</InputLabel>
               <Select
                 value={selectedModule}
                 onChange={(e) => setSelectedModule(e.target.value)}
                 label="Module (Optional)"
+                disabled={!selectedRelease}
               >
                 <MenuItem value="">
                   <em>All Modules</em>
@@ -184,18 +190,6 @@ const Reports = () => {
                 ))}
               </Select>
             </FormControl>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <Button
-              variant="contained"
-              startIcon={<AssessmentIcon />}
-              onClick={fetchReportData}
-              disabled={!selectedRelease || loading}
-              fullWidth
-              sx={{ height: 56 }}
-            >
-              {loading ? 'Loading...' : 'Generate Report'}
-            </Button>
           </Grid>
         </Grid>
       </Paper>

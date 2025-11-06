@@ -29,6 +29,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  TablePagination,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -50,7 +51,9 @@ const Stories = () => {
   const [storyTestCases, setStoryTestCases] = useState({});
   const [openDialog, setOpenDialog] = useState(false);
   const [openLinkDialog, setOpenLinkDialog] = useState(false);
+  const [openTestCaseViewDialog, setOpenTestCaseViewDialog] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
+  const [selectedTestCaseForView, setSelectedTestCaseForView] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [importMode, setImportMode] = useState('manual'); // 'manual' or 'url'
   const [storyUrl, setStoryUrl] = useState('');
@@ -86,6 +89,8 @@ const Stories = () => {
   const [loading, setLoading] = useState(false);
   const [refetchingStories, setRefetchingStories] = useState({});
   const [loadingTestCases, setLoadingTestCases] = useState({});
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const statusOptions = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
   const priorityOptions = ['Low', 'Medium', 'High', 'Critical'];
@@ -235,6 +240,16 @@ const Stories = () => {
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setSelectedStory(null);
+  };
+
+  const handleViewTestCase = (testCase) => {
+    setSelectedTestCaseForView(testCase);
+    setOpenTestCaseViewDialog(true);
+  };
+
+  const getModuleName = (moduleId) => {
+    const module = modules.find(m => m.id === moduleId);
+    return module ? module.name : 'N/A';
   };
 
   const handleOpenLinkDialog = (story) => {
@@ -474,6 +489,21 @@ const Stories = () => {
     );
   });
 
+  // Paginated stories
+  const paginatedStories = filteredStories.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
   const [syncingAllStories, setSyncingAllStories] = useState(false);
 
   const handleSyncAllStories = async () => {
@@ -637,7 +667,7 @@ const Stories = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredStories && filteredStories.length > 0 ? filteredStories.map((story) => (
+              {paginatedStories && paginatedStories.length > 0 ? paginatedStories.map((story) => (
                 <React.Fragment key={story.story_id}>
                   <TableRow 
                     hover
@@ -746,7 +776,16 @@ const Stories = () => {
                             <TableBody>
                               {storyTestCases[story.story_id].map((tc) => (
                                 <TableRow key={tc.id}>
-                                  <TableCell>{tc.test_id}</TableCell>
+                                  <TableCell>
+                                    <Chip 
+                                      label={tc.test_id} 
+                                      size="small" 
+                                      color="primary"
+                                      clickable
+                                      onClick={() => handleViewTestCase(tc)}
+                                      sx={{ cursor: 'pointer' }}
+                                    />
+                                  </TableCell>
                                   <TableCell>{tc.title}</TableCell>
                                   <TableCell>{tc.module_name}</TableCell>
                                   <TableCell>
@@ -797,6 +836,15 @@ const Stories = () => {
             </TableBody>
           </Table>
         </TableContainer>
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 25, 50]}
+          component="div"
+          count={filteredStories.length}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+        />
       </Paper>
       )}
 
@@ -1141,6 +1189,211 @@ const Stories = () => {
           >
             Link {selectedTestCases.length > 0 ? `${selectedTestCases.length} ` : ''}Test Case(s)
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Test Case View Dialog */}
+      <Dialog
+        open={openTestCaseViewDialog}
+        onClose={() => setOpenTestCaseViewDialog(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Test Case Details</DialogTitle>
+        <DialogContent>
+          {selectedTestCaseForView && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Test ID
+              </Typography>
+              <Typography variant="body1" paragraph>
+                {selectedTestCaseForView.test_id}
+              </Typography>
+
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Title
+              </Typography>
+              <Typography variant="body1" paragraph>
+                {selectedTestCaseForView.title}
+              </Typography>
+
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Module
+              </Typography>
+              <Typography variant="body1" paragraph>
+                {selectedTestCaseForView.module_name || getModuleName(selectedTestCaseForView.module_id)}
+              </Typography>
+
+              {selectedTestCaseForView.sub_module && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Sub-Module
+                  </Typography>
+                  <Typography variant="body1" paragraph>
+                    {selectedTestCaseForView.sub_module}
+                  </Typography>
+                </>
+              )}
+
+              {selectedTestCaseForView.feature_section && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Feature/Section
+                  </Typography>
+                  <Typography variant="body1" paragraph>
+                    {selectedTestCaseForView.feature_section}
+                  </Typography>
+                </>
+              )}
+
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Type
+              </Typography>
+              <Typography variant="body1" paragraph>
+                {selectedTestCaseForView.test_type}
+              </Typography>
+
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Tag
+              </Typography>
+              <Box mb={2}>
+                <Chip
+                  label={selectedTestCaseForView.tag ? selectedTestCaseForView.tag.toUpperCase() : 'UI'}
+                  size="small"
+                  color={
+                    selectedTestCaseForView.tag === 'api' ? 'success' : 
+                    selectedTestCaseForView.tag === 'hybrid' ? 'warning' : 
+                    'info'
+                  }
+                />
+              </Box>
+
+              {selectedTestCaseForView.tags && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Additional Tags
+                  </Typography>
+                  <Box mb={2} sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    {selectedTestCaseForView.tags.split(',').map((tag, idx) => (
+                      <Chip
+                        key={idx}
+                        label={tag.trim()}
+                        size="small"
+                        color={
+                          tag.trim() === 'smoke' ? 'error' :
+                          tag.trim() === 'regression' ? 'primary' :
+                          tag.trim() === 'sanity' ? 'success' :
+                          tag.trim() === 'integration' ? 'warning' :
+                          tag.trim() === 'e2e' ? 'info' :
+                          'default'
+                        }
+                      />
+                    ))}
+                  </Box>
+                </>
+              )}
+
+              {selectedTestCaseForView.test_type === 'automated' && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Automation Status
+                  </Typography>
+                  <Chip
+                    label={selectedTestCaseForView.automation_status || 'working'}
+                    size="small"
+                    color={selectedTestCaseForView.automation_status === 'broken' ? 'error' : 'success'}
+                    sx={{ mb: 2 }}
+                  />
+                </>
+              )}
+
+              {selectedTestCaseForView.description && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Description
+                  </Typography>
+                  <Typography variant="body1" paragraph>
+                    {selectedTestCaseForView.description}
+                  </Typography>
+                </>
+              )}
+
+              {selectedTestCaseForView.preconditions && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Preconditions
+                  </Typography>
+                  <Typography variant="body1" paragraph style={{ whiteSpace: 'pre-wrap' }}>
+                    {selectedTestCaseForView.preconditions}
+                  </Typography>
+                </>
+              )}
+
+              {selectedTestCaseForView.steps_to_reproduce && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Steps to Reproduce
+                  </Typography>
+                  <Typography variant="body1" paragraph style={{ whiteSpace: 'pre-wrap' }}>
+                    {selectedTestCaseForView.steps_to_reproduce}
+                  </Typography>
+                </>
+              )}
+
+              {selectedTestCaseForView.expected_result && (
+                <>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Expected Result
+                  </Typography>
+                  <Typography variant="body1" paragraph>
+                    {selectedTestCaseForView.expected_result}
+                  </Typography>
+                </>
+              )}
+
+              {selectedTestCaseForView.scenario_examples && (() => {
+                try {
+                  const examples = JSON.parse(selectedTestCaseForView.scenario_examples);
+                  return (
+                    <>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Scenario Examples / Parameters
+                      </Typography>
+                      <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              {examples.columns.map((col, idx) => (
+                                <TableCell key={idx}>
+                                  <Typography variant="body2" fontWeight="bold">
+                                    {col}
+                                  </Typography>
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {examples.rows.map((row, rowIdx) => (
+                              <TableRow key={rowIdx}>
+                                {row.map((cell, cellIdx) => (
+                                  <TableCell key={cellIdx}>{cell}</TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </>
+                  );
+                } catch (e) {
+                  return null;
+                }
+              })()}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenTestCaseViewDialog(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 

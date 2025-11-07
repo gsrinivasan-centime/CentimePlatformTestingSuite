@@ -42,9 +42,13 @@ class EmailService:
             return False
     
     @staticmethod
-    def send_verification_email(email: str, frontend_url: str = "http://localhost:3000") -> bool:
+    def send_verification_email(email: str, frontend_url: str = "http://localhost:3000", is_admin_created: bool = False) -> bool:
         """
         Send email verification link to user
+        Args:
+            email: User's email address
+            frontend_url: Frontend URL for verification link
+            is_admin_created: True if user was created by admin, False if self-registered
         """
         # Create verification token (valid for 24 hours)
         verification_token = create_access_token(
@@ -54,6 +58,10 @@ class EmailService:
         
         # Create verification link
         verification_link = f"{frontend_url}/verify-email?token={verification_token}"
+        
+        # Different message based on how account was created
+        welcome_message = "Your account has been created by an administrator." if is_admin_created else "Thank you for signing up."
+        action_message = "Please verify your email address to activate your account and login." if is_admin_created else "Please verify your email address to complete your registration."
         
         # Email template
         html_content = f"""
@@ -107,8 +115,8 @@ class EmailService:
                     <h1>Email Verification</h1>
                 </div>
                 <div class="content">
-                    <h2>Welcome to Centime Test Management!</h2>
-                    <p>Thank you for signing up. Please verify your email address to complete your registration.</p>
+                    <h2>Welcome to Centime QA Portal!</h2>
+                    <p>{welcome_message} {action_message}</p>
                     <p>Click the button below to verify your email:</p>
                     <center>
                         <a href="{verification_link}" class="button">Verify Email Address</a>
@@ -122,22 +130,28 @@ class EmailService:
                     </p>
                 </div>
                 <div class="footer">
-                    <p>If you didn't create an account, you can safely ignore this email.</p>
-                    <p>&copy; 2025 Centime Test Management. All rights reserved.</p>
+                    <p>If you didn't request this account, you can safely ignore this email.</p>
+                    <p>&copy; 2025 Centime QA Portal. All rights reserved.</p>
                 </div>
             </div>
         </body>
         </html>
         """
         
-        subject = "Verify Your Email - Centime Test Management"
+        subject = "Verify Your Email - Centime QA Portal"
         return EmailService.send_email(email, subject, html_content)
     
     @staticmethod
-    def send_password_reset_email(email: str, reset_token: str, frontend_url: str = "http://localhost:3000") -> bool:
+    def send_password_reset_email(email: str, frontend_url: str = "http://localhost:3000") -> bool:
         """
-        Send password reset email (for future use)
+        Send password reset email
         """
+        # Create password reset token (valid for 1 hour)
+        reset_token = create_access_token(
+            data={"sub": email, "type": "password_reset"},
+            expires_delta=timedelta(hours=1)
+        )
+        
         reset_link = f"{frontend_url}/reset-password?token={reset_token}"
         
         html_content = f"""
@@ -147,10 +161,34 @@ class EmailService:
             <style>
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
                 .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background-color: #1976d2; color: white; padding: 20px; text-align: center; }}
-                .content {{ background-color: #f9f9f9; padding: 30px; border: 1px solid #ddd; }}
-                .button {{ display: inline-block; padding: 12px 30px; background-color: #1976d2; 
-                          color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }}
+                .header {{ 
+                    background-color: #1976d2; 
+                    color: white; 
+                    padding: 20px; 
+                    text-align: center;
+                    border-radius: 5px 5px 0 0;
+                }}
+                .content {{ 
+                    background-color: #f9f9f9; 
+                    padding: 30px; 
+                    border: 1px solid #ddd;
+                    border-top: none;
+                }}
+                .button {{ 
+                    display: inline-block; 
+                    padding: 12px 30px; 
+                    background-color: #1976d2; 
+                    color: white; 
+                    text-decoration: none; 
+                    border-radius: 5px; 
+                    margin: 20px 0;
+                }}
+                .footer {{
+                    text-align: center;
+                    padding: 20px;
+                    font-size: 12px;
+                    color: #666;
+                }}
             </style>
         </head>
         <body>
@@ -159,18 +197,29 @@ class EmailService:
                     <h1>Password Reset Request</h1>
                 </div>
                 <div class="content">
-                    <p>You requested to reset your password. Click the button below:</p>
+                    <h2>Reset Your Password</h2>
+                    <p>You requested to reset your password for your Centime QA Portal account.</p>
+                    <p>Click the button below to reset your password:</p>
                     <center>
                         <a href="{reset_link}" class="button">Reset Password</a>
                     </center>
+                    <p style="margin-top: 20px; font-size: 14px; color: #666;">
+                        Or copy and paste this link into your browser:<br>
+                        <a href="{reset_link}">{reset_link}</a>
+                    </p>
                     <p style="margin-top: 20px; font-size: 12px; color: #999;">
                         This link will expire in 1 hour.
                     </p>
+                </div>
+                <div class="footer">
+                    <p>If you didn't request a password reset, you can safely ignore this email.</p>
+                    <p>&copy; 2025 Centime QA Portal. All rights reserved.</p>
                 </div>
             </div>
         </body>
         </html>
         """
         
-        subject = "Password Reset Request - Centime Test Management"
+        subject = "Password Reset Request - Centime QA Portal"
         return EmailService.send_email(email, subject, html_content)
+

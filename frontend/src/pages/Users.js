@@ -36,8 +36,10 @@ import {
 } from '@mui/icons-material';
 import ResizableTableCell from '../components/ResizableTableCell';
 import api from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 const Users = () => {
+  const { showSuccess, showError } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -58,7 +60,7 @@ const Users = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/users');
+      const response = await api.get('/users/');
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -73,7 +75,7 @@ const Users = () => {
       setEditMode(true);
       setCurrentUser(user);
       setFormData({
-        name: user.name,
+        name: user.full_name || user.name || '',
         email: user.email,
         password: '',
         role: user.role
@@ -85,7 +87,7 @@ const Users = () => {
         name: '',
         email: '',
         password: '',
-        role: 'TESTER'
+        role: 'tester'
       });
     }
     setDialogOpen(true);
@@ -117,40 +119,75 @@ const Users = () => {
   };
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.email.trim()) {
-      setError('Name and email are required');
-      return;
-    }
+    // Validation for new users
+    if (!editMode) {
+      if (!formData.name || !formData.name.trim() || !formData.email || !formData.email.trim()) {
+        setError('Name and email are required');
+        return;
+      }
 
-    if (!validateEmail(formData.email)) {
-      setError('Email must end with @centime.com');
-      return;
-    }
+      if (!validateEmail(formData.email)) {
+        setError('Email must end with @centime.com');
+        return;
+      }
 
-    if (!editMode && !formData.password) {
-      setError('Password is required for new users');
-      return;
+      if (!formData.password) {
+        setError('Password is required for new users');
+        return;
+      }
     }
 
     try {
       const submitData = { ...formData };
       
+      // Map 'name' to 'full_name' for backend
+      if (submitData.name) {
+        submitData.full_name = submitData.name;
+        delete submitData.name;
+      }
+      
       // Remove password field if empty in edit mode
       if (editMode && !formData.password) {
         delete submitData.password;
       }
+      
+      // Remove email field in edit mode (can't change email)
+      if (editMode) {
+        delete submitData.email;
+      }
 
       if (editMode) {
-        await api.put(`/users/${currentUser.id}`, submitData);
+        await api.put(`/users/${currentUser.id}/`, submitData);
+        showSuccess('User updated successfully');
       } else {
-        await api.post('/users', submitData);
+        await api.post('/users/', submitData);
+        showSuccess('User created successfully! A verification email has been sent to ' + formData.email);
       }
       
       fetchUsers();
       handleCloseDialog();
     } catch (error) {
       console.error('Error saving user:', error);
-      setError(error.response?.data?.detail || 'Failed to save user');
+      console.error('Error response:', error.response?.data);
+      
+      // Handle validation errors from FastAPI
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        
+        // If detail is an array (validation errors)
+        if (Array.isArray(detail)) {
+          const errorMessages = detail.map(err => {
+            const field = err.loc?.[1] || err.loc?.[0] || 'field';
+            return `${field}: ${err.msg}`;
+          }).join(', ');
+          setError(errorMessages);
+        } else {
+          // If detail is a string
+          setError(detail);
+        }
+      } else {
+        setError('Failed to save user');
+      }
     }
   };
 
@@ -160,26 +197,27 @@ const Users = () => {
     }
 
     try {
-      await api.delete(`/users/${id}`);
+      await api.delete(`/users/${id}/`);
       fetchUsers();
+      showSuccess('User deleted successfully');
     } catch (error) {
       console.error('Error deleting user:', error);
-      alert('Failed to delete user: ' + (error.response?.data?.detail || error.message));
+      showError('Failed to delete user: ' + (error.response?.data?.detail || error.message));
     }
   };
 
   const getRoleIcon = (role) => {
-    return role === 'ADMIN' ? <AdminIcon /> : <UserIcon />;
+    return role?.toLowerCase() === 'admin' ? <AdminIcon /> : <UserIcon />;
   };
 
   const getRoleColor = (role) => {
-    return role === 'ADMIN' ? 'error' : 'primary';
+    return role?.toLowerCase() === 'admin' ? 'error' : 'primary';
   };
 
   const getStatistics = () => {
     const total = users.length;
-    const admins = users.filter(u => u.role === 'ADMIN').length;
-    const testers = users.filter(u => u.role === 'TESTER').length;
+    const admins = users.filter(u => u.role?.toLowerCase() === 'admin').length;
+    const testers = users.filter(u => u.role?.toLowerCase() === 'tester').length;
     
     return { total, admins, testers };
   };
@@ -276,7 +314,7 @@ const Users = () => {
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.id}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <Typography variant="body1" fontWeight="medium">
-                      {user.name}
+                      {user.full_name || user.name || '-'}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -287,7 +325,7 @@ const Users = () => {
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <Chip
                       icon={getRoleIcon(user.role)}
-                      label={user.role}
+                      label={user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase() : 'Tester'}
                       color={getRoleColor(user.role)}
                       size="small"
                     />
@@ -389,8 +427,8 @@ const Users = () => {
                 onChange={handleChange}
                 label="Role"
               >
-                <MenuItem value="TESTER">Tester</MenuItem>
-                <MenuItem value="ADMIN">Admin</MenuItem>
+                <MenuItem value="tester">Tester</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
               </Select>
             </FormControl>
           </Box>

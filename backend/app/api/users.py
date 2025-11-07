@@ -6,6 +6,7 @@ from app.models.models import User, UserRole
 from app.schemas.schemas import User as UserSchema, UserUpdate, UserCreate
 from app.api.auth import get_current_active_user
 from app.core.security import get_password_hash
+from app.services.email_service import EmailService
 
 router = APIRouter()
 
@@ -53,17 +54,27 @@ def create_user(
     if not user.email.endswith("@centime.com"):
         raise HTTPException(status_code=400, detail="Email must be from @centime.com domain")
     
-    # Create new user
+    # Create new user (unverified by default)
     hashed_password = get_password_hash(user.password)
     db_user = User(
-        name=user.name,
         email=user.email,
         hashed_password=hashed_password,
-        role=user.role
+        full_name=user.full_name,
+        role=user.role,
+        is_email_verified=False  # Require email verification
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+    
+    # Send verification email
+    try:
+        EmailService.send_verification_email(user.email, is_admin_created=True)
+        print(f"Verification email sent to {user.email}")
+    except Exception as e:
+        print(f"Failed to send verification email to {user.email}: {e}")
+        # Don't fail user creation if email fails - admin can resend
+    
     return db_user
 
 @router.put("/{user_id}", response_model=UserSchema)

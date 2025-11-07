@@ -178,3 +178,58 @@ def resend_verification(email: str, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserSchema)
 def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
+
+@router.post("/forgot-password")
+def forgot_password(email: str, db: Session = Depends(get_db)):
+    """
+    Send password reset email to user
+    """
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # Don't reveal if email exists or not for security
+        return {"message": "If the email exists, a password reset link has been sent"}
+    
+    # Send password reset email
+    try:
+        EmailService.send_password_reset_email(email)
+        return {"message": "If the email exists, a password reset link has been sent"}
+    except Exception as e:
+        print(f"Failed to send password reset email: {e}")
+        # Return success message even on error for security
+        return {"message": "If the email exists, a password reset link has been sent"}
+
+@router.post("/reset-password")
+def reset_password(token: str, new_password: str, db: Session = Depends(get_db)):
+    """
+    Reset user's password using token from email link
+    """
+    # Decode token
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+    
+    email = payload.get("sub")
+    token_type = payload.get("type")
+    
+    if not email or token_type != "password_reset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid reset token"
+        )
+    
+    # Find user
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Update password
+    user.hashed_password = get_password_hash(new_password)
+    db.commit()
+    
+    return {"message": "Password reset successfully. You can now login with your new password."}

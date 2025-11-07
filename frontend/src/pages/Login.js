@@ -113,6 +113,13 @@ const Login = () => {
                 ),
               }}
             />
+            
+            <Box sx={{ textAlign: 'right', mt: 1 }}>
+              <Link component={RouterLink} to="/forgot-password" underline="hover" variant="body2">
+                Forgot Password?
+              </Link>
+            </Box>
+            
             <Button
               type="submit"
               fullWidth
@@ -120,7 +127,7 @@ const Login = () => {
               size="large"
               disabled={loading}
               startIcon={<LoginIcon />}
-              sx={{ mt: 3, mb: 2, py: 1.5 }}
+              sx={{ mt: 2, mb: 2, py: 1.5 }}
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>

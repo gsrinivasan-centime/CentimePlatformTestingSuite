@@ -379,6 +379,12 @@ const StoriesView = ({ releaseId }) => {
                       size="small" 
                       color="primary" 
                       variant="outlined"
+                      component="a"
+                      href={`https://centime.atlassian.net/browse/${story.story_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      clickable
+                      sx={{ cursor: 'pointer' }}
                     />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -410,9 +416,27 @@ const StoriesView = ({ releaseId }) => {
                     {story.test_stats && story.test_stats.total > 0 ? (
                       <Box sx={{ width: '100%' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            {story.test_stats.passed}/{story.test_stats.total}
-                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {story.test_stats.passed}/{story.test_stats.total}
+                            </Typography>
+                            {story.test_stats.ui_count > 0 && (
+                              <Chip 
+                                label={`UI: ${story.test_stats.ui_passed || 0}/${story.test_stats.ui_count}`} 
+                                size="small" 
+                                color="info"
+                                sx={{ height: 16, fontSize: '0.65rem' }}
+                              />
+                            )}
+                            {story.test_stats.api_count > 0 && (
+                              <Chip 
+                                label={`API: ${story.test_stats.api_passed || 0}/${story.test_stats.api_count}`} 
+                                size="small" 
+                                color="success"
+                                sx={{ height: 16, fontSize: '0.65rem' }}
+                              />
+                            )}
+                          </Box>
                           <Typography 
                             variant="caption" 
                             sx={{ 

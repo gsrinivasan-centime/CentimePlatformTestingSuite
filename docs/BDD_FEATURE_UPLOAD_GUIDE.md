@@ -1,7 +1,7 @@
 # BDD Feature File Upload Guide
 
 ## Overview
-The Test Management System now supports uploading BDD (Behavior-Driven Development) feature files written in Gherkin syntax. This allows teams to import test scenarios directly from `.feature` files.
+The QA Portal now supports uploading BDD (Behavior-Driven Development) feature files written in Gherkin syntax. This allows teams to import test scenarios directly from `.feature` files.
 
 ## Supported Features
 

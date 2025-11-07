@@ -28,6 +28,8 @@ import {
   AccordionSummary,
   AccordionDetails,
   Select,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -114,6 +116,9 @@ const TestCases = () => {
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubModules, setExpandedSubModules] = useState({});
   const [expandedFeatures, setExpandedFeatures] = useState({});
+
+  // Test type tab state
+  const [testTypeTab, setTestTypeTab] = useState('all'); // 'all', 'ui', 'api'
 
   // Inline editing state
   const [editingCell, setEditingCell] = useState(null); // { testCaseId, field }
@@ -743,8 +748,8 @@ const TestCases = () => {
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" fontWeight="bold">
-          Test Cases
+        <Typography variant="h4" component="h1">
+          Test Case Management
         </Typography>
         <Box display="flex" gap={2}>
           <Button
@@ -774,6 +779,31 @@ const TestCases = () => {
           {success}
         </Alert>
       )}
+
+      {/* Test Type Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+        <Tabs 
+          value={testTypeTab} 
+          onChange={(e, newValue) => {
+            setTestTypeTab(newValue);
+            setPage(0); // Reset to first page when changing tabs
+          }}
+          aria-label="test type tabs"
+        >
+          <Tab 
+            label={`All Tests (${testCases.length})`} 
+            value="all" 
+          />
+          <Tab 
+            label={`UI Tests (${testCases.filter(tc => tc.tag === 'ui' || tc.tag === 'hybrid').length})`} 
+            value="ui" 
+          />
+          <Tab 
+            label={`API Tests (${testCases.filter(tc => tc.tag === 'api').length})`} 
+            value="api" 
+          />
+        </Tabs>
+      </Box>
 
       {/* View Toggle */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
@@ -822,7 +852,6 @@ const TestCases = () => {
                     value={filters.test_id}
                     onChange={(e) => setFilters({ ...filters, test_id: e.target.value })}
                     fullWidth
-                    variant="standard"
                   />
                 </TableCell>
                 <TableCell>
@@ -832,7 +861,6 @@ const TestCases = () => {
                     value={filters.title}
                     onChange={(e) => setFilters({ ...filters, title: e.target.value })}
                     fullWidth
-                    variant="standard"
                   />
                 </TableCell>
                 <TableCell>
@@ -843,7 +871,6 @@ const TestCases = () => {
                     name="module_id"
                     displayEmpty
                     fullWidth
-                    variant="standard"
                   >
                     <MenuItem value="">
                       <em>All</em>
@@ -863,7 +890,6 @@ const TestCases = () => {
                     name="sub_module"
                     displayEmpty
                     fullWidth
-                    variant="standard"
                     disabled={!filters.module_id}
                   >
                     <MenuItem value="">
@@ -884,7 +910,6 @@ const TestCases = () => {
                     name="feature_section"
                     displayEmpty
                     fullWidth
-                    variant="standard"
                     disabled={!filters.module_id || !filters.sub_module}
                   >
                     <MenuItem value="">
@@ -905,7 +930,6 @@ const TestCases = () => {
                     name="test_type"
                     displayEmpty
                     fullWidth
-                    variant="standard"
                   >
                     <MenuItem value="">
                       <em>All</em>
@@ -914,15 +938,56 @@ const TestCases = () => {
                     <MenuItem value="automated">Automated</MenuItem>
                   </Select>
                 </TableCell>
-                <TableCell />
-                <TableCell />
-                <TableCell />
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.tag || ''}
+                    onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
+                    displayEmpty
+                    fullWidth
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="ui">UI</MenuItem>
+                    <MenuItem value="api">API</MenuItem>
+                    <MenuItem value="hybrid">Hybrid</MenuItem>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <TextField
+                    size="small"
+                    placeholder="Filter tags..."
+                    value={filters.tags || ''}
+                    onChange={(e) => setFilters({ ...filters, tags: e.target.value })}
+                    fullWidth
+                  />
+                </TableCell>
+                <TableCell>
+                  <Select
+                    size="small"
+                    value={filters.automation_status || ''}
+                    onChange={(e) => setFilters({ ...filters, automation_status: e.target.value })}
+                    displayEmpty
+                    fullWidth
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="working">Working</MenuItem>
+                    <MenuItem value="broken">Broken</MenuItem>
+                  </Select>
+                </TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
             <TableBody>
               {testCases
                 .filter((testCase) => {
+                  // Filter by test type tab
+                  if (testTypeTab === 'ui' && testCase.tag !== 'ui' && testCase.tag !== 'hybrid') {
+                    return false;
+                  }
+                  if (testTypeTab === 'api' && testCase.tag !== 'api') {
+                    return false;
+                  }
+                  
                   // Client-side filtering for test_id and title
                   if (filters.test_id && !testCase.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) {
                     return false;
@@ -930,6 +995,24 @@ const TestCases = () => {
                   if (filters.title && !testCase.title.toLowerCase().includes(filters.title.toLowerCase())) {
                     return false;
                   }
+                  
+                  // Filter by tag
+                  if (filters.tag && filters.tag !== 'all' && testCase.tag !== filters.tag) {
+                    return false;
+                  }
+                  
+                  // Filter by tags (text search)
+                  if (filters.tags && testCase.tags && !testCase.tags.toLowerCase().includes(filters.tags.toLowerCase())) {
+                    return false;
+                  }
+                  
+                  // Filter by automation status (only for automated tests)
+                  if (filters.automation_status && filters.automation_status !== 'all') {
+                    if (testCase.test_type === 'automated' && testCase.automation_status !== filters.automation_status) {
+                      return false;
+                    }
+                  }
+                  
                   return true;
                 })
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
@@ -1214,6 +1297,14 @@ const TestCases = () => {
           rowsPerPageOptions={[5, 10, 25]}
           component="div"
           count={testCases.filter((testCase) => {
+            // Filter by test type tab
+            if (testTypeTab === 'ui' && testCase.tag !== 'ui' && testCase.tag !== 'hybrid') {
+              return false;
+            }
+            if (testTypeTab === 'api' && testCase.tag !== 'api') {
+              return false;
+            }
+            
             if (filters.test_id && !testCase.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) {
               return false;
             }
@@ -1246,7 +1337,16 @@ const TestCases = () => {
                 sx={{ bgcolor: '#e3f2fd' }}
               >
                 <Typography variant="h6" sx={{ flexGrow: 1 }}>{module.name}</Typography>
-                <Chip label={`${Object.values(module.subModules).reduce((sum, sm) => sum + Object.values(sm.features).reduce((fsum, f) => fsum + f.testCases.length, 0), 0)} tests`} size="small" />
+                <Chip label={`${Object.values(module.subModules).reduce((sum, sm) => sum + Object.values(sm.features).reduce((fsum, f) => fsum + f.testCases.filter(tc => {
+                  if (testTypeTab === 'ui' && tc.tag !== 'ui' && tc.tag !== 'hybrid') return false;
+                  if (testTypeTab === 'api' && tc.tag !== 'api') return false;
+                  if (filters.test_id && !tc.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) return false;
+                  if (filters.title && !tc.title.toLowerCase().includes(filters.title.toLowerCase())) return false;
+                  if (filters.tag && filters.tag !== 'all' && tc.tag !== filters.tag) return false;
+                  if (filters.tags && tc.tags && !tc.tags.toLowerCase().includes(filters.tags.toLowerCase())) return false;
+                  if (filters.automation_status && filters.automation_status !== 'all' && tc.test_type === 'automated' && tc.automation_status !== filters.automation_status) return false;
+                  return true;
+                }).length, 0), 0)} tests`} size="small" />
               </AccordionSummary>
               <AccordionDetails>
                 {Object.entries(module.subModules).map(([subModuleName, subModule]) => (
@@ -1261,7 +1361,16 @@ const TestCases = () => {
                       sx={{ bgcolor: '#f5f5f5' }}
                     >
                       <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>{subModuleName}</Typography>
-                      <Chip label={`${Object.values(subModule.features).reduce((sum, f) => sum + f.testCases.length, 0)} tests`} size="small" />
+                      <Chip label={`${Object.values(subModule.features).reduce((sum, f) => sum + f.testCases.filter(tc => {
+                        if (testTypeTab === 'ui' && tc.tag !== 'ui' && tc.tag !== 'hybrid') return false;
+                        if (testTypeTab === 'api' && tc.tag !== 'api') return false;
+                        if (filters.test_id && !tc.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) return false;
+                        if (filters.title && !tc.title.toLowerCase().includes(filters.title.toLowerCase())) return false;
+                        if (filters.tag && filters.tag !== 'all' && tc.tag !== filters.tag) return false;
+                        if (filters.tags && tc.tags && !tc.tags.toLowerCase().includes(filters.tags.toLowerCase())) return false;
+                        if (filters.automation_status && filters.automation_status !== 'all' && tc.test_type === 'automated' && tc.automation_status !== filters.automation_status) return false;
+                        return true;
+                      }).length, 0)} tests`} size="small" />
                     </AccordionSummary>
                     <AccordionDetails>
                       {Object.entries(subModule.features).map(([featureName, feature]) => (
@@ -1281,7 +1390,16 @@ const TestCases = () => {
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
                               <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>{featureName}</Typography>
-                              <Chip label={`${feature.testCases.length} tests`} size="small" color="primary" variant="outlined" />
+                              <Chip label={`${feature.testCases.filter(tc => {
+                                if (testTypeTab === 'ui' && tc.tag !== 'ui' && tc.tag !== 'hybrid') return false;
+                                if (testTypeTab === 'api' && tc.tag !== 'api') return false;
+                                if (filters.test_id && !tc.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) return false;
+                                if (filters.title && !tc.title.toLowerCase().includes(filters.title.toLowerCase())) return false;
+                                if (filters.tag && filters.tag !== 'all' && tc.tag !== filters.tag) return false;
+                                if (filters.tags && tc.tags && !tc.tags.toLowerCase().includes(filters.tags.toLowerCase())) return false;
+                                if (filters.automation_status && filters.automation_status !== 'all' && tc.test_type === 'automated' && tc.automation_status !== filters.automation_status) return false;
+                                return true;
+                              }).length} tests`} size="small" color="primary" variant="outlined" />
                             </Box>
                           </AccordionSummary>
                           <AccordionDetails>
@@ -1302,7 +1420,44 @@ const TestCases = () => {
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                  {feature.testCases.map((testCase) => (
+                                  {feature.testCases
+                                    .filter((testCase) => {
+                                      // Filter by test type tab
+                                      if (testTypeTab === 'ui' && testCase.tag !== 'ui' && testCase.tag !== 'hybrid') {
+                                        return false;
+                                      }
+                                      if (testTypeTab === 'api' && testCase.tag !== 'api') {
+                                        return false;
+                                      }
+                                      
+                                      // Client-side filtering for test_id and title
+                                      if (filters.test_id && !testCase.test_id.toLowerCase().includes(filters.test_id.toLowerCase())) {
+                                        return false;
+                                      }
+                                      if (filters.title && !testCase.title.toLowerCase().includes(filters.title.toLowerCase())) {
+                                        return false;
+                                      }
+                                      
+                                      // Filter by tag
+                                      if (filters.tag && filters.tag !== 'all' && testCase.tag !== filters.tag) {
+                                        return false;
+                                      }
+                                      
+                                      // Filter by tags (text search)
+                                      if (filters.tags && testCase.tags && !testCase.tags.toLowerCase().includes(filters.tags.toLowerCase())) {
+                                        return false;
+                                      }
+                                      
+                                      // Filter by automation status (only for automated tests)
+                                      if (filters.automation_status && filters.automation_status !== 'all') {
+                                        if (testCase.test_type === 'automated' && testCase.automation_status !== filters.automation_status) {
+                                          return false;
+                                        }
+                                      }
+                                      
+                                      return true;
+                                    })
+                                    .map((testCase) => (
                                     <TableRow 
                                       key={testCase.id} 
                                       hover

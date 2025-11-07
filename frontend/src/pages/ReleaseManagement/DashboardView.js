@@ -130,6 +130,101 @@ const DashboardView = ({ releaseId, onNavigateToTree }) => {
         </Grid>
       </Grid>
 
+      {/* Test Type Breakdown */}
+      {dashboardData.ui_stats && dashboardData.api_stats && (
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          <Grid item xs={12}>
+            <Typography variant="h6" sx={{ mb: 1 }}>Test Type Breakdown</Typography>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Card sx={{ height: '100%', border: '2px solid #2196f3' }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" color="primary">UI Tests</Typography>
+                  <Chip label={`${dashboardData.ui_stats.total} tests`} color="info" />
+                </Box>
+                <Grid container spacing={1}>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                      <Typography variant="h5" color="success.main">{dashboardData.ui_stats.passed}</Typography>
+                      <Typography variant="caption" color="text.secondary">Passed</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                      <Typography variant="h5" color="error.main">{dashboardData.ui_stats.failed}</Typography>
+                      <Typography variant="caption" color="text.secondary">Failed</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                      <Typography variant="h5" color="primary">{dashboardData.ui_stats.pass_rate}%</Typography>
+                      <Typography variant="caption" color="text.secondary">Pass Rate</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={dashboardData.ui_stats.pass_rate} 
+                  sx={{ 
+                    mt: 2,
+                    height: 8, 
+                    borderRadius: 4,
+                    bgcolor: '#e0e0e0',
+                    '& .MuiLinearProgress-bar': {
+                      bgcolor: dashboardData.ui_stats.pass_rate >= 80 ? COLORS.passed : dashboardData.ui_stats.pass_rate >= 50 ? COLORS.blocked : COLORS.failed
+                    }
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Card sx={{ height: '100%', border: '2px solid #4caf50' }}>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" color="success.main">API Tests</Typography>
+                  <Chip label={`${dashboardData.api_stats.total} tests`} color="success" />
+                </Box>
+                <Grid container spacing={1}>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                      <Typography variant="h5" color="success.main">{dashboardData.api_stats.passed}</Typography>
+                      <Typography variant="caption" color="text.secondary">Passed</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                      <Typography variant="h5" color="error.main">{dashboardData.api_stats.failed}</Typography>
+                      <Typography variant="caption" color="text.secondary">Failed</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center', p: 1, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                      <Typography variant="h5" color="success.main">{dashboardData.api_stats.pass_rate}%</Typography>
+                      <Typography variant="caption" color="text.secondary">Pass Rate</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={dashboardData.api_stats.pass_rate} 
+                  sx={{ 
+                    mt: 2,
+                    height: 8, 
+                    borderRadius: 4,
+                    bgcolor: '#e0e0e0',
+                    '& .MuiLinearProgress-bar': {
+                      bgcolor: dashboardData.api_stats.pass_rate >= 80 ? COLORS.passed : dashboardData.api_stats.pass_rate >= 50 ? COLORS.blocked : COLORS.failed
+                    }
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
       {/* Module Statistics Table */}
       <Paper sx={{ mb: 3 }}>
         <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>

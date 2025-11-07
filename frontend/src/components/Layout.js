@@ -80,6 +80,9 @@ const Layout = ({ children }) => {
         sx={{ 
           cursor: 'pointer',
           bgcolor: 'primary.main',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
           '&:hover': {
             bgcolor: 'primary.dark',
           }
@@ -91,7 +94,7 @@ const Layout = ({ children }) => {
           src={CentimeLogo}
           alt="Centime Logo"
           sx={{
-            height: 40,
+            height: 32,
             width: 'auto',
             objectFit: 'contain',
           }}
@@ -136,7 +139,7 @@ const Layout = ({ children }) => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            Test Management System
+            Quality Assurance Portal
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography variant="body2">{user?.email}</Typography>

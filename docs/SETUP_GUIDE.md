@@ -1,4 +1,6 @@
-# Setup Guide - Centime Test Management System
+# Setup Guide - Centime QA Portal
+
+Complete setup instructions for the Centime QA Portal (Quality Assurance Portal).
 
 ## Prerequisites
 
@@ -135,7 +137,7 @@ nano .env
 Update the following in `.env`:
 ```env
 REACT_APP_API_BASE_URL=http://localhost:8000
-REACT_APP_APP_NAME=Centime Test Management
+REACT_APP_APP_NAME=Centime QA Portal
 ```
 
 ### 4. Start Development Server

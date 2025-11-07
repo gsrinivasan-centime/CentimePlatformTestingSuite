@@ -1,6 +1,6 @@
-# Centime Test Management - Frontend
+# Centime QA Portal - Frontend
 
-React-based frontend for the Centime Test Management System.
+React-based frontend for the Centime QA Portal (Quality Assurance Portal).
 
 ## Features
 
@@ -49,7 +49,7 @@ Create a `.env` file in the frontend directory:
 
 ```env
 REACT_APP_API_BASE_URL=http://localhost:8000
-REACT_APP_APP_NAME=Centime Test Management
+REACT_APP_APP_NAME=Centime QA Portal
 REACT_APP_ALLOWED_EMAIL_DOMAIN=centime.com
 ```
 

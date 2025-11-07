@@ -164,6 +164,33 @@ def get_release_stories(
         # Failed tests should not be counted as completed
         completion_percentage = (passed / total_tests * 100) if total_tests > 0 else 0
         
+        # Calculate UI/API breakdown
+        # Need to get execution status from ReleaseTestCase for each test
+        ui_count = 0
+        api_count = 0
+        ui_passed = 0
+        api_passed = 0
+        
+        for tc in test_cases:
+            if tc.tag in ['ui', 'hybrid']:
+                ui_count += 1
+                # Check if this test is passed in the release
+                rtc = db.query(ReleaseTestCase).filter(
+                    ReleaseTestCase.release_id == release.id,
+                    ReleaseTestCase.test_case_id == tc.id
+                ).first()
+                if rtc and rtc.execution_status == ExecutionStatus.PASSED:
+                    ui_passed += 1
+            elif tc.tag == 'api':
+                api_count += 1
+                # Check if this test is passed in the release
+                rtc = db.query(ReleaseTestCase).filter(
+                    ReleaseTestCase.release_id == release.id,
+                    ReleaseTestCase.test_case_id == tc.id
+                ).first()
+                if rtc and rtc.execution_status == ExecutionStatus.PASSED:
+                    api_passed += 1
+        
         stories_with_stats.append({
             "id": story.id,
             "story_id": story.story_id,
@@ -183,7 +210,11 @@ def get_release_stories(
                 "blocked": blocked,
                 "in_progress": in_progress,
                 "not_started": not_started,
-                "completion_percentage": round(completion_percentage, 1)
+                "completion_percentage": round(completion_percentage, 1),
+                "ui_count": ui_count,
+                "api_count": api_count,
+                "ui_passed": ui_passed,
+                "api_passed": api_passed
             }
         })
     

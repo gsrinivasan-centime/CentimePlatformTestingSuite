@@ -604,6 +604,30 @@ def get_release_summary(
     # Sort by story_id
     story_summary_list.sort(key=lambda x: x['story_id'])
     
+    # Calculate UI/API breakdown
+    ui_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag in ['ui', 'hybrid']]
+    api_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag == 'api']
+    
+    ui_stats = {
+        'total': len(ui_tests),
+        'passed': len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.PASSED]),
+        'failed': len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.FAILED]),
+        'blocked': len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.BLOCKED]),
+        'in_progress': len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.IN_PROGRESS]),
+        'not_started': len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.NOT_STARTED]),
+        'pass_rate': round((len([tc for tc in ui_tests if tc.execution_status == ExecutionStatus.PASSED]) / len(ui_tests) * 100) if len(ui_tests) > 0 else 0, 1)
+    }
+    
+    api_stats = {
+        'total': len(api_tests),
+        'passed': len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.PASSED]),
+        'failed': len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.FAILED]),
+        'blocked': len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.BLOCKED]),
+        'in_progress': len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.IN_PROGRESS]),
+        'not_started': len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.NOT_STARTED]),
+        'pass_rate': round((len([tc for tc in api_tests if tc.execution_status == ExecutionStatus.PASSED]) / len(api_tests) * 100) if len(api_tests) > 0 else 0, 1)
+    }
+    
     return {
         'release_id': release.id,
         'release_version': release.version,
@@ -617,5 +641,22 @@ def get_release_summary(
         'not_started_tests': not_started_tests,
         'module_summary': module_summary,
         'failed_test_details': failed_test_details,
-        'story_summary': story_summary_list
+        'story_summary': story_summary_list,
+        'ui_stats': ui_stats,
+        'api_stats': api_stats,
+        'total_test_cases': total_tests,
+        'passed': passed_tests,
+        'failed': failed_tests,
+        'pass_rate': round((passed_tests / total_tests * 100) if total_tests > 0 else 0, 1),
+        'module_stats': [{
+            'module_id': m['module_id'],
+            'module_name': m['module_name'],
+            'total': m['total'],
+            'passed': m['passed'],
+            'failed': m['failed'],
+            'blocked': m['blocked'],
+            'not_started': m['not_started'],
+            'in_progress': m['in_progress'],
+            'pass_rate': round((m['passed'] / m['total'] * 100) if m['total'] > 0 else 0, 1)
+        } for m in module_summary]
     }

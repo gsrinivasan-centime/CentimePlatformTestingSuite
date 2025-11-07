@@ -62,10 +62,10 @@ const Login = () => {
         <Paper elevation={10} sx={{ p: 4, borderRadius: 2 }}>
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
-              Centime Test Management
+              Centime QA Portal
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sign in to manage your test cases
+              Quality Assurance Portal
             </Typography>
           </Box>
 

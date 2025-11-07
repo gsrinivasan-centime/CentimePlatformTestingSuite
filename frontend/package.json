@@ -1,8 +1,8 @@
 {
-  "name": "centime-test-management-frontend",
+  "name": "centime-qa-portal-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Frontend for Centime Test Management System",
+  "description": "Frontend for Centime QA Portal - Quality Assurance Portal",
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",

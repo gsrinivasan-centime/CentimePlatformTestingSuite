@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-This guide will help you get the Centime Test Management System up and running in minutes.
+This guide will help you get the Centime QA Portal up and running in minutes.
 
 ## Prerequisites Check
 
@@ -190,4 +190,4 @@ pytest -v --html=reports/report.html --self-contained-html
 3. **Execute Tests**: POST /api/executions/execute/{test_case_id}
 4. **Generate Reports**: GET /api/reports/pdf/{release_id}
 
-Enjoy using the Centime Test Management System! 🚀
+Enjoy using the Centime QA Portal! 🚀

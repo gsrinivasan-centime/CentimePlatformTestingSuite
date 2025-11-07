@@ -99,7 +99,7 @@ const Register = () => {
               Create Account
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Register to access Centime Test Management
+              Register to access Centime QA Portal
             </Typography>
           </Box>
 

@@ -10,9 +10,10 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     // Check if user is logged in
     const token = localStorage.getItem('token');
+    const refreshToken = localStorage.getItem('refreshToken');
     const savedUser = localStorage.getItem('user');
     
-    if (token && savedUser) {
+    if (token && refreshToken && savedUser) {
       setUser(JSON.parse(savedUser));
       // Verify token is still valid
       authAPI.getCurrentUser()
@@ -35,6 +36,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const data = await authAPI.login(email, password);
       localStorage.setItem('token', data.access_token);
+      localStorage.setItem('refreshToken', data.refresh_token);
       
       // Get user data
       const userData = await authAPI.getCurrentUser();
@@ -64,6 +66,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     setUser(null);
   };

@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./test_management.db"
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7 days
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
     ALLOWED_EMAIL_DOMAIN: str = "centime.com"
     

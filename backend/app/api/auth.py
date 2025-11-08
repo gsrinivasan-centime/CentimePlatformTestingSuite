@@ -7,12 +7,14 @@ from app.core.security import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
     decode_access_token,
+    decode_refresh_token,
     validate_email_domain
 )
 from app.core.config import settings
 from app.models.models import User
-from app.schemas.schemas import UserCreate, User as UserSchema, Token
+from app.schemas.schemas import UserCreate, User as UserSchema, Token, RefreshTokenRequest
 from app.services.email_service import EmailService
 
 router = APIRouter()
@@ -102,10 +104,74 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         )
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(
+        data={"sub": user.email}, expires_delta=refresh_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
+
+@router.post("/refresh", response_model=Token)
+def refresh_token(refresh_request: RefreshTokenRequest, db: Session = Depends(get_db)):
+    """
+    Refresh access token using refresh token
+    """
+    # Decode and validate refresh token
+    payload = decode_refresh_token(refresh_request.refresh_token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    email: str = payload.get("sub")
+    if email is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Verify user still exists and is active
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+    
+    # Create new access token and refresh token
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    new_access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    new_refresh_token = create_refresh_token(
+        data={"sub": user.email}, expires_delta=refresh_token_expires
+    )
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
+        "token_type": "bearer"
+    }
 
 @router.post("/verify-email")
 def verify_email(token: str, db: Session = Depends(get_db)):

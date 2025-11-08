@@ -429,8 +429,8 @@ const Reports = () => {
                                           <TableRow>
                                             <TableCell>Test ID</TableCell>
                                             <TableCell>Title</TableCell>
+                                            <TableCell>Story ID</TableCell>
                                             <TableCell>Type</TableCell>
-                                            <TableCell>Priority</TableCell>
                                             <TableCell>Status</TableCell>
                                             <TableCell>Execution Date</TableCell>
                                             <TableCell>Comments</TableCell>
@@ -440,23 +440,16 @@ const Reports = () => {
                                           {feature.test_cases.map((testCase) => (
                                             <TableRow key={testCase.id}>
                                               <TableCell>{testCase.test_id}</TableCell>
-                                              <TableCell>{testCase.title}</TableCell>
+                                              <TableCell sx={{ whiteSpace: 'normal', wordWrap: 'break-word' }}>{testCase.title}</TableCell>
+                                              <TableCell>{testCase.jira_story?.story_id || 'N/A'}</TableCell>
                                               <TableCell>
                                                 <Chip 
-                                                  label={testCase.test_type} 
-                                                  size="small" 
-                                                  variant="outlined"
-                                                />
-                                              </TableCell>
-                                              <TableCell>
-                                                <Chip 
-                                                  label={testCase.priority || 'N/A'} 
-                                                  size="small"
-                                                  color={
-                                                    testCase.priority === 'high' ? 'error' :
-                                                    testCase.priority === 'medium' ? 'warning' :
-                                                    'default'
+                                                  label={
+                                                    testCase.tag === 'ui' || testCase.tag === 'hybrid' ? 'UI' :
+                                                    testCase.tag === 'api' ? 'API' :
+                                                    testCase.tag?.toUpperCase() || 'N/A'
                                                   }
+                                                  size="small" 
                                                   variant="outlined"
                                                 />
                                               </TableCell>
@@ -518,6 +511,8 @@ const Reports = () => {
                       <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Epic ID</ResizableTableCell>
                       <ResizableTableCell minWidth={100} initialWidth={120} isHeader>Status</ResizableTableCell>
                       <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Total</ResizableTableCell>
+                      <ResizableTableCell minWidth={70} initialWidth={80} isHeader>UI</ResizableTableCell>
+                      <ResizableTableCell minWidth={70} initialWidth={80} isHeader>API</ResizableTableCell>
                       <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Passed</ResizableTableCell>
                       <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Failed</ResizableTableCell>
                       <ResizableTableCell minWidth={80} initialWidth={100} isHeader>Blocked</ResizableTableCell>
@@ -531,7 +526,7 @@ const Reports = () => {
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {story.story_id}
                         </TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={story.story_title}>
+                        <TableCell sx={{ whiteSpace: 'normal', wordWrap: 'break-word' }} title={story.story_title}>
                           {story.story_title}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -550,6 +545,12 @@ const Reports = () => {
                           />
                         </TableCell>
                         <TableCell align="center">{story.total}</TableCell>
+                        <TableCell align="center" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                          {story.ui_tests || 0}
+                        </TableCell>
+                        <TableCell align="center" sx={{ color: 'info.main', fontWeight: 'bold' }}>
+                          {story.api_tests || 0}
+                        </TableCell>
                         <TableCell align="center" sx={{ color: 'success.main', fontWeight: 'bold' }}>
                           {story.passed}
                         </TableCell>
@@ -606,9 +607,9 @@ const Reports = () => {
                     {reportData.failed_test_details.map((test) => (
                       <TableRow key={test.test_case_id}>
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{test.test_case_id}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{test.title}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'normal', wordWrap: 'break-word' }}>{test.title}</TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{test.module_name}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <TableCell sx={{ whiteSpace: 'normal', wordWrap: 'break-word' }}>
                           <Typography variant="body2" color="error">
                             {test.error_message || 'No error message'}
                           </Typography>

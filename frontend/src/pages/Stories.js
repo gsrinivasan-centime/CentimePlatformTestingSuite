@@ -14,6 +14,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
   TextField,
   MenuItem,
@@ -30,6 +31,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   TablePagination,
+  Tooltip,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -505,11 +507,15 @@ const Stories = () => {
   };
 
   const [syncingAllStories, setSyncingAllStories] = useState(false);
+  const [confirmSyncDialogOpen, setConfirmSyncDialogOpen] = useState(false);
 
   const handleSyncAllStories = async () => {
-    if (!window.confirm('This will update all existing stories from JIRA. Stories with changed fix versions will be automatically unlinked from releases. Continue?')) {
-      return;
-    }
+    // Open confirmation dialog
+    setConfirmSyncDialogOpen(true);
+  };
+
+  const handleConfirmSyncAllStories = async () => {
+    setConfirmSyncDialogOpen(false);
 
     setSyncingAllStories(true);
     try {
@@ -538,6 +544,10 @@ const Stories = () => {
     } finally {
       setSyncingAllStories(false);
     }
+  };
+
+  const handleCancelSyncAllStories = () => {
+    setConfirmSyncDialogOpen(false);
   };
 
   return (
@@ -737,15 +747,21 @@ const Stories = () => {
                       >
                         {refetchingStories[story.story_id] ? <CircularProgress size={20} /> : <RefreshIcon />}
                       </IconButton>
-                      <IconButton size="small" color="primary" onClick={() => handleOpenLinkDialog(story)}>
-                        <LinkIcon />
-                      </IconButton>
-                      <IconButton size="small" color="primary" onClick={() => handleOpenDialog(story)}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(story.story_id)}>
-                        <DeleteIcon />
-                      </IconButton>
+                      <Tooltip title="Link test cases">
+                        <IconButton size="small" color="primary" onClick={() => handleOpenLinkDialog(story)}>
+                          <LinkIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit story details">
+                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(story)}>
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete story">
+                        <IconButton size="small" color="error" onClick={() => handleDelete(story.story_id)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 <TableRow>
@@ -1394,6 +1410,33 @@ const Stories = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenTestCaseViewDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Sync All Stories Dialog */}
+      <Dialog
+        open={confirmSyncDialogOpen}
+        onClose={handleCancelSyncAllStories}
+        aria-labelledby="sync-all-dialog-title"
+        aria-describedby="sync-all-dialog-description"
+      >
+        <DialogTitle id="sync-all-dialog-title">
+          Confirm Sync Stories from JIRA
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="sync-all-dialog-description">
+            This action will only sync the status and details of all already imported user stories.
+            <br /><br />
+            Do you want to continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelSyncAllStories} color="inherit">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmSyncAllStories} variant="contained" color="primary" autoFocus>
+            Continue
+          </Button>
         </DialogActions>
       </Dialog>
 

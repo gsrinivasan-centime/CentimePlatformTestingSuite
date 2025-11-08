@@ -11,7 +11,12 @@ import {
   Button,
   IconButton,
   CircularProgress,
-  Alert
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -38,6 +43,7 @@ const ReleaseDetail = () => {
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
   const [syncingStories, setSyncingStories] = useState(false);
   const [syncMessage, setSyncMessage] = useState(null);
+  const [confirmSyncDialogOpen, setConfirmSyncDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchReleaseDetails();
@@ -70,6 +76,13 @@ const ReleaseDetail = () => {
   const handleSyncStories = async () => {
     if (!release) return;
     
+    // Open confirmation dialog
+    setConfirmSyncDialogOpen(true);
+  };
+
+  const handleConfirmSync = async () => {
+    setConfirmSyncDialogOpen(false);
+    
     setSyncingStories(true);
     setSyncMessage(null);
     
@@ -95,6 +108,10 @@ const ReleaseDetail = () => {
     } finally {
       setSyncingStories(false);
     }
+  };
+
+  const handleCancelSync = () => {
+    setConfirmSyncDialogOpen(false);
   };
 
   if (loading) {
@@ -223,6 +240,33 @@ const ReleaseDetail = () => {
           handleRefresh();
         }}
       />
+
+      {/* Confirm Sync Stories Dialog */}
+      <Dialog
+        open={confirmSyncDialogOpen}
+        onClose={handleCancelSync}
+        aria-labelledby="sync-dialog-title"
+        aria-describedby="sync-dialog-description"
+      >
+        <DialogTitle id="sync-dialog-title">
+          Confirm Sync Stories from JIRA
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="sync-dialog-description">
+            This action will import all user stories from JIRA with Fix Version <strong>{release?.version}</strong>.
+            <br /><br />
+            Do you want to continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelSync} color="inherit">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmSync} variant="contained" color="primary" autoFocus>
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

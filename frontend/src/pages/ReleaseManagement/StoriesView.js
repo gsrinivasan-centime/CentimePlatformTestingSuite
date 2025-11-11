@@ -29,9 +29,11 @@ import {
   Divider,
   Card,
   CardContent,
+  IconButton,
 } from '@mui/material';
 import {
-  Sync as SyncIcon
+  Sync as SyncIcon,
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import ResizableTableCell from '../../components/ResizableTableCell';
@@ -46,7 +48,10 @@ const StoriesView = ({ releaseId }) => {
   const [syncing, setSyncing] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
-  // Test case details dialog state
+  // Test case details accordion state
+  const [expandedTestCase, setExpandedTestCase] = useState(null);
+  
+  // Test case details dialog state (kept for backward compatibility)
   const [selectedTestCase, setSelectedTestCase] = useState(null);
   const [testCaseDialogOpen, setTestCaseDialogOpen] = useState(false);
   
@@ -206,10 +211,11 @@ const StoriesView = ({ releaseId }) => {
     }
   };
 
-  const handleTestCaseClick = (testCase) => {
-    setSelectedTestCase(testCase);
-    setTestCaseDialogOpen(true);
-  };
+  // Dialog view kept for backward compatibility but not used
+  // const handleTestCaseClick = (testCase) => {
+  //   setSelectedTestCase(testCase);
+  //   setTestCaseDialogOpen(true);
+  // };
 
   const handleCloseTestCaseDialog = () => {
     setTestCaseDialogOpen(false);
@@ -494,25 +500,36 @@ const StoriesView = ({ releaseId }) => {
                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>Sub-Module</TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>Feature</TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap' }}>Execution Status</TableCell>
+                                <TableCell sx={{ whiteSpace: 'nowrap' }}>Actions</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
                               {storyTestCases[story.story_id].map((tc) => (
-                                <TableRow key={tc.id}>
-                                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                <React.Fragment key={tc.id}>
+                                <TableRow>
+                                  <TableCell 
+                                    sx={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
+                                    onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
+                                  >
                                     <Chip
                                       label={tc.test_id}
                                       size="small"
                                       color="primary"
                                       variant="outlined"
-                                      onClick={() => handleTestCaseClick(tc)}
-                                      sx={{ cursor: 'pointer' }}
                                     />
                                   </TableCell>
-                                  <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300 }}>
+                                  <TableCell 
+                                    sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300, cursor: 'pointer' }}
+                                    onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
+                                  >
                                     {tc.title}
                                   </TableCell>
-                                  <TableCell sx={{ whiteSpace: 'nowrap' }}>{tc.module_name}</TableCell>
+                                  <TableCell 
+                                    sx={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
+                                    onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
+                                  >
+                                    {tc.module_name}
+                                  </TableCell>
                                   <TableCell sx={{ whiteSpace: 'nowrap' }}>
                                     <Chip label={tc.test_type} size="small" />
                                   </TableCell>
@@ -529,7 +546,10 @@ const StoriesView = ({ releaseId }) => {
                                     <FormControl size="small" fullWidth>
                                       <Select
                                         value={tc.execution_status || 'Not Started'}
-                                        onChange={(e) => handleExecutionStatusChange(tc.id, e.target.value, story.story_id)}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          handleExecutionStatusChange(tc.id, e.target.value, story.story_id);
+                                        }}
                                         sx={{
                                           minWidth: 130,
                                           '& .MuiSelect-select': {
@@ -546,7 +566,151 @@ const StoriesView = ({ releaseId }) => {
                                       </Select>
                                     </FormControl>
                                   </TableCell>
+                                  <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
+                                      color={expandedTestCase === tc.id ? 'primary' : 'default'}
+                                      title="View Details"
+                                    >
+                                      <ExpandMoreIcon 
+                                        sx={{
+                                          transform: expandedTestCase === tc.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                                          transition: 'transform 0.3s'
+                                        }}
+                                      />
+                                    </IconButton>
+                                  </TableCell>
                                 </TableRow>
+                                
+                                {/* Accordion Row for Test Case Details */}
+                                {expandedTestCase === tc.id && (
+                                  <TableRow>
+                                    <TableCell colSpan={9} sx={{ py: 0, px: 0, border: 0 }}>
+                                      <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
+                                        {/* Preconditions */}
+                                        {tc.preconditions && (
+                                          <Box sx={{ mb: 2 }}>
+                                            <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                              Preconditions
+                                            </Typography>
+                                            <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                              <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                                {tc.preconditions}
+                                              </Typography>
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                        
+                                        {/* Steps to Reproduce */}
+                                        {tc.steps_to_reproduce && (
+                                          <Box sx={{ mb: 2 }}>
+                                            <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                              Steps to Reproduce
+                                            </Typography>
+                                            <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                              <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                                {tc.steps_to_reproduce}
+                                              </Typography>
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                        
+                                        {/* Expected Result */}
+                                        {tc.expected_result && (
+                                          <Box sx={{ mb: 2 }}>
+                                            <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                              Expected Result
+                                            </Typography>
+                                            <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                              <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                                {tc.expected_result}
+                                              </Typography>
+                                            </Paper>
+                                          </Box>
+                                        )}
+                                        
+                                        {/* Scenario Examples / Parameters */}
+                                        {tc.scenario_examples && (() => {
+                                          try {
+                                            const examples = JSON.parse(tc.scenario_examples);
+                                            return (
+                                              <Box>
+                                                <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                                  Scenario Examples / Parameters
+                                                </Typography>
+                                                <TableContainer 
+                                                  component={Paper} 
+                                                  variant="outlined" 
+                                                  sx={{ 
+                                                    bgcolor: 'white',
+                                                    maxWidth: '100%',
+                                                    overflowX: 'auto',
+                                                    '&::-webkit-scrollbar': {
+                                                      height: '8px',
+                                                    },
+                                                    '&::-webkit-scrollbar-track': {
+                                                      backgroundColor: 'grey.100',
+                                                      borderRadius: '4px',
+                                                    },
+                                                    '&::-webkit-scrollbar-thumb': {
+                                                      backgroundColor: 'grey.400',
+                                                      borderRadius: '4px',
+                                                      '&:hover': {
+                                                        backgroundColor: 'grey.500',
+                                                      },
+                                                    },
+                                                  }}
+                                                >
+                                                  <Table size="small" sx={{ minWidth: 'max-content' }}>
+                                                    <TableHead>
+                                                      <TableRow sx={{ bgcolor: 'primary.light' }}>
+                                                        {examples.columns.map((col, idx) => (
+                                                          <TableCell 
+                                                            key={idx}
+                                                            sx={{ 
+                                                              fontWeight: 'bold',
+                                                              minWidth: 120,
+                                                              color: 'primary.contrastText',
+                                                              whiteSpace: 'nowrap'
+                                                            }}
+                                                          >
+                                                            {col}
+                                                          </TableCell>
+                                                        ))}
+                                                      </TableRow>
+                                                    </TableHead>
+                                                    <TableBody>
+                                                      {examples.rows.map((row, rowIdx) => (
+                                                        <TableRow key={rowIdx} hover>
+                                                          {row.map((cell, cellIdx) => (
+                                                            <TableCell key={cellIdx} sx={{ whiteSpace: 'nowrap' }}>
+                                                              <Typography variant="body2">{cell}</Typography>
+                                                            </TableCell>
+                                                          ))}
+                                                        </TableRow>
+                                                      ))}
+                                                    </TableBody>
+                                                  </Table>
+                                                </TableContainer>
+                                              </Box>
+                                            );
+                                          } catch (e) {
+                                            console.error('Error parsing scenario_examples:', e);
+                                            return null;
+                                          }
+                                        })()}
+                                        
+                                        {!tc.preconditions && !tc.steps_to_reproduce && !tc.expected_result && !tc.scenario_examples && (
+                                          <Typography variant="body2" color="text.secondary" textAlign="center">
+                                            No additional details available
+                                          </Typography>
+                                        )}
+                                      </Box>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                                </React.Fragment>
                               ))}
                             </TableBody>
                           </Table>

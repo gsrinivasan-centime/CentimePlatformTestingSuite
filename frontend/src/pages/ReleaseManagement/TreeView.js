@@ -27,11 +27,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Tooltip,
-  Grid,
-  Divider,
-  Card,
-  CardContent
+  Tooltip
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -42,8 +38,7 @@ import {
   Block as BlockedIcon,
   HourglassEmpty as NotStartedIcon,
   PlayArrow as InProgressIcon,
-  SkipNext as SkippedIcon,
-  Visibility as ViewIcon
+  SkipNext as SkippedIcon
 } from '@mui/icons-material';
 import { getReleaseTreeView, updateReleaseTestCase, removeTestCaseFromRelease } from '../../services/releaseManagementApi';
 import { testCasesAPI } from '../../services/api';
@@ -74,12 +69,11 @@ const TreeView = ({ releaseId }) => {
   const [expandedModules, setExpandedModules] = useState({});
   const [expandedSubModules, setExpandedSubModules] = useState({});
   const [expandedFeatures, setExpandedFeatures] = useState({});
+  const [expandedTestCase, setExpandedTestCase] = useState(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedTestCase, setSelectedTestCase] = useState(null);
   const [fullTestCaseDetails, setFullTestCaseDetails] = useState(null);
-  const [viewLoading, setViewLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [updateFormData, setUpdateFormData] = useState({
     execution_status: '',
@@ -195,28 +189,42 @@ const TreeView = ({ releaseId }) => {
     }
   };
 
-  const handleViewTestCase = async (testCase) => {
-    setSelectedTestCase(testCase);
-    setViewDialogOpen(true);
-    setViewLoading(true);
-    try {
-      // Fetch full test case details from test cases API using the test case id
-      const fullDetails = await testCasesAPI.getById(testCase.id);
-      setFullTestCaseDetails(fullDetails);
-    } catch (err) {
-      console.error('Error fetching test case details:', err);
-      // If fetch fails, we'll show what we have from the tree view
+  const handleToggleTestCase = async (testCase) => {
+    if (expandedTestCase === testCase.id) {
+      // Collapsing
+      setExpandedTestCase(null);
       setFullTestCaseDetails(null);
-    } finally {
-      setViewLoading(false);
+    } else {
+      // Expanding
+      setExpandedTestCase(testCase.id);
+      try {
+        // Fetch full test case details from test cases API using the test case id
+        const fullDetails = await testCasesAPI.getById(testCase.id);
+        setFullTestCaseDetails(fullDetails);
+      } catch (err) {
+        console.error('Error fetching test case details:', err);
+        setFullTestCaseDetails(null);
+      }
     }
   };
 
-  const handleCloseViewDialog = () => {
-    setViewDialogOpen(false);
-    setSelectedTestCase(null);
-    setFullTestCaseDetails(null);
-  };
+  // View dialog kept for backward compatibility
+  // const handleViewTestCase = async (testCase) => {
+  //   setSelectedTestCase(testCase);
+  //   setViewDialogOpen(true);
+  //   setViewLoading(true);
+  //   try {
+  //     const fullDetails = await testCasesAPI.getById(testCase.id);
+  //     setFullTestCaseDetails(fullDetails);
+  //   } catch (err) {
+  //     console.error('Error fetching test case details:', err);
+  //     setFullTestCaseDetails(null);
+  //   } finally {
+  //     setViewLoading(false);
+  //   }
+  // };
+
+
 
   const renderStats = (stats) => {
     const total = stats.total || 0;
@@ -334,18 +342,19 @@ const TreeView = ({ releaseId }) => {
                           </TableHead>
                           <TableBody>
                             {feature.test_cases.map((testCase) => (
+                              <React.Fragment key={testCase.id}>
                               <TableRow 
-                                key={testCase.id} 
                                 hover
-                                onClick={() => handleViewTestCase(testCase)}
                                 sx={{ 
-                                  cursor: 'pointer',
                                   '&:hover': {
                                     backgroundColor: 'action.hover',
                                   }
                                 }}
                               >
-                                <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <TableCell 
+                                  sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                  onClick={() => handleToggleTestCase(testCase)}
+                                >
                                   <Typography 
                                     variant="body2" 
                                     fontWeight="medium"
@@ -356,7 +365,10 @@ const TreeView = ({ releaseId }) => {
                                     {testCase.test_id}
                                   </Typography>
                                 </TableCell>
-                                <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                <TableCell 
+                                  sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                  onClick={() => handleToggleTestCase(testCase)}
+                                >
                                   <Tooltip title={testCase.title}>
                                     <span>{testCase.title}</span>
                                   </Tooltip>
@@ -407,11 +419,17 @@ const TreeView = ({ releaseId }) => {
                                         size="small" 
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleViewTestCase(testCase);
+                                          handleToggleTestCase(testCase);
                                         }}
-                                        color="info"
+                                        color={expandedTestCase === testCase.id ? 'primary' : 'default'}
                                       >
-                                        <ViewIcon fontSize="small" />
+                                        <ExpandMoreIcon 
+                                          fontSize="small"
+                                          sx={{
+                                            transform: expandedTestCase === testCase.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                                            transition: 'transform 0.3s'
+                                          }}
+                                        />
                                       </IconButton>
                                     </Tooltip>
                                     <Tooltip title="Edit Status">
@@ -441,6 +459,135 @@ const TreeView = ({ releaseId }) => {
                                   </Box>
                                 </TableCell>
                               </TableRow>
+                              
+                              {/* Accordion Row for Test Case Details */}
+                              {expandedTestCase === testCase.id && (
+                                <TableRow>
+                                  <TableCell colSpan={9} sx={{ py: 0, px: 0, border: 0 }}>
+                                    <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
+                                      {/* Preconditions */}
+                                      {fullTestCaseDetails?.preconditions && (
+                                        <Box sx={{ mb: 2 }}>
+                                          <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                            Preconditions
+                                          </Typography>
+                                          <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                            <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                              {fullTestCaseDetails.preconditions}
+                                            </Typography>
+                                          </Paper>
+                                        </Box>
+                                      )}
+                                      
+                                      {/* Steps to Reproduce */}
+                                      {fullTestCaseDetails?.steps_to_reproduce && (
+                                        <Box sx={{ mb: 2 }}>
+                                          <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                            Steps to Reproduce
+                                          </Typography>
+                                          <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                            <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                              {fullTestCaseDetails.steps_to_reproduce}
+                                            </Typography>
+                                          </Paper>
+                                        </Box>
+                                      )}
+                                      
+                                      {/* Expected Result */}
+                                      {fullTestCaseDetails?.expected_result && (
+                                        <Box sx={{ mb: 2 }}>
+                                          <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                            Expected Result
+                                          </Typography>
+                                          <Paper elevation={0} sx={{ bgcolor: 'white', p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                                            <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
+                                              {fullTestCaseDetails.expected_result}
+                                            </Typography>
+                                          </Paper>
+                                        </Box>
+                                      )}
+                                      
+                                      {/* Scenario Examples / Parameters */}
+                                      {fullTestCaseDetails?.scenario_examples && (() => {
+                                        try {
+                                          const examples = JSON.parse(fullTestCaseDetails.scenario_examples);
+                                          return (
+                                            <Box>
+                                              <Typography variant="subtitle2" color="primary" gutterBottom fontWeight="bold">
+                                                Scenario Examples / Parameters
+                                              </Typography>
+                                              <TableContainer 
+                                                component={Paper} 
+                                                variant="outlined" 
+                                                sx={{ 
+                                                  bgcolor: 'white',
+                                                  maxWidth: '100%',
+                                                  overflowX: 'auto',
+                                                  '&::-webkit-scrollbar': {
+                                                    height: '8px',
+                                                  },
+                                                  '&::-webkit-scrollbar-track': {
+                                                    backgroundColor: 'grey.100',
+                                                    borderRadius: '4px',
+                                                  },
+                                                  '&::-webkit-scrollbar-thumb': {
+                                                    backgroundColor: 'grey.400',
+                                                    borderRadius: '4px',
+                                                    '&:hover': {
+                                                      backgroundColor: 'grey.500',
+                                                    },
+                                                  },
+                                                }}
+                                              >
+                                                <Table size="small" sx={{ minWidth: 'max-content' }}>
+                                                  <TableHead>
+                                                    <TableRow sx={{ bgcolor: 'primary.light' }}>
+                                                      {examples.columns.map((col, idx) => (
+                                                        <TableCell 
+                                                          key={idx}
+                                                          sx={{ 
+                                                            fontWeight: 'bold',
+                                                            minWidth: 120,
+                                                            color: 'primary.contrastText',
+                                                            whiteSpace: 'nowrap'
+                                                          }}
+                                                        >
+                                                          {col}
+                                                        </TableCell>
+                                                      ))}
+                                                    </TableRow>
+                                                  </TableHead>
+                                                  <TableBody>
+                                                    {examples.rows.map((row, rowIdx) => (
+                                                      <TableRow key={rowIdx} hover>
+                                                        {row.map((cell, cellIdx) => (
+                                                          <TableCell key={cellIdx} sx={{ whiteSpace: 'nowrap' }}>
+                                                            <Typography variant="body2">{cell}</Typography>
+                                                          </TableCell>
+                                                        ))}
+                                                      </TableRow>
+                                                    ))}
+                                                  </TableBody>
+                                                </Table>
+                                              </TableContainer>
+                                            </Box>
+                                          );
+                                        } catch (e) {
+                                          console.error('Error parsing scenario_examples:', e);
+                                          return null;
+                                        }
+                                      })()}
+                                      
+                                      {!fullTestCaseDetails && (
+                                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                          <CircularProgress size={24} />
+                                        </Box>
+                                      )}
+                                    </Box>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                              </React.Fragment>
                             ))}
                           </TableBody>
                         </Table>
@@ -562,358 +709,6 @@ const TreeView = ({ releaseId }) => {
         </DialogActions>
       </Dialog>
 
-      {/* View Test Case Dialog */}
-      <Dialog
-        open={viewDialogOpen}
-        onClose={handleCloseViewDialog}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', py: 2 }}>
-          Test Case Details
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          {viewLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
-              <CircularProgress />
-            </Box>
-          ) : fullTestCaseDetails ? (
-            <Box>
-              {/* Basic Information */}
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom color="primary">
-                    Basic Information
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid item xs={6}>
-                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        Test ID
-                      </Typography>
-                      <Typography variant="body1">
-                        {fullTestCaseDetails.test_id}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        Title
-                      </Typography>
-                      <Typography variant="body1">
-                        {fullTestCaseDetails.title}
-                      </Typography>
-                    </Grid>
-                    {fullTestCaseDetails.description && (
-                      <Grid item xs={12}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Description
-                        </Typography>
-                        <Typography variant="body1">
-                          {fullTestCaseDetails.description}
-                        </Typography>
-                      </Grid>
-                    )}
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Module & Classification */}
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom color="primary">
-                    Module & Classification
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid item xs={6}>
-                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        Type
-                      </Typography>
-                      <Typography variant="body1">
-                        {fullTestCaseDetails.test_type}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        Tag
-                      </Typography>
-                      <Box>
-                        <Chip
-                          label={fullTestCaseDetails.tag ? fullTestCaseDetails.tag.toUpperCase() : 'UI'}
-                          size="small"
-                          color={
-                            fullTestCaseDetails.tag === 'api' ? 'success' : 
-                            fullTestCaseDetails.tag === 'hybrid' ? 'warning' : 
-                            'info'
-                          }
-                          variant="outlined"
-                        />
-                      </Box>
-                    </Grid>
-                    {fullTestCaseDetails.tags && (
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Additional Tags
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {fullTestCaseDetails.tags.split(',').map((tag, idx) => (
-                            <Chip
-                              key={idx}
-                              label={tag.trim()}
-                              size="small"
-                              color={
-                                tag.trim() === 'smoke' ? 'error' :
-                                tag.trim() === 'regression' ? 'primary' :
-                                tag.trim() === 'sanity' ? 'success' :
-                                tag.trim() === 'integration' ? 'warning' :
-                                tag.trim() === 'e2e' ? 'info' :
-                                'default'
-                              }
-                            />
-                          ))}
-                        </Box>
-                      </Grid>
-                    )}
-                    {fullTestCaseDetails.test_type === 'automated' && (
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Automation Status
-                        </Typography>
-                        <Chip
-                          label={fullTestCaseDetails.automation_status || 'working'}
-                          size="small"
-                          color={fullTestCaseDetails.automation_status === 'broken' ? 'error' : 'success'}
-                        />
-                      </Grid>
-                    )}
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Preconditions */}
-              {fullTestCaseDetails.preconditions && (
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Preconditions
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper 
-                      elevation={0} 
-                      sx={{ 
-                        p: 2, 
-                        bgcolor: 'grey.50',
-                        border: '1px solid',
-                        borderColor: 'grey.200'
-                      }}
-                    >
-                      <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
-                        {fullTestCaseDetails.preconditions}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Steps to Reproduce */}
-              {fullTestCaseDetails.steps_to_reproduce && (
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Steps to Reproduce
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper 
-                      elevation={0} 
-                      sx={{ 
-                        p: 2, 
-                        bgcolor: 'grey.50',
-                        border: '1px solid',
-                        borderColor: 'grey.200'
-                      }}
-                    >
-                      <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
-                        {fullTestCaseDetails.steps_to_reproduce}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Expected Result */}
-              {fullTestCaseDetails.expected_result && (
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Expected Result
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper 
-                      elevation={0} 
-                      sx={{ 
-                        p: 2, 
-                        bgcolor: 'grey.50',
-                        border: '1px solid',
-                        borderColor: 'grey.200'
-                      }}
-                    >
-                      <Typography variant="body1">
-                        {fullTestCaseDetails.expected_result}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Scenario Examples */}
-              {fullTestCaseDetails.scenario_examples && (() => {
-                try {
-                  const examples = JSON.parse(fullTestCaseDetails.scenario_examples);
-                  return (
-                    <Card sx={{ mb: 2 }}>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom color="primary">
-                          Scenario Examples / Parameters
-                        </Typography>
-                        <Divider sx={{ mb: 2 }} />
-                        <TableContainer component={Paper} variant="outlined">
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                {examples.columns.map((col, idx) => (
-                                  <ResizableTableCell 
-                                    key={idx}
-                                    minWidth={100}
-                                    initialWidth={150}
-                                    isHeader
-                                  >
-                                    {col}
-                                  </ResizableTableCell>
-                                ))}
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {examples.rows.map((row, rowIdx) => (
-                                <TableRow key={rowIdx} hover>
-                                  {row.map((cell, cellIdx) => (
-                                    <TableCell key={cellIdx}>
-                                      <Typography variant="body2">{cell}</Typography>
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      </CardContent>
-                    </Card>
-                  );
-                } catch (e) {
-                  return null;
-                }
-              })()}
-
-              {/* Release Execution Details */}
-              {selectedTestCase && selectedTestCase.execution_status && (
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Release Execution Details
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Execution Status
-                        </Typography>
-                        <Chip 
-                          icon={STATUS_ICONS[selectedTestCase.execution_status]}
-                          label={selectedTestCase.execution_status?.replace('_', ' ').toUpperCase() || 'NOT STARTED'}
-                          size="small"
-                          sx={{ 
-                            bgcolor: STATUS_COLORS[selectedTestCase.execution_status] || STATUS_COLORS.not_started,
-                            color: 'white',
-                            '& .MuiChip-icon': { color: 'white' }
-                          }}
-                        />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Priority
-                        </Typography>
-                        <Chip 
-                          label={selectedTestCase.priority || 'medium'}
-                          size="small"
-                          color={
-                            selectedTestCase.priority === 'high' ? 'error' : 
-                            selectedTestCase.priority === 'low' ? 'default' : 
-                            'warning'
-                          }
-                        />
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Executed By
-                        </Typography>
-                        <Typography variant="body1">
-                          {selectedTestCase.executed_by || '-'}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Execution Date
-                        </Typography>
-                        <Typography variant="body1">
-                          {selectedTestCase.execution_date 
-                            ? new Date(selectedTestCase.execution_date).toLocaleString()
-                            : '-'}
-                        </Typography>
-                      </Grid>
-                      {selectedTestCase.comments && (
-                        <Grid item xs={12}>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            Execution Comments
-                          </Typography>
-                          <Paper 
-                            elevation={0} 
-                            sx={{ 
-                              p: 2, 
-                              bgcolor: 'grey.50',
-                              border: '1px solid',
-                              borderColor: 'grey.200'
-                            }}
-                          >
-                            <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
-                              {selectedTestCase.comments}
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                      )}
-                      {selectedTestCase.bug_ids && (
-                        <Grid item xs={6}>
-                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                            Bug IDs
-                          </Typography>
-                          <Typography variant="body1">
-                            {selectedTestCase.bug_ids}
-                          </Typography>
-                        </Grid>
-                      )}
-                    </Grid>
-                  </CardContent>
-                </Card>
-              )}
-            </Box>
-          ) : (
-            <Box sx={{ pt: 2 }}>
-              <Alert severity="error">Failed to load test case details</Alert>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseViewDialog}>Close</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

@@ -31,11 +31,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   TablePagination,
-  Tooltip,
-  Grid,
-  Divider,
-  Card,
-  CardContent,
+  Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -57,9 +53,7 @@ const Stories = () => {
   const [storyTestCases, setStoryTestCases] = useState({});
   const [openDialog, setOpenDialog] = useState(false);
   const [openLinkDialog, setOpenLinkDialog] = useState(false);
-  const [openTestCaseViewDialog, setOpenTestCaseViewDialog] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
-  const [selectedTestCaseForView, setSelectedTestCaseForView] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [importMode, setImportMode] = useState('manual'); // 'manual' or 'url'
   const [storyUrl, setStoryUrl] = useState('');
@@ -97,6 +91,8 @@ const Stories = () => {
   const [loadingTestCases, setLoadingTestCases] = useState({});
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [expandedTestCase, setExpandedTestCase] = useState(null);
+  const [fullTestCaseDetails, setFullTestCaseDetails] = useState(null);
 
   const statusOptions = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
   const priorityOptions = ['Low', 'Medium', 'High', 'Critical'];
@@ -248,15 +244,23 @@ const Stories = () => {
     setSelectedStory(null);
   };
 
-  const handleViewTestCase = (testCase) => {
-    setSelectedTestCaseForView(testCase);
-    setOpenTestCaseViewDialog(true);
+  // const handleViewTestCase = (testCase) => {
+  //   setSelectedTestCaseForView(testCase);
+  //   setOpenTestCaseViewDialog(true);
+  // };
+
+  const handleToggleTestCase = async (testCase) => {
+    if (expandedTestCase === testCase.id) {
+      setExpandedTestCase(null);
+      setFullTestCaseDetails(null);
+    } else {
+      setExpandedTestCase(testCase.id);
+      const fullDetails = await testCasesAPI.getById(testCase.id);
+      setFullTestCaseDetails(fullDetails);
+    }
   };
 
-  const getModuleName = (moduleId) => {
-    const module = modules.find(m => m.id === moduleId);
-    return module ? module.name : 'N/A';
-  };
+
 
   const handleOpenLinkDialog = (story) => {
     setSelectedStory(story);
@@ -795,42 +799,194 @@ const Stories = () => {
                             </TableHead>
                             <TableBody>
                               {storyTestCases[story.story_id].map((tc) => (
-                                <TableRow key={tc.id}>
-                                  <TableCell>
-                                    <Chip 
-                                      label={tc.test_id} 
-                                      size="small" 
-                                      color="primary"
-                                      clickable
-                                      onClick={() => handleViewTestCase(tc)}
+                                <React.Fragment key={tc.id}>
+                                  <TableRow>
+                                    <TableCell 
                                       sx={{ cursor: 'pointer' }}
-                                    />
-                                  </TableCell>
-                                  <TableCell>{tc.title}</TableCell>
-                                  <TableCell>{tc.module_name}</TableCell>
-                                  <TableCell>
-                                    <Chip label={tc.test_type} size="small" />
-                                  </TableCell>
-                                  <TableCell>
-                                    <Chip 
-                                      label={tc.tag} 
-                                      size="small" 
-                                      color={tc.tag === 'ui' ? 'primary' : tc.tag === 'api' ? 'secondary' : 'default'}
-                                    />
-                                  </TableCell>
-                                  <TableCell>{tc.sub_module || '-'}</TableCell>
-                                  <TableCell>{tc.feature_section || '-'}</TableCell>
-                                  <TableCell>
-                                    <IconButton
-                                      size="small"
-                                      color="error"
-                                      onClick={() => handleUnlinkTestCase(story.story_id, tc.id, tc.test_id)}
-                                      title="Unlink test case"
+                                      onClick={() => handleToggleTestCase(tc)}
                                     >
-                                      <LinkOffIcon fontSize="small" />
-                                    </IconButton>
-                                  </TableCell>
-                                </TableRow>
+                                      <Chip 
+                                        label={tc.test_id} 
+                                        size="small" 
+                                        color="primary"
+                                      />
+                                    </TableCell>
+                                    <TableCell 
+                                      sx={{ cursor: 'pointer' }}
+                                      onClick={() => handleToggleTestCase(tc)}
+                                    >
+                                      {tc.title}
+                                    </TableCell>
+                                    <TableCell 
+                                      sx={{ cursor: 'pointer' }}
+                                      onClick={() => handleToggleTestCase(tc)}
+                                    >
+                                      {tc.module_name}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip label={tc.test_type} size="small" />
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip 
+                                        label={tc.tag} 
+                                        size="small" 
+                                        color={tc.tag === 'ui' ? 'primary' : tc.tag === 'api' ? 'secondary' : 'default'}
+                                      />
+                                    </TableCell>
+                                    <TableCell>{tc.sub_module || '-'}</TableCell>
+                                    <TableCell>{tc.feature_section || '-'}</TableCell>
+                                    <TableCell>
+                                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                                        <Tooltip title={expandedTestCase === tc.id ? "Collapse" : "Expand"}>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleToggleTestCase(tc)}
+                                            color={expandedTestCase === tc.id ? 'primary' : 'default'}
+                                          >
+                                            <ExpandMoreIcon
+                                              fontSize="small"
+                                              sx={{
+                                                transform: expandedTestCase === tc.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                                                transition: 'transform 0.3s'
+                                              }}
+                                            />
+                                          </IconButton>
+                                        </Tooltip>
+                                        <IconButton
+                                          size="small"
+                                          color="error"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleUnlinkTestCase(story.story_id, tc.id, tc.test_id);
+                                          }}
+                                          title="Unlink test case"
+                                        >
+                                          <LinkOffIcon fontSize="small" />
+                                        </IconButton>
+                                      </Box>
+                                    </TableCell>
+                                  </TableRow>
+                                  {expandedTestCase === tc.id && (
+                                    <TableRow>
+                                      <TableCell colSpan={8} sx={{ py: 0, px: 0, borderBottom: 'none' }}>
+                                        <Collapse in={expandedTestCase === tc.id} timeout="auto" unmountOnExit>
+                                          <Box sx={{ p: 3, bgcolor: 'grey.50' }}>
+                                            {fullTestCaseDetails ? (
+                                              <>
+                                                {/* Preconditions */}
+                                                {fullTestCaseDetails.preconditions && (
+                                                  <Box sx={{ mb: 2 }}>
+                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                      Preconditions
+                                                    </Typography>
+                                                    <Paper 
+                                                      variant="outlined" 
+                                                      sx={{ 
+                                                        p: 2, 
+                                                        bgcolor: 'background.paper',
+                                                        whiteSpace: 'pre-wrap'
+                                                      }}
+                                                    >
+                                                      <Typography variant="body2">
+                                                        {fullTestCaseDetails.preconditions}
+                                                      </Typography>
+                                                    </Paper>
+                                                  </Box>
+                                                )}
+
+                                                {/* Steps to Reproduce */}
+                                                {fullTestCaseDetails.steps_to_reproduce && (
+                                                  <Box sx={{ mb: 2 }}>
+                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                      Steps to Reproduce
+                                                    </Typography>
+                                                    <Paper 
+                                                      variant="outlined" 
+                                                      sx={{ 
+                                                        p: 2, 
+                                                        bgcolor: 'background.paper',
+                                                        whiteSpace: 'pre-wrap'
+                                                      }}
+                                                    >
+                                                      <Typography variant="body2">
+                                                        {fullTestCaseDetails.steps_to_reproduce}
+                                                      </Typography>
+                                                    </Paper>
+                                                  </Box>
+                                                )}
+
+                                                {/* Expected Result */}
+                                                {fullTestCaseDetails.expected_result && (
+                                                  <Box sx={{ mb: 2 }}>
+                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                      Expected Result
+                                                    </Typography>
+                                                    <Paper 
+                                                      variant="outlined" 
+                                                      sx={{ 
+                                                        p: 2, 
+                                                        bgcolor: 'background.paper',
+                                                        whiteSpace: 'pre-wrap'
+                                                      }}
+                                                    >
+                                                      <Typography variant="body2">
+                                                        {fullTestCaseDetails.expected_result}
+                                                      </Typography>
+                                                    </Paper>
+                                                  </Box>
+                                                )}
+
+                                                {/* Scenario Examples */}
+                                                {fullTestCaseDetails.scenario_examples && (() => {
+                                                  try {
+                                                    const examples = JSON.parse(fullTestCaseDetails.scenario_examples);
+                                                    return (
+                                                      <Box>
+                                                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                          Scenario Examples / Parameters
+                                                        </Typography>
+                                                        <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+                                                          <Table size="small" sx={{ minWidth: 600, bgcolor: 'background.paper' }}>
+                                                            <TableHead>
+                                                              <TableRow>
+                                                                {examples.columns.map((col, idx) => (
+                                                                  <TableCell key={idx} sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>
+                                                                    {col}
+                                                                  </TableCell>
+                                                                ))}
+                                                              </TableRow>
+                                                            </TableHead>
+                                                            <TableBody>
+                                                              {examples.rows.map((row, rowIdx) => (
+                                                                <TableRow key={rowIdx} hover>
+                                                                  {row.map((cell, cellIdx) => (
+                                                                    <TableCell key={cellIdx}>
+                                                                      {cell}
+                                                                    </TableCell>
+                                                                  ))}
+                                                                </TableRow>
+                                                              ))}
+                                                            </TableBody>
+                                                          </Table>
+                                                        </Box>
+                                                      </Box>
+                                                    );
+                                                  } catch (e) {
+                                                    return null;
+                                                  }
+                                                })()}
+                                              </>
+                                            ) : (
+                                              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                                <CircularProgress size={30} />
+                                              </Box>
+                                            )}
+                                          </Box>
+                                        </Collapse>
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                </React.Fragment>
                               ))}
                             </TableBody>
                           </Table>
@@ -1212,260 +1368,6 @@ const Stories = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Test Case View Dialog */}
-      <Dialog
-        open={openTestCaseViewDialog}
-        onClose={() => setOpenTestCaseViewDialog(false)}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white', py: 2 }}>
-          Test Case Details
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          {selectedTestCaseForView && (
-            <Box>
-              {/* Basic Info Card */}
-              <Card variant="outlined" sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom color="primary">
-                    Basic Information
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Test ID
-                      </Typography>
-                      <Typography variant="body1" fontWeight="medium">
-                        {selectedTestCaseForView.test_id}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Type
-                      </Typography>
-                      <Chip
-                        label={selectedTestCaseForView.test_type}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Title
-                      </Typography>
-                      <Typography variant="body1" fontWeight="medium">
-                        {selectedTestCaseForView.title}
-                      </Typography>
-                    </Grid>
-                    {selectedTestCaseForView.description && (
-                      <Grid item xs={12}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Description
-                        </Typography>
-                        <Typography variant="body2">
-                          {selectedTestCaseForView.description}
-                        </Typography>
-                      </Grid>
-                    )}
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Module & Classification Card */}
-              <Card variant="outlined" sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom color="primary">
-                    Module & Classification
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} sm={4}>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Module
-                      </Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {selectedTestCaseForView.module_name || getModuleName(selectedTestCaseForView.module_id)}
-                      </Typography>
-                    </Grid>
-                    {selectedTestCaseForView.sub_module && (
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Sub-Module
-                        </Typography>
-                        <Typography variant="body2" fontWeight="medium">
-                          {selectedTestCaseForView.sub_module}
-                        </Typography>
-                      </Grid>
-                    )}
-                    {selectedTestCaseForView.feature_section && (
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Feature/Section
-                        </Typography>
-                        <Typography variant="body2" fontWeight="medium">
-                          {selectedTestCaseForView.feature_section}
-                        </Typography>
-                      </Grid>
-                    )}
-                    <Grid item xs={12} sm={4}>
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        Tag
-                      </Typography>
-                      <Chip
-                        label={selectedTestCaseForView.tag ? selectedTestCaseForView.tag.toUpperCase() : 'UI'}
-                        size="small"
-                        color={
-                          selectedTestCaseForView.tag === 'api' ? 'success' : 
-                          selectedTestCaseForView.tag === 'hybrid' ? 'warning' : 
-                          'info'
-                        }
-                      />
-                    </Grid>
-                    {selectedTestCaseForView.test_type === 'automated' && (
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Automation Status
-                        </Typography>
-                        <Chip
-                          label={selectedTestCaseForView.automation_status || 'working'}
-                          size="small"
-                          color={selectedTestCaseForView.automation_status === 'broken' ? 'error' : 'success'}
-                        />
-                      </Grid>
-                    )}
-                    {selectedTestCaseForView.tags && (
-                      <Grid item xs={12}>
-                        <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-                          Additional Tags
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {selectedTestCaseForView.tags.split(',').map((tag, idx) => (
-                            <Chip
-                              key={idx}
-                              label={tag.trim()}
-                              size="small"
-                              color={
-                                tag.trim() === 'smoke' ? 'error' :
-                                tag.trim() === 'regression' ? 'primary' :
-                                tag.trim() === 'sanity' ? 'success' :
-                                tag.trim() === 'integration' ? 'warning' :
-                                tag.trim() === 'e2e' ? 'info' :
-                                'default'
-                              }
-                            />
-                          ))}
-                        </Box>
-                      </Grid>
-                    )}
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Test Execution Details */}
-              {selectedTestCaseForView.preconditions && (
-                <Card variant="outlined" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Preconditions
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper elevation={0} sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
-                      <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
-                        {selectedTestCaseForView.preconditions}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {selectedTestCaseForView.steps_to_reproduce && (
-                <Card variant="outlined" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Steps to Reproduce
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper elevation={0} sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
-                      <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
-                        {selectedTestCaseForView.steps_to_reproduce}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {selectedTestCaseForView.expected_result && (
-                <Card variant="outlined" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom color="primary">
-                      Expected Result
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                    <Paper elevation={0} sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 1 }}>
-                      <Typography variant="body2" style={{ whiteSpace: 'pre-wrap' }}>
-                        {selectedTestCaseForView.expected_result}
-                      </Typography>
-                    </Paper>
-                  </CardContent>
-                </Card>
-              )}
-
-              {selectedTestCaseForView.scenario_examples && (() => {
-                try {
-                  const examples = JSON.parse(selectedTestCaseForView.scenario_examples);
-                  return (
-                    <Card variant="outlined" sx={{ mb: 2 }}>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom color="primary">
-                          Scenario Examples / Parameters
-                        </Typography>
-                        <Divider sx={{ mb: 2 }} />
-                        <TableContainer component={Paper} variant="outlined">
-                          <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                            <TableHead>
-                              <TableRow>
-                                {examples.columns.map((col, idx) => (
-                                  <ResizableTableCell 
-                                    key={idx}
-                                    minWidth={100}
-                                    initialWidth={150}
-                                    isHeader
-                                  >
-                                    {col}
-                                  </ResizableTableCell>
-                                ))}
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {examples.rows.map((row, rowIdx) => (
-                                <TableRow key={rowIdx} hover>
-                                  {row.map((cell, cellIdx) => (
-                                    <TableCell key={cellIdx}>
-                                      <Typography variant="body2">{cell}</Typography>
-                                    </TableCell>
-                                  ))}
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      </CardContent>
-                    </Card>
-                  );
-                } catch (e) {
-                  return null;
-                }
-              })()}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenTestCaseViewDialog(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Confirm Sync All Stories Dialog */}
       <Dialog

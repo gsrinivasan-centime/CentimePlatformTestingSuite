@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine
 from app.models import models
-from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories
+from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories, step_catalog
 
 # Create database tables
 models.Base.metadata.create_all(bind=engine)
@@ -35,6 +35,7 @@ app.include_router(releases.router, prefix="/api/releases", tags=["Releases"])
 app.include_router(release_management.router, prefix="/api", tags=["Release Management"])
 app.include_router(executions.router, prefix="/api/executions", tags=["Executions"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
+app.include_router(step_catalog.router, prefix="/api/step-catalog", tags=["Step Catalog & Design Studio"])
 
 @app.get("/")
 def read_root():

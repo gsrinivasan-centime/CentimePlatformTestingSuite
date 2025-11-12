@@ -12,6 +12,7 @@ import VerifyEmail from './pages/VerifyEmail';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
+import TestDesignStudio from './pages/TestDesignStudio';
 import TestCases from './pages/TestCases';
 import Executions from './pages/Executions';
 import Reports from './pages/Reports';
@@ -59,6 +60,16 @@ function AppContent() {
                 <ProtectedRoute>
                   <Layout>
                     <Dashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/test-design-studio"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TestDesignStudio />
                   </Layout>
                 </ProtectedRoute>
               }

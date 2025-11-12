@@ -461,3 +461,63 @@ class ReleaseTreeView(BaseModel):
     release_id: int
     release_version: str
     modules: List[TreeModule]
+
+# Step Catalog Schemas
+class StepCatalogBase(BaseModel):
+    step_type: str
+    step_text: str
+    step_pattern: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+    module_id: Optional[int] = None
+    tags: Optional[str] = None
+
+class StepCatalogCreate(StepCatalogBase):
+    pass
+
+class StepCatalogUpdate(BaseModel):
+    step_type: Optional[str] = None
+    step_text: Optional[str] = None
+    step_pattern: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+    module_id: Optional[int] = None
+    tags: Optional[str] = None
+    usage_count: Optional[int] = None
+
+class StepCatalog(StepCatalogBase):
+    id: int
+    usage_count: Optional[int] = 0
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# Feature File Schemas
+class FeatureFileBase(BaseModel):
+    name: str
+    content: str
+    description: Optional[str] = None
+    module_id: Optional[int] = None
+    status: Optional[str] = "draft"
+
+class FeatureFileCreate(FeatureFileBase):
+    pass
+
+class FeatureFileUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    description: Optional[str] = None
+    module_id: Optional[int] = None
+    status: Optional[str] = None
+
+class FeatureFile(FeatureFileBase):
+    id: int
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

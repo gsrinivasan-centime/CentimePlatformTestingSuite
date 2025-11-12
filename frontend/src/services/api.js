@@ -486,4 +486,96 @@ export const jiraStoriesAPI = {
   },
 };
 
+// Step Catalog API
+export const stepCatalogAPI = {
+  // Get all steps with optional filters
+  getAll: async (params = {}) => {
+    const response = await api.get('/step-catalog/steps', { params });
+    return response.data;
+  },
+  
+  // Get step by ID
+  getById: async (id) => {
+    const response = await api.get(`/step-catalog/steps/${id}`);
+    return response.data;
+  },
+  
+  // Create new step
+  create: async (data) => {
+    const response = await api.post('/step-catalog/steps', data);
+    return response.data;
+  },
+  
+  // Update step
+  update: async (id, data) => {
+    const response = await api.put(`/step-catalog/steps/${id}`, data);
+    return response.data;
+  },
+  
+  // Delete step
+  delete: async (id) => {
+    const response = await api.delete(`/step-catalog/steps/${id}`);
+    return response.data;
+  },
+  
+  // Increment usage count
+  incrementUsage: async (id) => {
+    const response = await api.post(`/step-catalog/steps/${id}/increment-usage`);
+    return response.data;
+  },
+  
+  // Get statistics
+  getStats: async () => {
+    const response = await api.get('/step-catalog/steps/stats/summary');
+    return response.data;
+  },
+  
+  // Search for suggestions (autocomplete)
+  searchSuggestions: async (query, stepType = null, limit = 10) => {
+    const params = { query, limit };
+    if (stepType) params.step_type = stepType;
+    const response = await api.get('/step-catalog/steps/search/suggestions', { params });
+    return response.data;
+  },
+};
+
+// Feature Files API
+export const featureFilesAPI = {
+  // Get all feature files
+  getAll: async (params = {}) => {
+    const response = await api.get('/step-catalog/feature-files', { params });
+    return response.data;
+  },
+  
+  // Get feature file by ID
+  getById: async (id) => {
+    const response = await api.get(`/step-catalog/feature-files/${id}`);
+    return response.data;
+  },
+  
+  // Create new feature file
+  create: async (data) => {
+    const response = await api.post('/step-catalog/feature-files', data);
+    return response.data;
+  },
+  
+  // Update feature file
+  update: async (id, data) => {
+    const response = await api.put(`/step-catalog/feature-files/${id}`, data);
+    return response.data;
+  },
+  
+  // Delete feature file
+  delete: async (id) => {
+    const response = await api.delete(`/step-catalog/feature-files/${id}`);
+    return response.data;
+  },
+  
+  // Publish feature file
+  publish: async (id) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/publish`);
+    return response.data;
+  },
+};
+
 export default api;

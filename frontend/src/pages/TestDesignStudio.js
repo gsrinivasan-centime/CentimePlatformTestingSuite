@@ -248,7 +248,6 @@ const TestDesignStudio = () => {
       }
 
       await loadFeatureFiles();
-      handleBackToDashboard();
     } catch (error) {
       console.error('Error saving file:', error);
       showSnackbar('Error saving file', 'error');

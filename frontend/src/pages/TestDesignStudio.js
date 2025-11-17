@@ -53,6 +53,7 @@ import {
   Brightness4 as Brightness4Icon,
   Brightness7 as Brightness7Icon,
   WrapText as WrapTextIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import { stepCatalogAPI, featureFilesAPI, modulesAPI } from '../services/api';
 
@@ -212,6 +213,15 @@ const TestDesignStudio = () => {
     setView('editor');
   };
 
+  const handleViewFile = async (file) => {
+    setCurrentFile(file);
+    setFileName(file.name);
+    setFileDescription(file.description || '');
+    setSelectedModule(file.module_id || '');
+    setEditorContent(file.content);
+    setView('view'); // New view mode for read-only
+  };
+
   const handleBackToDashboard = () => {
     setView('dashboard');
     setCurrentFile(null);
@@ -266,14 +276,43 @@ const TestDesignStudio = () => {
         setNewStepsDialogOpen(true);
       }
 
-      // Publish the file (this would create test cases)
-      await featureFilesAPI.publish(file.id);
+      // Publish the file (this creates test cases from scenarios)
+      const response = await featureFilesAPI.publish(file.id);
       
-      showSnackbar('File published successfully', 'success');
+      const testCasesCreated = response.test_cases_created || 0;
+      if (testCasesCreated > 0) {
+        showSnackbar(
+          `File published successfully! Created ${testCasesCreated} test case(s).`,
+          'success'
+        );
+      } else {
+        showSnackbar('File published, but no test cases were created.', 'warning');
+      }
+      
       await loadFeatureFiles();
     } catch (error) {
       console.error('Error publishing file:', error);
-      showSnackbar('Error publishing file', 'error');
+      showSnackbar(
+        error.response?.data?.detail || 'Error publishing file',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestore = async (file) => {
+    setLoading(true);
+    try {
+      await featureFilesAPI.restore(file.id);
+      showSnackbar('File restored to draft successfully', 'success');
+      await loadFeatureFiles();
+    } catch (error) {
+      console.error('Error restoring file:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error restoring file',
+        'error'
+      );
     } finally {
       setLoading(false);
     }
@@ -663,7 +702,11 @@ const TestDesignStudio = () => {
                       <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>
                         {file.name}
                       </Typography>
-                      <Chip label="Draft" color="default" size="small" />
+                      <Chip 
+                        label={file.status === 'published' ? 'Published' : 'Draft'} 
+                        color={file.status === 'published' ? 'success' : 'default'} 
+                        size="small" 
+                      />
                     </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1, minHeight: 40 }}>
                       {file.description || 'No description'}
@@ -678,12 +721,30 @@ const TestDesignStudio = () => {
                     </Typography>
                   </CardContent>
                   <CardActions>
-                    <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditFile(file)}>
-                      Edit
-                    </Button>
-                    <Button size="small" startIcon={<PublishIcon />} onClick={() => handlePublish(file)}>
-                      Publish
-                    </Button>
+                    {file.status === 'published' ? (
+                      <>
+                        <Button size="small" startIcon={<VisibilityIcon />} onClick={() => handleViewFile(file)}>
+                          View
+                        </Button>
+                        <Button 
+                          size="small" 
+                          color="warning"
+                          startIcon={<PublishIcon />} 
+                          onClick={() => handleRestore(file)}
+                        >
+                          Restore
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditFile(file)}>
+                          Edit
+                        </Button>
+                        <Button size="small" startIcon={<PublishIcon />} onClick={() => handlePublish(file)}>
+                          Publish
+                        </Button>
+                      </>
+                    )}
                     <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteFile(file)}>
                       Delete
                     </Button>
@@ -725,6 +786,17 @@ const TestDesignStudio = () => {
                     </Typography>
                   </CardContent>
                   <CardActions>
+                    <Button size="small" startIcon={<VisibilityIcon />} onClick={() => handleViewFile(upload)}>
+                      View
+                    </Button>
+                    <Button 
+                      size="small" 
+                      color="warning"
+                      startIcon={<PublishIcon />} 
+                      onClick={() => handleRestore(upload)}
+                    >
+                      Restore
+                    </Button>
                     <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteUpload(upload.id)}>
                       Remove
                     </Button>
@@ -827,14 +899,26 @@ const TestDesignStudio = () => {
             </Button>
           </Grid>
           <Grid item>
-            <Button
-              variant="contained"
-              startIcon={<PublishIcon />}
-              onClick={() => currentFile && handlePublish(currentFile)}
-              disabled={loading || !currentFile}
-            >
-              Publish
-            </Button>
+            {currentFile && currentFile.status === 'published' ? (
+              <Button
+                variant="outlined"
+                color="warning"
+                startIcon={<PublishIcon />}
+                onClick={() => handleRestore(currentFile)}
+                disabled={loading}
+              >
+                Restore to Draft
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                startIcon={<PublishIcon />}
+                onClick={() => currentFile && handlePublish(currentFile)}
+                disabled={loading || !currentFile}
+              >
+                Publish
+              </Button>
+            )}
           </Grid>
           <Grid item>
             <Tooltip title={`Switch to ${editorTheme === 'light' ? 'dark' : 'light'} mode`}>
@@ -1095,6 +1179,75 @@ const TestDesignStudio = () => {
     </Box>
   );
 
+  // ========== VIEW MODE (READ-ONLY) ==========
+  const renderViewMode = () => (
+    <Box>
+      {/* Header */}
+      <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <IconButton onClick={handleBackToDashboard} color="primary">
+              <BackIcon />
+            </IconButton>
+            <Typography variant="h5">
+              {fileName} (Read-Only)
+            </Typography>
+            <Chip label="Published" color="success" size="small" />
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              color="warning"
+              startIcon={<PublishIcon />}
+              onClick={() => currentFile && handleRestore(currentFile)}
+              disabled={loading}
+            >
+              Restore to Draft
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={() => currentFile && handleEditFile(currentFile)}
+              disabled={loading}
+            >
+              Edit (as Draft)
+            </Button>
+          </Box>
+        </Box>
+
+        {/* File Info */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            <strong>Description:</strong> {fileDescription || 'No description'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            <strong>Module:</strong> {modules.find(m => m.id === selectedModule)?.name || 'None'}
+          </Typography>
+        </Box>
+      </Paper>
+
+      {/* Read-Only Editor */}
+      <Box sx={{ position: 'relative', height: 'calc(100vh - 250px)', border: '1px solid #ddd' }}>
+        <Editor
+          height="100%"
+          language="gherkin"
+          theme={editorTheme === 'dark' ? 'gherkinDarkTheme' : 'gherkinLightTheme'}
+          value={editorContent}
+          options={{
+            readOnly: true,
+            minimap: { enabled: false },
+            fontSize: 14,
+            lineNumbers: 'on',
+            wordWrap: wordWrap ? 'on' : 'off',
+            automaticLayout: true,
+            domReadOnly: true,
+            renderValidationDecorations: 'off',
+          }}
+        />
+      </Box>
+    </Box>
+  );
+
   // ========== DIALOGS ==========
   const renderDialogs = () => (
     <>
@@ -1325,7 +1478,7 @@ const TestDesignStudio = () => {
   // ========== MAIN RENDER ==========
   return (
     <Box>
-      {view === 'dashboard' ? renderDashboard() : renderEditor()}
+      {view === 'dashboard' ? renderDashboard() : view === 'view' ? renderViewMode() : renderEditor()}
       {renderDialogs()}
     </Box>
   );

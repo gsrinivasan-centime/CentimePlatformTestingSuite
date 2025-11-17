@@ -454,18 +454,22 @@ def get_release_summary(
     
     release_test_cases = query.all()
     
+    # Filter out test cases that have been deleted
+    valid_test_cases = [rtc for rtc in release_test_cases if rtc.test_case is not None]
+    
     # Calculate overall statistics
-    total_tests = len(release_test_cases)
-    passed_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.PASSED])
-    failed_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.FAILED])
-    blocked_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.BLOCKED])
-    skipped_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.SKIPPED])
-    in_progress_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.IN_PROGRESS])
-    not_started_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.NOT_STARTED])
+    total_tests = len(valid_test_cases)
+    passed_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.PASSED])
+    failed_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.FAILED])
+    blocked_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.BLOCKED])
+    skipped_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.SKIPPED])
+    in_progress_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.IN_PROGRESS])
+    not_started_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.NOT_STARTED])
     
     # Group by module
     modules_data = {}
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
+            
         module_id = rtc.module_id
         if module_id not in modules_data:
             modules_data[module_id] = {
@@ -497,7 +501,13 @@ def get_release_summary(
             modules_data[module_id]['not_started'] += 1
         
         # Group by sub-module within module
-        sub_module_name = rtc.sub_module.name if rtc.sub_module else 'Uncategorized'
+        # Use sub_module from ReleaseTestCase if available, otherwise from TestCase
+        sub_module_name = 'Uncategorized'
+        if rtc.sub_module:
+            sub_module_name = rtc.sub_module.name
+        elif rtc.test_case.sub_module:
+            sub_module_name = rtc.test_case.sub_module
+        
         if sub_module_name not in modules_data[module_id]['sub_modules']:
             modules_data[module_id]['sub_modules'][sub_module_name] = {
                 'name': sub_module_name,
@@ -527,7 +537,13 @@ def get_release_summary(
             modules_data[module_id]['sub_modules'][sub_module_name]['not_started'] += 1
         
         # Group by feature within sub-module
-        feature_name = rtc.feature.name if rtc.feature else 'No Feature'
+        # Use feature from ReleaseTestCase if available, otherwise from TestCase
+        feature_name = 'No Feature'
+        if rtc.feature:
+            feature_name = rtc.feature.name
+        elif rtc.test_case.feature_section:
+            feature_name = rtc.test_case.feature_section
+        
         if feature_name not in modules_data[module_id]['sub_modules'][sub_module_name]['features']:
             modules_data[module_id]['sub_modules'][sub_module_name]['features'][feature_name] = {
                 'name': feature_name,
@@ -603,7 +619,7 @@ def get_release_summary(
     
     # Get failed test case details
     failed_test_details = []
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
         if rtc.execution_status == ExecutionStatus.FAILED:
             # Get JIRA Story information if linked
             jira_story_info = None
@@ -628,7 +644,7 @@ def get_release_summary(
     
     # Generate story-wise summary
     story_summary = {}
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
         if rtc.test_case.jira_story_id:
             story_id = rtc.test_case.jira_story_id
             if story_id not in story_summary:
@@ -683,8 +699,8 @@ def get_release_summary(
     story_summary_list.sort(key=lambda x: x['story_id'])
     
     # Calculate UI/API breakdown
-    ui_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag in ['ui', 'hybrid']]
-    api_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag == 'api']
+    ui_tests = [rtc for rtc in valid_test_cases if rtc.test_case.tag in ['ui', 'hybrid']]
+    api_tests = [rtc for rtc in valid_test_cases if rtc.test_case.tag == 'api']
     
     ui_stats = {
         'total': len(ui_tests),

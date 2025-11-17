@@ -310,6 +310,25 @@ class StepCatalog(Base):
     creator = relationship("User", foreign_keys=[created_by])
 
 
+class TestCaseStory(Base):
+    __tablename__ = "test_case_stories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False)
+    story_id = Column(String(50), ForeignKey("jira_stories.story_id"), nullable=False)
+    linked_at = Column(DateTime, default=datetime.utcnow)
+    linked_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    test_case = relationship("TestCase", backref="story_links")
+    story = relationship("JiraStory", backref="test_case_links")
+    linker = relationship("User", foreign_keys=[linked_by])
+    
+    # Unique constraint
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
 class FeatureFile(Base):
     __tablename__ = "feature_files"
     

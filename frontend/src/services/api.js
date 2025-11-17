@@ -576,6 +576,12 @@ export const featureFilesAPI = {
     const response = await api.post(`/step-catalog/feature-files/${id}/publish`);
     return response.data;
   },
+  
+  // Restore feature file (unpublish)
+  restore: async (id) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/restore`);
+    return response.data;
+  },
 };
 
 export default api;

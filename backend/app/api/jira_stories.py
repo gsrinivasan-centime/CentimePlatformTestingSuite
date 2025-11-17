@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from pydantic import BaseModel
 from app.core.database import get_db
-from app.models.models import JiraStory, TestCase, User, Release, ReleaseTestCase, SubModule, Feature
+from app.models.models import JiraStory, TestCase, User, Release, ReleaseTestCase, SubModule, Feature, TestCaseStory
 from app.schemas.schemas import (
     JiraStory as JiraStorySchema,
     JiraStoryCreate,
@@ -103,7 +103,7 @@ def get_all_stories(
             "release": story.release,
             "created_at": story.created_at,
             "updated_at": story.updated_at,
-            "test_case_count": db.query(TestCase).filter(TestCase.jira_story_id == story.story_id).count()
+            "test_case_count": db.query(TestCaseStory).filter(TestCaseStory.story_id == story.story_id).count()
         }
         stories_with_counts.append(story_dict)
     
@@ -251,7 +251,7 @@ def delete_story(
         raise HTTPException(status_code=404, detail="Story not found")
     
     # Check if any test cases are linked to this story
-    linked_test_cases = db.query(TestCase).filter(TestCase.jira_story_id == story_id).count()
+    linked_test_cases = db.query(TestCaseStory).filter(TestCaseStory.story_id == story_id).count()
     if linked_test_cases > 0:
         raise HTTPException(
             status_code=400, 
@@ -270,11 +270,17 @@ def get_story_test_cases(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get all test cases linked to a specific story with optional execution status for a release"""
+    from app.models.models import TestCaseStory
+    
     story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     
-    test_cases = db.query(TestCase).options(joinedload(TestCase.module)).filter(TestCase.jira_story_id == story_id).all()
+    # Get test cases through junction table
+    test_case_links = db.query(TestCaseStory).filter(TestCaseStory.story_id == story_id).all()
+    test_case_ids = [link.test_case_id for link in test_case_links]
+    
+    test_cases = db.query(TestCase).options(joinedload(TestCase.module)).filter(TestCase.id.in_(test_case_ids)).all() if test_case_ids else []
     
     test_cases_data = []
     for tc in test_cases:
@@ -342,7 +348,9 @@ def link_test_case_to_story(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Link a test case to a story"""
+    """Link a test case to a story (supports multiple stories per test case)"""
+    from app.models.models import TestCaseStory
+    
     story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
@@ -351,9 +359,27 @@ def link_test_case_to_story(
     if not test_case:
         raise HTTPException(status_code=404, detail="Test case not found")
     
-    # Link test case to story
-    test_case.jira_story_id = story_id
-    test_case.jira_epic_id = story.epic_id  # Also link to epic
+    # Check if already linked
+    existing_link = db.query(TestCaseStory).filter(
+        TestCaseStory.test_case_id == test_case_id,
+        TestCaseStory.story_id == story_id
+    ).first()
+    
+    if existing_link:
+        return {"message": "Test case is already linked to this story", "test_case": test_case}
+    
+    # Create new link in junction table
+    new_link = TestCaseStory(
+        test_case_id=test_case_id,
+        story_id=story_id,
+        linked_by=current_user.id
+    )
+    db.add(new_link)
+    
+    # Update test_case.jira_story_id for backward compatibility (use first/primary story)
+    if not test_case.jira_story_id:
+        test_case.jira_story_id = story_id
+        test_case.jira_epic_id = story.epic_id
     
     db.commit()
     db.refresh(test_case)
@@ -416,13 +442,24 @@ def unlink_test_case_from_story(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Unlink a test case from a story and remove it from any releases"""
+    """Unlink a test case from a specific story (supports multiple stories)"""
+    from app.models.models import TestCaseStory
+    
     test_case = db.query(TestCase).filter(TestCase.id == test_case_id).first()
     if not test_case:
         raise HTTPException(status_code=404, detail="Test case not found")
     
-    if test_case.jira_story_id != story_id:
+    # Find the link in junction table
+    link = db.query(TestCaseStory).filter(
+        TestCaseStory.test_case_id == test_case_id,
+        TestCaseStory.story_id == story_id
+    ).first()
+    
+    if not link:
         raise HTTPException(status_code=400, detail="Test case is not linked to this story")
+    
+    # Remove the link
+    db.delete(link)
     
     # Get the story to find its release
     story = db.query(JiraStory).filter(JiraStory.story_id == story_id).first()
@@ -439,14 +476,28 @@ def unlink_test_case_from_story(
                 ReleaseTestCase.test_case_id == test_case_id
             ).delete()
     
-    # Unlink test case from story
-    test_case.jira_story_id = None
-    test_case.jira_epic_id = None
+    # Update test_case.jira_story_id if this was the primary story
+    if test_case.jira_story_id == story_id:
+        # Find if there are other stories linked
+        other_link = db.query(TestCaseStory).filter(
+            TestCaseStory.test_case_id == test_case_id
+        ).first()
+        
+        if other_link:
+            # Set to another linked story
+            test_case.jira_story_id = other_link.story_id
+            other_story = db.query(JiraStory).filter(JiraStory.story_id == other_link.story_id).first()
+            if other_story:
+                test_case.jira_epic_id = other_story.epic_id
+        else:
+            # No other stories, clear the fields
+            test_case.jira_story_id = None
+            test_case.jira_epic_id = None
     
     db.commit()
     
     return {
-        "message": f"Test case {test_case.test_id} unlinked from story {story_id} and removed from associated releases"
+        "message": f"Test case {test_case.test_id} unlinked from story {story_id}"
     }
 
 @router.get("/epic/{epic_id}/stories")

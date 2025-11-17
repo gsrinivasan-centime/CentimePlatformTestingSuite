@@ -297,12 +297,213 @@ async def publish_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Publish a feature file (change status from draft to published)"""
+    """Publish a feature file and create test cases from scenarios"""
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from app.models.models import TestCase, Module
+    from app.schemas.schemas import TestCaseCreate
+    from datetime import datetime
+    
     db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
+    # Check if already published
+    if db_file.status == "published":
+        return {
+            "message": "File is already published",
+            "file": db_file,
+            "test_cases_created": 0
+        }
+    
+    # Get module info if available
+    module = None
+    if db_file.module_id:
+        module = db.query(Module).filter(Module.id == db_file.module_id).first()
+    
+    # Parse the feature file content
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    feature_name = feature.get('name', db_file.name)
+    created_count = 0
+    errors = []
+    
+    # Helper function to generate test ID
+    def generate_test_id(tag: str, db: Session) -> str:
+        prefix_map = {
+            'ui': 'UI',
+            'api': 'API',
+            'hybrid': 'HYB'
+        }
+        prefix = prefix_map.get(tag.lower(), 'TC')
+        
+        last_test = db.query(TestCase).filter(
+            TestCase.test_id.like(f"{prefix}%")
+        ).order_by(TestCase.id.desc()).first()
+        
+        if last_test:
+            try:
+                last_number = int(last_test.test_id.replace(prefix, ''))
+                new_number = last_number + 1
+            except ValueError:
+                new_number = 1
+        else:
+            new_number = 1
+        
+        return f"{prefix}{new_number:04d}"
+    
+    # Determine test type and tag (default to manual/api)
+    test_type = "manual"
+    tag = "api"
+    
+    # Process each scenario
+    for child in feature.get('children', []):
+        try:
+            if child.get('type') not in ['Scenario', 'ScenarioOutline']:
+                continue
+            
+            scenario = child
+            scenario_name = scenario.get('name', 'Unnamed Scenario')
+            scenario_keyword = scenario.get('keyword', 'Scenario').strip()
+            
+            # Collect steps
+            steps_list = []
+            for step in scenario.get('steps', []):
+                keyword = step.get('keyword', '').strip()
+                text = step.get('text', '').strip()
+                steps_list.append(f"{keyword} {text}")
+            
+            steps_text = '\n'.join(steps_list)
+            
+            # Check for examples (Scenario Outline)
+            examples = scenario.get('examples', [])
+            
+            if examples and len(examples) > 0:
+                # Scenario Outline - create test case with examples
+                for example_set in examples:
+                    table_header = example_set.get('tableHeader')
+                    table_body = example_set.get('tableBody', [])
+                    
+                    if not table_header or not table_body:
+                        continue
+                    
+                    columns = [cell.get('value', '') for cell in table_header.get('cells', [])]
+                    rows = []
+                    for table_row in table_body:
+                        row_values = [cell.get('value', '') for cell in table_row.get('cells', [])]
+                        rows.append(row_values)
+                    
+                    scenario_examples_json = {
+                        "columns": columns,
+                        "rows": rows
+                    }
+                    
+                    test_id = generate_test_id(tag, db)
+                    
+                    db_test_case = TestCase(
+                        test_id=test_id,
+                        title=scenario_name,
+                        description=f"Feature: {feature_name}\n\nScenario Outline: {scenario_name}",
+                        test_type=test_type,
+                        tag=tag,
+                        tags="bdd,gherkin",
+                        module_id=db_file.module_id,
+                        sub_module=None,
+                        feature_section=feature_name,
+                        automation_status='working' if test_type == 'automated' else None,
+                        scenario_examples=json.dumps(scenario_examples_json),
+                        steps_to_reproduce=steps_text,
+                        expected_result=None,
+                        preconditions=None,
+                        test_data=None,
+                        automated_script_path=None,
+                        created_at=datetime.utcnow()
+                    )
+                    
+                    db.add(db_test_case)
+                    db.commit()
+                    created_count += 1
+            else:
+                # Regular Scenario
+                test_id = generate_test_id(tag, db)
+                
+                db_test_case = TestCase(
+                    test_id=test_id,
+                    title=scenario_name,
+                    description=f"Feature: {feature_name}\n\n{scenario_keyword}: {scenario_name}",
+                    test_type=test_type,
+                    tag=tag,
+                    tags="bdd,gherkin",
+                    module_id=db_file.module_id,
+                    sub_module=None,
+                    feature_section=feature_name,
+                    automation_status='working' if test_type == 'automated' else None,
+                    scenario_examples=None,
+                    steps_to_reproduce=steps_text,
+                    expected_result=None,
+                    preconditions=None,
+                    test_data=None,
+                    automated_script_path=None,
+                    created_at=datetime.utcnow()
+                )
+                
+                db.add(db_test_case)
+                db.commit()
+                created_count += 1
+                
+        except Exception as e:
+            errors.append(f"Scenario '{scenario.get('name', 'Unknown')}': {str(e)}")
+            db.rollback()
+            continue
+    
+    # Update file status to published
     db_file.status = "published"
     db.commit()
     db.refresh(db_file)
-    return db_file
+    
+    return {
+        "message": f"File published successfully. Created {created_count} test case(s).",
+        "file": db_file,
+        "test_cases_created": created_count,
+        "errors": errors if errors else None
+    }
+
+
+@router.post("/feature-files/{file_id}/restore")
+async def restore_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Restore a published feature file back to draft status"""
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Only published files can be restored to draft"
+        )
+    
+    # Change status back to draft
+    db_file.status = "draft"
+    db.commit()
+    db.refresh(db_file)
+    
+    return {
+        "message": "File restored to draft successfully",
+        "file": db_file
+    }

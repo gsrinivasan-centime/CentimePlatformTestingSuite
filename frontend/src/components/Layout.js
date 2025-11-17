@@ -62,6 +62,7 @@ const Layout = ({ children }) => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+    { text: 'Test Design Studio', icon: <PlayArrowIcon />, path: '/test-design-studio' },
     { text: 'Test Cases', icon: <AssignmentIcon />, path: '/test-cases' },
     { text: 'Stories', icon: <AssignmentIcon />, path: '/stories' },
     { text: 'Modules', icon: <AccountTreeIcon />, path: '/modules' },

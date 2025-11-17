@@ -288,3 +288,61 @@ class JiraStory(Base):
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
 
+
+class StepCatalog(Base):
+    __tablename__ = "step_catalog"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    step_type = Column(String(10), nullable=False, index=True)  # Given, When, Then, And, But
+    step_text = Column(Text, nullable=False)  # Exact step text
+    step_pattern = Column(Text, nullable=True)  # Parameterized pattern
+    description = Column(Text, nullable=True)
+    parameters = Column(Text, nullable=True)  # JSON string of parameter definitions
+    usage_count = Column(Integer, default=0)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    tags = Column(String, nullable=True)  # Comma-separated tags
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    module = relationship("Module", foreign_keys=[module_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class TestCaseStory(Base):
+    __tablename__ = "test_case_stories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False)
+    story_id = Column(String(50), ForeignKey("jira_stories.story_id"), nullable=False)
+    linked_at = Column(DateTime, default=datetime.utcnow)
+    linked_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    test_case = relationship("TestCase", backref="story_links")
+    story = relationship("JiraStory", backref="test_case_links")
+    linker = relationship("User", foreign_keys=[linked_by])
+    
+    # Unique constraint
+    __table_args__ = (
+        {'sqlite_autoincrement': True},
+    )
+
+class FeatureFile(Base):
+    __tablename__ = "feature_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    content = Column(Text, nullable=False)  # Gherkin feature file content
+    description = Column(Text, nullable=True)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    status = Column(String(20), default="draft")  # draft, published, archived
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    module = relationship("Module", foreign_keys=[module_id])
+    creator = relationship("User", foreign_keys=[created_by])
+

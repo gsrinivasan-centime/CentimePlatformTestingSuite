@@ -22,7 +22,8 @@ import {
     DialogActions,
     Autocomplete,
     TextField,
-    Button
+    Button,
+    Chip
 } from '@mui/material';
 import {
     Edit as EditIcon,
@@ -134,7 +135,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                 <TableCell 
                     align="left"
                     sx={{ 
-                        width: 400,
+                        width: 350,
                         cursor: 'pointer', 
                         '&:hover': { backgroundColor: 'action.hover' },
                         overflow: 'hidden',
@@ -144,6 +145,30 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                     onClick={() => setOpen(!open)}
                 >
                     {issue.title}
+                </TableCell>
+                <TableCell 
+                    align="center"
+                    sx={{ 
+                        width: 120,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                    }}
+                >
+                    {issue.jira_story_id ? (
+                        <Chip 
+                            label={issue.jira_story_id} 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined"
+                            component="a"
+                            href={`https://centime.atlassian.net/browse/${issue.jira_story_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            clickable
+                            sx={{ cursor: 'pointer' }}
+                        />
+                    ) : '-'}
                 </TableCell>
                 <TableCell 
                     align="center"
@@ -283,65 +308,8 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                 </TableCell>
             </TableRow>
             
-            {/* Link to Story Dialog */}
-            <Dialog
-                open={linkDialogOpen}
-                onClose={() => setLinkDialogOpen(false)}
-                maxWidth="md"
-                fullWidth
-            >
-                <DialogActions sx={{ p: 1 }}>
-                    <Typography variant="h6" sx={{ flexGrow: 1, px: 2 }}>
-                        Link Issue to Story
-                    </Typography>
-                    <IconButton onClick={() => setLinkDialogOpen(false)}>
-                        <CloseIcon />
-                    </IconButton>
-                </DialogActions>
-                <DialogContent>
-                    <Autocomplete
-                        value={selectedStory}
-                        onChange={(event, newValue) => setSelectedStory(newValue)}
-                        options={stories.map(story => story.story_id)}
-                        renderInput={(params) => (
-                            <TextField
-                                {...params}
-                                label="Select Story"
-                                placeholder="Search for a story..."
-                                fullWidth
-                            />
-                        )}
-                        renderOption={(props, option) => {
-                            const story = stories.find(s => s.story_id === option);
-                            return (
-                                <Box component="li" {...props}>
-                                    <Box>
-                                        <Typography variant="body2" fontWeight="bold">
-                                            {option}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                            {story?.title}
-                                        </Typography>
-                                    </Box>
-                                </Box>
-                            );
-                        }}
-                    />
-                </DialogContent>
-                <DialogActions sx={{ p: 2 }}>
-                    <Button onClick={() => setLinkDialogOpen(false)}>Cancel</Button>
-                    <Button 
-                        onClick={handleLinkStory} 
-                        variant="contained" 
-                        disabled={!selectedStory}
-                    >
-                        Link Story
-                    </Button>
-                </DialogActions>
-            </Dialog>
-            
             <TableRow>
-                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
                     <Collapse in={open} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 2 }}>
                             <Typography variant="h6" gutterBottom component="div">
@@ -434,6 +402,63 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                     </Collapse>
                 </TableCell>
             </TableRow>
+            
+            {/* Link to Story Dialog */}
+            <Dialog
+                open={linkDialogOpen}
+                onClose={() => setLinkDialogOpen(false)}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogActions sx={{ p: 1 }}>
+                    <Typography variant="h6" sx={{ flexGrow: 1, px: 2 }}>
+                        Link Issue to Story
+                    </Typography>
+                    <IconButton onClick={() => setLinkDialogOpen(false)}>
+                        <CloseIcon />
+                    </IconButton>
+                </DialogActions>
+                <DialogContent>
+                    <Autocomplete
+                        value={selectedStory}
+                        onChange={(event, newValue) => setSelectedStory(newValue)}
+                        options={stories.map(story => story.story_id)}
+                        renderInput={(params) => (
+                            <TextField
+                                {...params}
+                                label="Select Story"
+                                placeholder="Search for a story..."
+                                fullWidth
+                            />
+                        )}
+                        renderOption={(props, option) => {
+                            const story = stories.find(s => s.story_id === option);
+                            return (
+                                <Box component="li" {...props}>
+                                    <Box>
+                                        <Typography variant="body2" fontWeight="bold">
+                                            {option}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {story?.title}
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            );
+                        }}
+                    />
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={() => setLinkDialogOpen(false)}>Cancel</Button>
+                    <Button 
+                        onClick={handleLinkStory} 
+                        variant="contained" 
+                        disabled={!selectedStory}
+                    >
+                        Link Story
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </React.Fragment>
     );
 };
@@ -447,6 +472,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
     const [filters, setFilters] = useState({
         id: '',
         title: '',
+        storyId: '',
         module: '',
         status: '',
         priority: '',
@@ -517,6 +543,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
     const applyFilters = (issue) => {
         if (filters.id && !issue.id.toString().includes(filters.id)) return false;
         if (filters.title && !issue.title.toLowerCase().includes(filters.title.toLowerCase())) return false;
+        if (filters.storyId && issue.jira_story_id && !issue.jira_story_id.toLowerCase().includes(filters.storyId.toLowerCase())) return false;
         if (filters.module && issue.module && !issue.module.name.toLowerCase().includes(filters.module.toLowerCase())) return false;
         if (filters.status && issue.status !== filters.status) return false;
         if (filters.priority && issue.priority !== filters.priority) return false;
@@ -537,11 +564,12 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                     <TableHead>
                         <TableRow>
                             <ResizableTableCell minWidth={60} initialWidth={80} isHeader={true} align="center">ID</ResizableTableCell>
-                            <ResizableTableCell minWidth={250} initialWidth={400} isHeader={true} align="left">Title</ResizableTableCell>
+                            <ResizableTableCell minWidth={200} initialWidth={350} isHeader={true} align="left">Title</ResizableTableCell>
+                            <ResizableTableCell minWidth={100} initialWidth={120} isHeader={true} align="center">Story ID</ResizableTableCell>
                             <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Module</ResizableTableCell>
                             <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Status</ResizableTableCell>
                             <ResizableTableCell minWidth={100} initialWidth={120} isHeader={true} align="center">Priority</ResizableTableCell>
-                            <ResizableTableCell minWidth={150} initialWidth={200} isHeader={true} align="center">Assigned To</ResizableTableCell>
+                            <ResizableTableCell minWidth={150} initialWidth={180} isHeader={true} align="center">Assigned To</ResizableTableCell>
                             <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Actions</ResizableTableCell>
                         </TableRow>
                         <TableRow>
@@ -560,6 +588,15 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                                     placeholder="Filter..."
                                     value={filters.title}
                                     onChange={(e) => setFilters({ ...filters, title: e.target.value })}
+                                    fullWidth
+                                />
+                            </TableCell>
+                            <TableCell>
+                                <TextField
+                                    size="small"
+                                    placeholder="Filter..."
+                                    value={filters.storyId}
+                                    onChange={(e) => setFilters({ ...filters, storyId: e.target.value })}
                                     fullWidth
                                 />
                             </TableCell>

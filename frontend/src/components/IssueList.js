@@ -129,7 +129,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                     }}
                     onClick={() => setOpen(!open)}
                 >
-                    #{issue.id}
+                    {issue.id}
                 </TableCell>
                 <TableCell 
                     align="left"

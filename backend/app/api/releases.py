@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from app.core.database import get_db
-from app.models.models import Release, User, ReleaseTestCase, ExecutionStatus, JiraStory, TestCase, SubModule, Feature
+from app.models.models import Release, User, ReleaseTestCase, ExecutionStatus, JiraStory, TestCase, SubModule, Feature, Issue
 from app.schemas.schemas import Release as ReleaseSchema, ReleaseCreate
 from app.api.auth import get_current_active_user
 
@@ -191,6 +191,14 @@ def get_release_stories(
                 if rtc and rtc.execution_status == ExecutionStatus.PASSED:
                     api_passed += 1
         
+        # Get issue statistics for this story
+        issues = db.query(Issue).filter(Issue.jira_story_id == story.story_id).all()
+        total_issues = len(issues)
+        open_issues = sum(1 for issue in issues if issue.status and issue.status.lower() == 'open')
+        in_progress_issues = sum(1 for issue in issues if issue.status and issue.status.lower() == 'in progress')
+        resolved_issues = sum(1 for issue in issues if issue.status and issue.status.lower() == 'resolved')
+        closed_issues = sum(1 for issue in issues if issue.status and issue.status.lower() == 'closed')
+        
         stories_with_stats.append({
             "id": story.id,
             "story_id": story.story_id,
@@ -215,6 +223,13 @@ def get_release_stories(
                 "api_count": api_count,
                 "ui_passed": ui_passed,
                 "api_passed": api_passed
+            },
+            "issue_stats": {
+                "total": total_issues,
+                "open": open_issues,
+                "in_progress": in_progress_issues,
+                "resolved": resolved_issues,
+                "closed": closed_issues
             }
         })
     

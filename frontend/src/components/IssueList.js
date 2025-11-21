@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Table,
     TableBody,
@@ -37,7 +37,7 @@ import AuthenticatedVideo from './AuthenticatedVideo';
 import ResizableTableCell from './ResizableTableCell';
 import api from '../services/api';
 
-const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
+const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }) => {
     const [open, setOpen] = useState(false);
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
@@ -240,7 +240,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers }) => {
                 </TableCell>
                 <TableCell align="center" sx={{ width: 180 }}>
                     <Autocomplete
-                        value={jiraUsers.find(user => user.accountId === jiraAssigneeId) || null}
+                        value={jiraAssigneeId ? (jiraUsersMap[jiraAssigneeId] || null) : null}
                         onChange={(event, newValue) => {
                             handleAssigneeChange(newValue ? newValue.accountId : '');
                         }}
@@ -479,6 +479,15 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         assignee: ''
     });
 
+    // Memoized lookup map for JIRA users to avoid repeated .find() calls
+    const jiraUsersMap = useMemo(() => {
+        const map = {};
+        jiraUsers.forEach(user => {
+            map[user.accountId] = user;
+        });
+        return map;
+    }, [jiraUsers]);
+
     const fetchIssues = async () => {
         setLoading(true);
         try {
@@ -662,6 +671,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                                     onDelete={handleDelete}
                                     onUpdate={handleUpdate}
                                     jiraUsers={jiraUsers}
+                                    jiraUsersMap={jiraUsersMap}
                                 />
                             ))}
                         {issues.length === 0 && !loading && (

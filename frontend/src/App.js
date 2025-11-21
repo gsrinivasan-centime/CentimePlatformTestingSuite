@@ -20,6 +20,7 @@ import Modules from './pages/Modules';
 import Releases from './pages/Releases';
 import Users from './pages/Users';
 import Stories from './pages/Stories';
+import Issues from './pages/Issues';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 
 const theme = createTheme({
@@ -54,110 +55,120 @@ function AppContent() {
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Dashboard />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/test-design-studio"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <TestDesignStudio />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/test-cases"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <TestCases />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/executions"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Executions />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/reports"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Reports />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/modules"
-              element={
-                <AdminRoute>
-                  <Layout>
-                    <Modules />
-                  </Layout>
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/stories"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Stories />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/releases"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Releases />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/releases/:releaseId"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <ReleaseDetail />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                <AdminRoute>
-                  <Layout>
-                    <Users />
-                  </Layout>
-                </AdminRoute>
-              }
-            />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </Router>
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Dashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/test-design-studio"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <TestDesignStudio />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/test-cases"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <TestCases />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/executions"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Executions />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Reports />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/modules"
+          element={
+            <AdminRoute>
+              <Layout>
+                <Modules />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/stories"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Stories />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/releases"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Releases />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/issues"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Issues />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/releases/:releaseId"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <ReleaseDetail />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <AdminRoute>
+              <Layout>
+                <Users />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </Router>
   );
 }
 

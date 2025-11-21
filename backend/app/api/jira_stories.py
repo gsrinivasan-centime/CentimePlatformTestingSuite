@@ -799,8 +799,8 @@ def sync_all_existing_stories(
             "total_stories": len(all_stories),
             "updated": updated_count,
             "skipped": skipped_count,
-            "errors": errors[:10] if errors else [],  # Limit error details
-            "unlinked_releases": unlinked_releases[:20] if unlinked_releases else []
+            "errors": errors,
+            "unlinked_releases": unlinked_releases
         }
         
     except HTTPException:
@@ -809,8 +809,21 @@ def sync_all_existing_stories(
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to sync stories: {str(e)}"
+            detail=f"Failed to sync stories from JIRA: {str(e)}"
         )
+
+@router.get("/users/search")
+def search_jira_users(
+    query: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Search for users in JIRA"""
+    try:
+        return jira_service.search_users(query)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/jira-config-status")

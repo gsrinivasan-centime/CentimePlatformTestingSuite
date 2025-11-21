@@ -41,9 +41,12 @@ import {
   LinkOff as LinkOffIcon,
   ExpandMore as ExpandMoreIcon,
   Refresh as RefreshIcon,
+  BugReport as BugReportIcon,
 } from '@mui/icons-material';
 import { jiraStoriesAPI, testCasesAPI, modulesAPI } from '../services/api';
+import { issueService } from '../services/issueService';
 import ResizableTableCell from '../components/ResizableTableCell';
+import IssueDetail from '../components/IssueDetail';
 
 const Stories = () => {
   const [stories, setStories] = useState([]);
@@ -93,6 +96,8 @@ const Stories = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [expandedTestCase, setExpandedTestCase] = useState(null);
   const [fullTestCaseDetails, setFullTestCaseDetails] = useState(null);
+  const [openIssueDialog, setOpenIssueDialog] = useState(false);
+  const [selectedStoryForIssue, setSelectedStoryForIssue] = useState(null);
 
   const statusOptions = ['To Do', 'In Progress', 'In Review', 'Done', 'Blocked'];
   const priorityOptions = ['Low', 'Medium', 'High', 'Critical'];
@@ -179,7 +184,7 @@ const Stories = () => {
     setIsImporting(true);
     try {
       const response = await jiraStoriesAPI.importFromJira(storyUrl);
-      
+
       if (response.success && response.story) {
         // Populate form with imported data
         setFormData({
@@ -192,7 +197,7 @@ const Stories = () => {
           assignee: response.story.assignee || '',
           release: response.story.release || '',
         });
-        
+
         // Switch to manual mode so user can edit if needed
         setImportMode('manual');
         showSnackbar('Story details imported successfully from JIRA!', 'success');
@@ -310,9 +315,9 @@ const Stories = () => {
   const handleSelectAll = (moduleId) => {
     const moduleTestCases = getFilteredTestCases().filter(tc => tc.module_id === moduleId);
     const moduleTestCaseIds = moduleTestCases.map(tc => tc.id);
-    
+
     const allSelected = moduleTestCaseIds.every(id => selectedTestCases.includes(id));
-    
+
     if (allSelected) {
       setSelectedTestCases(prev => prev.filter(id => !moduleTestCaseIds.includes(id)));
     } else {
@@ -322,34 +327,34 @@ const Stories = () => {
 
   const getFilteredTestCases = () => {
     let filtered = testCases;
-    
+
     if (filters.module) {
       filtered = filtered.filter(tc => tc.module_id === parseInt(filters.module));
     }
-    
+
     if (filters.subModule) {
       filtered = filtered.filter(tc => tc.sub_module === filters.subModule);
     }
-    
+
     if (filters.feature) {
       filtered = filtered.filter(tc => tc.feature_section === filters.feature);
     }
-    
+
     if (filters.testType) {
       filtered = filtered.filter(tc => tc.test_type === filters.testType);
     }
-    
+
     if (filters.testStatus) {
       filtered = filtered.filter(tc => tc.test_status === filters.testStatus);
     }
-    
+
     return filtered;
   };
 
   const groupTestCasesByModule = () => {
     const filtered = getFilteredTestCases();
     const grouped = {};
-    
+
     filtered.forEach(tc => {
       if (!grouped[tc.module_id]) {
         const module = modules.find(m => m.id === tc.module_id);
@@ -360,7 +365,7 @@ const Stories = () => {
       }
       grouped[tc.module_id].testCases.push(tc);
     });
-    
+
     return grouped;
   };
 
@@ -383,7 +388,7 @@ const Stories = () => {
 
   const handleDelete = async (storyId) => {
     if (!window.confirm('Are you sure you want to delete this story?')) return;
-    
+
     try {
       await jiraStoriesAPI.delete(storyId);
       showSnackbar('Story deleted successfully', 'success');
@@ -528,18 +533,18 @@ const Stories = () => {
     setSyncingAllStories(true);
     try {
       const response = await jiraStoriesAPI.syncAllStories();
-      
+
       if (response.success) {
         let message = response.message;
-        
+
         // Add details about unlinked releases if any
         if (response.unlinked_releases && response.unlinked_releases.length > 0) {
           const unlinkedCount = response.unlinked_releases.length;
           message += `\n\nUnlinked ${unlinkedCount} test case(s) from releases due to fix version changes.`;
         }
-        
+
         showSnackbar(message, 'success');
-        
+
         // Refresh the stories list
         await fetchStories();
       } else {
@@ -556,6 +561,25 @@ const Stories = () => {
 
   const handleCancelSyncAllStories = () => {
     setConfirmSyncDialogOpen(false);
+  };
+
+  const handleLogIssue = (story) => {
+    setSelectedStoryForIssue(story);
+    setOpenIssueDialog(true);
+  };
+
+  const handleSaveIssue = async (issueData) => {
+    try {
+      await issueService.create({
+        ...issueData,
+        jira_story_id: selectedStoryForIssue?.story_id
+      });
+      showSnackbar('Issue logged successfully', 'success');
+      setOpenIssueDialog(false);
+    } catch (error) {
+      console.error('Error logging issue:', error);
+      showSnackbar('Failed to log issue', 'error');
+    }
   };
 
   return (
@@ -586,442 +610,447 @@ const Stories = () => {
           <CircularProgress />
         </Box>
       ) : (
-      <Paper>
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 1200, tableLayout: 'fixed' }}>
-            <TableHead>
-              <TableRow>
-                <ResizableTableCell minWidth={130} initialWidth={130} isHeader>Story ID</ResizableTableCell>
-                <ResizableTableCell minWidth={250} initialWidth={300} isHeader>Title</ResizableTableCell>
-                <ResizableTableCell minWidth={130} initialWidth={130} isHeader>Epic ID</ResizableTableCell>
-                <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Status</ResizableTableCell>
-                <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Priority</ResizableTableCell>
-                <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Assignee</ResizableTableCell>
-                <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Release</ResizableTableCell>
-                <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Test Cases</ResizableTableCell>
-                <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Actions</ResizableTableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell sx={{ width: 130, minWidth: 130, maxWidth: 130, p: 1 }}>
-                  <TextField
-                    size="small"
-                    placeholder="Story ID"
-                    value={columnFilters.storyId}
-                    onChange={(e) => handleColumnFilterChange('storyId', e.target.value)}
-                    variant="outlined"
-                    fullWidth
-                  />
-                </TableCell>
-                <TableCell sx={{ width: 300, minWidth: 250, maxWidth: 300, p: 1 }}>
-                  <TextField
-                    size="small"
-                    placeholder="Title"
-                    value={columnFilters.title}
-                    onChange={(e) => handleColumnFilterChange('title', e.target.value)}
-                    variant="outlined"
-                    fullWidth
-                  />
-                </TableCell>
-                <TableCell sx={{ width: 130, minWidth: 130, maxWidth: 130, p: 1 }}>
-                  <TextField
-                    size="small"
-                    placeholder="Epic ID"
-                    value={columnFilters.epicId}
-                    onChange={(e) => handleColumnFilterChange('epicId', e.target.value)}
-                    variant="outlined"
-                    fullWidth
-                  />
-                </TableCell>
-                <TableCell sx={{ width: 120, minWidth: 120, maxWidth: 120, p: 1 }}>
-                  <Select
-                    size="small"
-                    value={columnFilters.status}
-                    onChange={(e) => handleColumnFilterChange('status', e.target.value)}
-                    displayEmpty
-                    fullWidth
-                  >
-                    <MenuItem value="">All</MenuItem>
-                    {statusOptions.map(status => (
-                      <MenuItem key={status} value={status}>{status}</MenuItem>
-                    ))}
-                  </Select>
-                </TableCell>
-                <TableCell sx={{ width: 100, minWidth: 100, maxWidth: 100, p: 1 }}>
-                  <Select
-                    size="small"
-                    value={columnFilters.priority}
-                    onChange={(e) => handleColumnFilterChange('priority', e.target.value)}
-                    displayEmpty
-                    fullWidth
-                  >
-                    <MenuItem value="">All</MenuItem>
-                    {priorityOptions.map(priority => (
-                      <MenuItem key={priority} value={priority}>{priority}</MenuItem>
-                    ))}
-                  </Select>
-                </TableCell>
-                <TableCell sx={{ width: 150, minWidth: 150, maxWidth: 150, p: 1 }}>
-                  <TextField
-                    size="small"
-                    placeholder="Assignee"
-                    value={columnFilters.assignee}
-                    onChange={(e) => handleColumnFilterChange('assignee', e.target.value)}
-                    variant="outlined"
-                    fullWidth
-                  />
-                </TableCell>
-                <TableCell sx={{ width: 120, minWidth: 120, maxWidth: 120, p: 1 }}>
-                  <TextField
-                    size="small"
-                    placeholder="Release"
-                    value={columnFilters.release}
-                    onChange={(e) => handleColumnFilterChange('release', e.target.value)}
-                    variant="outlined"
-                    fullWidth
-                  />
-                </TableCell>
-                <TableCell sx={{ width: 100, minWidth: 100, maxWidth: 100 }}></TableCell>
-                <TableCell sx={{ width: 150, minWidth: 150, maxWidth: 150 }}></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paginatedStories && paginatedStories.length > 0 ? paginatedStories.map((story) => (
-                <React.Fragment key={story.story_id}>
-                  <TableRow 
-                    hover
-                    sx={{ 
-                      cursor: 'pointer',
-                      '& > td:not(:first-child)': {
-                        cursor: 'pointer'
-                      }
-                    }}
-                    onClick={() => handleExpandStory(story.story_id)}
-                  >
-                    <TableCell 
-                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      onClick={(e) => e.stopPropagation()}
+        <Paper>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 1200, tableLayout: 'fixed' }}>
+              <TableHead>
+                <TableRow>
+                  <ResizableTableCell minWidth={130} initialWidth={130} isHeader>Story ID</ResizableTableCell>
+                  <ResizableTableCell minWidth={250} initialWidth={300} isHeader>Title</ResizableTableCell>
+                  <ResizableTableCell minWidth={130} initialWidth={130} isHeader>Epic ID</ResizableTableCell>
+                  <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Status</ResizableTableCell>
+                  <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Priority</ResizableTableCell>
+                  <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Assignee</ResizableTableCell>
+                  <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Release</ResizableTableCell>
+                  <ResizableTableCell minWidth={100} initialWidth={100} isHeader>Test Cases</ResizableTableCell>
+                  <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Actions</ResizableTableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell sx={{ width: 130, minWidth: 130, maxWidth: 130, p: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Story ID"
+                      value={columnFilters.storyId}
+                      onChange={(e) => handleColumnFilterChange('storyId', e.target.value)}
+                      variant="outlined"
+                      fullWidth
+                    />
+                  </TableCell>
+                  <TableCell sx={{ width: 300, minWidth: 250, maxWidth: 300, p: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Title"
+                      value={columnFilters.title}
+                      onChange={(e) => handleColumnFilterChange('title', e.target.value)}
+                      variant="outlined"
+                      fullWidth
+                    />
+                  </TableCell>
+                  <TableCell sx={{ width: 130, minWidth: 130, maxWidth: 130, p: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Epic ID"
+                      value={columnFilters.epicId}
+                      onChange={(e) => handleColumnFilterChange('epicId', e.target.value)}
+                      variant="outlined"
+                      fullWidth
+                    />
+                  </TableCell>
+                  <TableCell sx={{ width: 120, minWidth: 120, maxWidth: 120, p: 1 }}>
+                    <Select
+                      size="small"
+                      value={columnFilters.status}
+                      onChange={(e) => handleColumnFilterChange('status', e.target.value)}
+                      displayEmpty
+                      fullWidth
                     >
-                      <Chip 
-                        label={story.story_id} 
-                        size="small" 
-                        color="primary" 
-                        variant="outlined"
-                        component="a"
-                        href={`https://centime.atlassian.net/browse/${story.story_id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        clickable
-                        sx={{ cursor: 'pointer' }}
-                      />
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {story.title}
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {story.epic_id ? (
-                        <Chip label={story.epic_id} size="small" color="secondary" variant="outlined" />
-                      ) : '-'}
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Chip label={story.status} size="small" color={getStatusColor(story.status)} />
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Chip label={story.priority} size="small" color={getPriorityColor(story.priority)} />
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {story.assignee || '-'}
-                    </TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {story.release || '-'}
-                    </TableCell>
-                    <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <Chip 
-                        label={story.test_case_count || 0} 
-                        size="small" 
-                        color="info"
-                      />
-                    </TableCell>
-                    <TableCell 
-                      align="center" 
-                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      onClick={(e) => e.stopPropagation()}
+                      <MenuItem value="">All</MenuItem>
+                      {statusOptions.map(status => (
+                        <MenuItem key={status} value={status}>{status}</MenuItem>
+                      ))}
+                    </Select>
+                  </TableCell>
+                  <TableCell sx={{ width: 100, minWidth: 100, maxWidth: 100, p: 1 }}>
+                    <Select
+                      size="small"
+                      value={columnFilters.priority}
+                      onChange={(e) => handleColumnFilterChange('priority', e.target.value)}
+                      displayEmpty
+                      fullWidth
                     >
-                      <IconButton 
-                        size="small" 
-                        color="info" 
-                        onClick={() => handleRefetchStory(story.story_id)}
-                        disabled={refetchingStories[story.story_id]}
-                        title="Re-fetch from JIRA"
+                      <MenuItem value="">All</MenuItem>
+                      {priorityOptions.map(priority => (
+                        <MenuItem key={priority} value={priority}>{priority}</MenuItem>
+                      ))}
+                    </Select>
+                  </TableCell>
+                  <TableCell sx={{ width: 150, minWidth: 150, maxWidth: 150, p: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Assignee"
+                      value={columnFilters.assignee}
+                      onChange={(e) => handleColumnFilterChange('assignee', e.target.value)}
+                      variant="outlined"
+                      fullWidth
+                    />
+                  </TableCell>
+                  <TableCell sx={{ width: 120, minWidth: 120, maxWidth: 120, p: 1 }}>
+                    <TextField
+                      size="small"
+                      placeholder="Release"
+                      value={columnFilters.release}
+                      onChange={(e) => handleColumnFilterChange('release', e.target.value)}
+                      variant="outlined"
+                      fullWidth
+                    />
+                  </TableCell>
+                  <TableCell sx={{ width: 100, minWidth: 100, maxWidth: 100 }}></TableCell>
+                  <TableCell sx={{ width: 150, minWidth: 150, maxWidth: 150 }}></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedStories && paginatedStories.length > 0 ? paginatedStories.map((story) => (
+                  <React.Fragment key={story.story_id}>
+                    <TableRow
+                      hover
+                      sx={{
+                        cursor: 'pointer',
+                        '& > td:not(:first-child)': {
+                          cursor: 'pointer'
+                        }
+                      }}
+                      onClick={() => handleExpandStory(story.story_id)}
+                    >
+                      <TableCell
+                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {refetchingStories[story.story_id] ? <CircularProgress size={20} /> : <RefreshIcon />}
-                      </IconButton>
-                      <Tooltip title="Link test cases">
-                        <IconButton size="small" color="primary" onClick={() => handleOpenLinkDialog(story)}>
-                          <LinkIcon />
+                        <Chip
+                          label={story.story_id}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          component="a"
+                          href={`https://centime.atlassian.net/browse/${story.story_id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          clickable
+                          sx={{ cursor: 'pointer' }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {story.title}
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {story.epic_id ? (
+                          <Chip label={story.epic_id} size="small" color="secondary" variant="outlined" />
+                        ) : '-'}
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <Chip label={story.status} size="small" color={getStatusColor(story.status)} />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <Chip label={story.priority} size="small" color={getPriorityColor(story.priority)} />
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {story.assignee || '-'}
+                      </TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {story.release || '-'}
+                      </TableCell>
+                      <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <Chip
+                          label={story.test_case_count || 0}
+                          size="small"
+                          color="info"
+                        />
+                      </TableCell>
+                      <TableCell
+                        align="center"
+                        sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => handleRefetchStory(story.story_id)}
+                          disabled={refetchingStories[story.story_id]}
+                          title="Re-fetch from JIRA"
+                        >
+                          {refetchingStories[story.story_id] ? <CircularProgress size={20} /> : <RefreshIcon />}
                         </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit story details">
-                        <IconButton size="small" color="primary" onClick={() => handleOpenDialog(story)}>
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete story">
-                        <IconButton size="small" color="error" onClick={() => handleDelete(story.story_id)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
+                        <Tooltip title="Link test cases">
+                          <IconButton size="small" color="primary" onClick={() => handleOpenLinkDialog(story)}>
+                            <LinkIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit story details">
+                          <IconButton size="small" color="primary" onClick={() => handleOpenDialog(story)}>
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete story">
+                          <IconButton size="small" color="error" onClick={() => handleDelete(story.story_id)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Log Issue">
+                          <IconButton size="small" color="warning" onClick={() => handleLogIssue(story)}>
+                            <BugReportIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={9} sx={{ p: 0 }}>
+                        <Collapse in={expandedStory === story.story_id}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
+                            <Typography variant="subtitle2" gutterBottom>
+                              Linked Test Cases
+                            </Typography>
+                            {loadingTestCases[story.story_id] ? (
+                              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                                <CircularProgress size={30} />
+                              </Box>
+                            ) : storyTestCases[story.story_id]?.length > 0 ? (
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow>
+                                    <TableCell>Test ID</TableCell>
+                                    <TableCell>Title</TableCell>
+                                    <TableCell>Module</TableCell>
+                                    <TableCell>Type</TableCell>
+                                    <TableCell>Tag</TableCell>
+                                    <TableCell>Sub-Module</TableCell>
+                                    <TableCell>Feature</TableCell>
+                                    <TableCell>Actions</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {storyTestCases[story.story_id].map((tc) => (
+                                    <React.Fragment key={tc.id}>
+                                      <TableRow>
+                                        <TableCell
+                                          sx={{ cursor: 'pointer' }}
+                                          onClick={() => handleToggleTestCase(tc)}
+                                        >
+                                          <Chip
+                                            label={tc.test_id}
+                                            size="small"
+                                            color="primary"
+                                          />
+                                        </TableCell>
+                                        <TableCell
+                                          sx={{ cursor: 'pointer' }}
+                                          onClick={() => handleToggleTestCase(tc)}
+                                        >
+                                          {tc.title}
+                                        </TableCell>
+                                        <TableCell
+                                          sx={{ cursor: 'pointer' }}
+                                          onClick={() => handleToggleTestCase(tc)}
+                                        >
+                                          {tc.module_name}
+                                        </TableCell>
+                                        <TableCell>
+                                          <Chip label={tc.test_type} size="small" />
+                                        </TableCell>
+                                        <TableCell>
+                                          <Chip
+                                            label={tc.tag}
+                                            size="small"
+                                            color={tc.tag === 'ui' ? 'primary' : tc.tag === 'api' ? 'secondary' : 'default'}
+                                          />
+                                        </TableCell>
+                                        <TableCell>{tc.sub_module || '-'}</TableCell>
+                                        <TableCell>{tc.feature_section || '-'}</TableCell>
+                                        <TableCell>
+                                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                                            <Tooltip title={expandedTestCase === tc.id ? "Collapse" : "Expand"}>
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleToggleTestCase(tc)}
+                                                color={expandedTestCase === tc.id ? 'primary' : 'default'}
+                                              >
+                                                <ExpandMoreIcon
+                                                  fontSize="small"
+                                                  sx={{
+                                                    transform: expandedTestCase === tc.id ? 'rotate(180deg)' : 'rotate(0deg)',
+                                                    transition: 'transform 0.3s'
+                                                  }}
+                                                />
+                                              </IconButton>
+                                            </Tooltip>
+                                            <IconButton
+                                              size="small"
+                                              color="error"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleUnlinkTestCase(story.story_id, tc.id, tc.test_id);
+                                              }}
+                                              title="Unlink test case"
+                                            >
+                                              <LinkOffIcon fontSize="small" />
+                                            </IconButton>
+                                          </Box>
+                                        </TableCell>
+                                      </TableRow>
+                                      {expandedTestCase === tc.id && (
+                                        <TableRow>
+                                          <TableCell colSpan={8} sx={{ py: 0, px: 0, borderBottom: 'none' }}>
+                                            <Collapse in={expandedTestCase === tc.id} timeout="auto" unmountOnExit>
+                                              <Box sx={{ p: 3, bgcolor: 'grey.50' }}>
+                                                {fullTestCaseDetails ? (
+                                                  <>
+                                                    {/* Preconditions */}
+                                                    {fullTestCaseDetails.preconditions && (
+                                                      <Box sx={{ mb: 2 }}>
+                                                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                          Preconditions
+                                                        </Typography>
+                                                        <Paper
+                                                          variant="outlined"
+                                                          sx={{
+                                                            p: 2,
+                                                            bgcolor: 'background.paper',
+                                                            whiteSpace: 'pre-wrap'
+                                                          }}
+                                                        >
+                                                          <Typography variant="body2">
+                                                            {fullTestCaseDetails.preconditions}
+                                                          </Typography>
+                                                        </Paper>
+                                                      </Box>
+                                                    )}
+
+                                                    {/* Steps to Reproduce */}
+                                                    {fullTestCaseDetails.steps_to_reproduce && (
+                                                      <Box sx={{ mb: 2 }}>
+                                                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                          Steps to Reproduce
+                                                        </Typography>
+                                                        <Paper
+                                                          variant="outlined"
+                                                          sx={{
+                                                            p: 2,
+                                                            bgcolor: 'background.paper',
+                                                            whiteSpace: 'pre-wrap'
+                                                          }}
+                                                        >
+                                                          <Typography variant="body2">
+                                                            {fullTestCaseDetails.steps_to_reproduce}
+                                                          </Typography>
+                                                        </Paper>
+                                                      </Box>
+                                                    )}
+
+                                                    {/* Expected Result */}
+                                                    {fullTestCaseDetails.expected_result && (
+                                                      <Box sx={{ mb: 2 }}>
+                                                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                          Expected Result
+                                                        </Typography>
+                                                        <Paper
+                                                          variant="outlined"
+                                                          sx={{
+                                                            p: 2,
+                                                            bgcolor: 'background.paper',
+                                                            whiteSpace: 'pre-wrap'
+                                                          }}
+                                                        >
+                                                          <Typography variant="body2">
+                                                            {fullTestCaseDetails.expected_result}
+                                                          </Typography>
+                                                        </Paper>
+                                                      </Box>
+                                                    )}
+
+                                                    {/* Scenario Examples */}
+                                                    {fullTestCaseDetails.scenario_examples && (() => {
+                                                      try {
+                                                        const examples = JSON.parse(fullTestCaseDetails.scenario_examples);
+                                                        return (
+                                                          <Box>
+                                                            <Typography variant="subtitle2" color="primary" gutterBottom>
+                                                              Scenario Examples / Parameters
+                                                            </Typography>
+                                                            <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
+                                                              <Table size="small" sx={{ minWidth: 600, bgcolor: 'background.paper' }}>
+                                                                <TableHead>
+                                                                  <TableRow>
+                                                                    {examples.columns.map((col, idx) => (
+                                                                      <TableCell key={idx} sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>
+                                                                        {col}
+                                                                      </TableCell>
+                                                                    ))}
+                                                                  </TableRow>
+                                                                </TableHead>
+                                                                <TableBody>
+                                                                  {examples.rows.map((row, rowIdx) => (
+                                                                    <TableRow key={rowIdx} hover>
+                                                                      {row.map((cell, cellIdx) => (
+                                                                        <TableCell key={cellIdx}>
+                                                                          {cell}
+                                                                        </TableCell>
+                                                                      ))}
+                                                                    </TableRow>
+                                                                  ))}
+                                                                </TableBody>
+                                                              </Table>
+                                                            </Box>
+                                                          </Box>
+                                                        );
+                                                      } catch (e) {
+                                                        return null;
+                                                      }
+                                                    })()}
+                                                  </>
+                                                ) : (
+                                                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                                    <CircularProgress size={30} />
+                                                  </Box>
+                                                )}
+                                              </Box>
+                                            </Collapse>
+                                          </TableCell>
+                                        </TableRow>
+                                      )}
+                                    </React.Fragment>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                No test cases linked to this story
+                              </Typography>
+                            )}
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </React.Fragment>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No stories found. Create your first story to get started!
+                      </Typography>
                     </TableCell>
                   </TableRow>
-                <TableRow>
-                  <TableCell colSpan={9} sx={{ p: 0 }}>
-                    <Collapse in={expandedStory === story.story_id}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          Linked Test Cases
-                        </Typography>
-                        {loadingTestCases[story.story_id] ? (
-                          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                            <CircularProgress size={30} />
-                          </Box>
-                        ) : storyTestCases[story.story_id]?.length > 0 ? (
-                          <Table size="small">
-                            <TableHead>
-                              <TableRow>
-                                <TableCell>Test ID</TableCell>
-                                <TableCell>Title</TableCell>
-                                <TableCell>Module</TableCell>
-                                <TableCell>Type</TableCell>
-                                <TableCell>Tag</TableCell>
-                                <TableCell>Sub-Module</TableCell>
-                                <TableCell>Feature</TableCell>
-                                <TableCell>Actions</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {storyTestCases[story.story_id].map((tc) => (
-                                <React.Fragment key={tc.id}>
-                                  <TableRow>
-                                    <TableCell 
-                                      sx={{ cursor: 'pointer' }}
-                                      onClick={() => handleToggleTestCase(tc)}
-                                    >
-                                      <Chip 
-                                        label={tc.test_id} 
-                                        size="small" 
-                                        color="primary"
-                                      />
-                                    </TableCell>
-                                    <TableCell 
-                                      sx={{ cursor: 'pointer' }}
-                                      onClick={() => handleToggleTestCase(tc)}
-                                    >
-                                      {tc.title}
-                                    </TableCell>
-                                    <TableCell 
-                                      sx={{ cursor: 'pointer' }}
-                                      onClick={() => handleToggleTestCase(tc)}
-                                    >
-                                      {tc.module_name}
-                                    </TableCell>
-                                    <TableCell>
-                                      <Chip label={tc.test_type} size="small" />
-                                    </TableCell>
-                                    <TableCell>
-                                      <Chip 
-                                        label={tc.tag} 
-                                        size="small" 
-                                        color={tc.tag === 'ui' ? 'primary' : tc.tag === 'api' ? 'secondary' : 'default'}
-                                      />
-                                    </TableCell>
-                                    <TableCell>{tc.sub_module || '-'}</TableCell>
-                                    <TableCell>{tc.feature_section || '-'}</TableCell>
-                                    <TableCell>
-                                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                                        <Tooltip title={expandedTestCase === tc.id ? "Collapse" : "Expand"}>
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleToggleTestCase(tc)}
-                                            color={expandedTestCase === tc.id ? 'primary' : 'default'}
-                                          >
-                                            <ExpandMoreIcon
-                                              fontSize="small"
-                                              sx={{
-                                                transform: expandedTestCase === tc.id ? 'rotate(180deg)' : 'rotate(0deg)',
-                                                transition: 'transform 0.3s'
-                                              }}
-                                            />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <IconButton
-                                          size="small"
-                                          color="error"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleUnlinkTestCase(story.story_id, tc.id, tc.test_id);
-                                          }}
-                                          title="Unlink test case"
-                                        >
-                                          <LinkOffIcon fontSize="small" />
-                                        </IconButton>
-                                      </Box>
-                                    </TableCell>
-                                  </TableRow>
-                                  {expandedTestCase === tc.id && (
-                                    <TableRow>
-                                      <TableCell colSpan={8} sx={{ py: 0, px: 0, borderBottom: 'none' }}>
-                                        <Collapse in={expandedTestCase === tc.id} timeout="auto" unmountOnExit>
-                                          <Box sx={{ p: 3, bgcolor: 'grey.50' }}>
-                                            {fullTestCaseDetails ? (
-                                              <>
-                                                {/* Preconditions */}
-                                                {fullTestCaseDetails.preconditions && (
-                                                  <Box sx={{ mb: 2 }}>
-                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
-                                                      Preconditions
-                                                    </Typography>
-                                                    <Paper 
-                                                      variant="outlined" 
-                                                      sx={{ 
-                                                        p: 2, 
-                                                        bgcolor: 'background.paper',
-                                                        whiteSpace: 'pre-wrap'
-                                                      }}
-                                                    >
-                                                      <Typography variant="body2">
-                                                        {fullTestCaseDetails.preconditions}
-                                                      </Typography>
-                                                    </Paper>
-                                                  </Box>
-                                                )}
-
-                                                {/* Steps to Reproduce */}
-                                                {fullTestCaseDetails.steps_to_reproduce && (
-                                                  <Box sx={{ mb: 2 }}>
-                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
-                                                      Steps to Reproduce
-                                                    </Typography>
-                                                    <Paper 
-                                                      variant="outlined" 
-                                                      sx={{ 
-                                                        p: 2, 
-                                                        bgcolor: 'background.paper',
-                                                        whiteSpace: 'pre-wrap'
-                                                      }}
-                                                    >
-                                                      <Typography variant="body2">
-                                                        {fullTestCaseDetails.steps_to_reproduce}
-                                                      </Typography>
-                                                    </Paper>
-                                                  </Box>
-                                                )}
-
-                                                {/* Expected Result */}
-                                                {fullTestCaseDetails.expected_result && (
-                                                  <Box sx={{ mb: 2 }}>
-                                                    <Typography variant="subtitle2" color="primary" gutterBottom>
-                                                      Expected Result
-                                                    </Typography>
-                                                    <Paper 
-                                                      variant="outlined" 
-                                                      sx={{ 
-                                                        p: 2, 
-                                                        bgcolor: 'background.paper',
-                                                        whiteSpace: 'pre-wrap'
-                                                      }}
-                                                    >
-                                                      <Typography variant="body2">
-                                                        {fullTestCaseDetails.expected_result}
-                                                      </Typography>
-                                                    </Paper>
-                                                  </Box>
-                                                )}
-
-                                                {/* Scenario Examples */}
-                                                {fullTestCaseDetails.scenario_examples && (() => {
-                                                  try {
-                                                    const examples = JSON.parse(fullTestCaseDetails.scenario_examples);
-                                                    return (
-                                                      <Box>
-                                                        <Typography variant="subtitle2" color="primary" gutterBottom>
-                                                          Scenario Examples / Parameters
-                                                        </Typography>
-                                                        <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
-                                                          <Table size="small" sx={{ minWidth: 600, bgcolor: 'background.paper' }}>
-                                                            <TableHead>
-                                                              <TableRow>
-                                                                {examples.columns.map((col, idx) => (
-                                                                  <TableCell key={idx} sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>
-                                                                    {col}
-                                                                  </TableCell>
-                                                                ))}
-                                                              </TableRow>
-                                                            </TableHead>
-                                                            <TableBody>
-                                                              {examples.rows.map((row, rowIdx) => (
-                                                                <TableRow key={rowIdx} hover>
-                                                                  {row.map((cell, cellIdx) => (
-                                                                    <TableCell key={cellIdx}>
-                                                                      {cell}
-                                                                    </TableCell>
-                                                                  ))}
-                                                                </TableRow>
-                                                              ))}
-                                                            </TableBody>
-                                                          </Table>
-                                                        </Box>
-                                                      </Box>
-                                                    );
-                                                  } catch (e) {
-                                                    return null;
-                                                  }
-                                                })()}
-                                              </>
-                                            ) : (
-                                              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                                                <CircularProgress size={30} />
-                                              </Box>
-                                            )}
-                                          </Box>
-                                        </Collapse>
-                                      </TableCell>
-                                    </TableRow>
-                                  )}
-                                </React.Fragment>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            No test cases linked to this story
-                          </Typography>
-                        )}
-                      </Box>
-                    </Collapse>
-                  </TableCell>
-                </TableRow>
-              </React.Fragment>
-            )) : (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    No stories found. Create your first story to get started!
-                  </Typography>
-                </TableCell>
-              </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25, 50]}
-          component="div"
-          count={filteredStories.length}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </Paper>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <TablePagination
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            component="div"
+            count={filteredStories.length}
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+          />
+        </Paper>
       )}
 
       {/* Create/Edit Story Dialog */}
@@ -1049,7 +1078,7 @@ const Stories = () => {
                   Import from URL
                 </Button>
               </Box>
-              
+
               {importMode === 'url' && (
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <TextField
@@ -1070,7 +1099,7 @@ const Stories = () => {
               )}
             </Box>
           )}
-          
+
           <Box sx={{ display: 'grid', gap: 2, mt: 1 }}>
             <TextField
               label="Story ID"
@@ -1250,7 +1279,7 @@ const Stories = () => {
                   <Alert severity="info">No test cases found. Please create test cases first.</Alert>
                 ) : (
                   Object.values(groupTestCasesByModule()).map(({ module, testCases: moduleTestCases }) => (
-                    <Accordion 
+                    <Accordion
                       key={module.id}
                       expanded={expandedModules[module.id] || false}
                       onChange={() => handleModuleToggle(module.id)}
@@ -1260,7 +1289,7 @@ const Stories = () => {
                           <Typography variant="subtitle1" sx={{ flexGrow: 1 }}>
                             {module.name}
                           </Typography>
-                          <Chip 
+                          <Chip
                             label={`${moduleTestCases.filter(tc => selectedTestCases.includes(tc.id)).length} / ${moduleTestCases.length} selected`}
                             size="small"
                             color="primary"
@@ -1292,12 +1321,12 @@ const Stories = () => {
                             </TableHead>
                             <TableBody>
                               {moduleTestCases.map(testCase => (
-                                <TableRow 
-                                  key={testCase.id} 
+                                <TableRow
+                                  key={testCase.id}
                                   hover
                                   sx={{ cursor: 'pointer' }}
                                 >
-                                  <TableCell 
+                                  <TableCell
                                     padding="checkbox"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1325,13 +1354,13 @@ const Stories = () => {
                                     <Chip label={testCase.test_type} size="small" />
                                   </TableCell>
                                   <TableCell onClick={() => handleTestCaseToggle(testCase.id)}>
-                                    <Chip 
-                                      label={testCase.tag} 
+                                    <Chip
+                                      label={testCase.tag}
                                       size="small"
                                       color={
                                         testCase.tag === 'ui' ? 'primary' :
-                                        testCase.tag === 'api' ? 'secondary' :
-                                        'default'
+                                          testCase.tag === 'api' ? 'secondary' :
+                                            'default'
                                       }
                                     />
                                   </TableCell>
@@ -1356,9 +1385,9 @@ const Stories = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseLinkDialog}>Cancel</Button>
-          <Button 
-            onClick={handleLinkTestCases} 
-            variant="contained" 
+          <Button
+            onClick={handleLinkTestCases}
+            variant="contained"
             color="primary"
             disabled={loading || selectedTestCases.length === 0}
             startIcon={<LinkIcon />}
@@ -1406,6 +1435,12 @@ const Stories = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
+      <IssueDetail
+        open={openIssueDialog}
+        onClose={() => setOpenIssueDialog(false)}
+        onSave={handleSaveIssue}
+        defaultStoryId={selectedStoryForIssue?.story_id}
+      />
     </Box>
   );
 };

@@ -346,3 +346,41 @@ class FeatureFile(Base):
     module = relationship("Module", foreign_keys=[module_id])
     creator = relationship("User", foreign_keys=[created_by])
 
+
+class Issue(Base):
+    __tablename__ = "issues"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default="Open", index=True)  # Open, In Progress, Closed, Resolved
+    priority = Column(String(20), default="Medium")  # High, Medium, Low, Critical
+    severity = Column(String(20), default="Major")  # Critical, Major, Minor, Trivial
+    
+    # New fields for refactor
+    video_url = Column(String, nullable=True)
+    screenshot_urls = Column(Text, nullable=True)  # JSON string or comma-separated
+    jira_assignee_id = Column(String(100), nullable=True)
+    jira_assignee_name = Column(String(255), nullable=True)
+    reporter_name = Column(String(100), nullable=True)
+    jira_story_id = Column(String(50), nullable=True)
+    
+    # Linkages
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=True)
+    
+    # Metadata
+    created_by = Column(Integer, ForeignKey("users.id"))
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    module = relationship("Module", backref="issues")
+    release = relationship("Release", backref="issues")
+    test_case = relationship("TestCase", backref="issues")
+    creator = relationship("User", foreign_keys=[created_by])
+    assignee = relationship("User", foreign_keys=[assigned_to])
+

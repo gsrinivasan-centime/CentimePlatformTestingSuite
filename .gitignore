@@ -52,3 +52,5 @@ Thumbs.db
 # Selenium
 geckodriver.log
 chromedriver.log
+
+!frontend/public/index.html

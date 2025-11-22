@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
     Box,
-    Paper,
     Button,
     Typography,
     CircularProgress,
@@ -22,6 +21,7 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
 
     useEffect(() => {
         fetchIssues();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [releaseId, refreshTrigger]);
 
     const fetchIssues = async () => {

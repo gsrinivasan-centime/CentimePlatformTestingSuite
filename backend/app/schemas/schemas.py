@@ -262,6 +262,15 @@ class ModuleTestReport(BaseModel):
     skipped: int
     pass_percentage: float
 
+class IssueStats(BaseModel):
+    total_issues: int
+    open: int
+    in_progress: int
+    resolved: int
+    closed: int
+    by_priority: dict  # {high: int, medium: int, low: int, critical: int}
+    by_module: List[dict]  # [{module_name: str, count: int}]
+
 class ReleaseReport(BaseModel):
     release_version: str
     release_name: Optional[str]
@@ -276,6 +285,7 @@ class ReleaseReport(BaseModel):
     skipped: int
     pass_percentage: float
     module_reports: List[ModuleTestReport]
+    issue_stats: Optional[IssueStats]
     generated_at: datetime
 
 # Release Test Case Schemas
@@ -389,6 +399,7 @@ class ReleaseDashboard(BaseModel):
     pass_rate: float
     module_stats: List[ModuleStats]
     critical_issues: List[str]
+    issue_stats: Optional[IssueStats]
     last_updated: datetime
 
 # Tree View Schemas
@@ -574,10 +585,3 @@ class Issue(IssueBase):
     
     class Config:
         from_attributes = True
-
-class IssueStats(BaseModel):
-    module_id: int
-    module_name: str
-    open_issues: int
-    closed_issues: int
-    total_issues: int

@@ -130,6 +130,96 @@ const DashboardView = ({ releaseId, onNavigateToTree }) => {
         </Grid>
       </Grid>
 
+      {/* Issue Tracker Statistics */}
+      {dashboardData.issue_stats && dashboardData.issue_stats.total_issues > 0 && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>Issue Tracker Summary</Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card variant="outlined" sx={{ textAlign: 'center', bgcolor: '#f5f5f5' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="h4" fontWeight="bold">{dashboardData.issue_stats.total_issues}</Typography>
+                  <Typography variant="caption" color="text.secondary">Total Issues</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card variant="outlined" sx={{ textAlign: 'center', bgcolor: '#ffebee' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="h4" fontWeight="bold" color="error.main">{dashboardData.issue_stats.open}</Typography>
+                  <Typography variant="caption" color="text.secondary">Open</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card variant="outlined" sx={{ textAlign: 'center', bgcolor: '#e3f2fd' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="h4" fontWeight="bold" color="info.main">{dashboardData.issue_stats.in_progress}</Typography>
+                  <Typography variant="caption" color="text.secondary">In Progress</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card variant="outlined" sx={{ textAlign: 'center', bgcolor: '#e8f5e9' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="h4" fontWeight="bold" color="success.main">{dashboardData.issue_stats.resolved}</Typography>
+                  <Typography variant="caption" color="text.secondary">Resolved</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card variant="outlined" sx={{ textAlign: 'center', bgcolor: '#fafafa' }}>
+                <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                  <Typography variant="h4" fontWeight="bold" color="text.secondary">{dashboardData.issue_stats.closed}</Typography>
+                  <Typography variant="caption" color="text.secondary">Closed</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* Issues by Priority */}
+          {dashboardData.issue_stats.by_priority && Object.keys(dashboardData.issue_stats.by_priority).length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Issues by Priority</Typography>
+              <Grid container spacing={1}>
+                {Object.entries(dashboardData.issue_stats.by_priority).map(([priority, count]) => (
+                  <Grid item key={priority}>
+                    <Chip 
+                      label={`${priority.charAt(0).toUpperCase() + priority.slice(1)}: ${count}`}
+                      size="small"
+                      color={
+                        priority === 'critical' || priority === 'high' ? 'error' :
+                        priority === 'medium' ? 'warning' : 'default'
+                      }
+                      sx={{ fontWeight: 500 }}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+
+          {/* Issues by Module */}
+          {dashboardData.issue_stats.by_module && dashboardData.issue_stats.by_module.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Issues by Module</Typography>
+              <Grid container spacing={1}>
+                {dashboardData.issue_stats.by_module.map((item) => (
+                  <Grid item key={item.module_name}>
+                    <Chip 
+                      label={`${item.module_name}: ${item.count}`}
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+        </Paper>
+      )}
+
       {/* Test Type Breakdown */}
       {dashboardData.ui_stats && dashboardData.api_stats && (
         <Grid container spacing={2} sx={{ mb: 2 }}>

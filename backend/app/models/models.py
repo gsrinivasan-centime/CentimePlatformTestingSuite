@@ -86,11 +86,6 @@ class SubModule(Base):
     
     # Relationships
     module = relationship("Module", back_populates="sub_modules")
-    
-    # Unique constraint: sub-module name must be unique within a module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Feature(Base):
     __tablename__ = "features"
@@ -103,11 +98,6 @@ class Feature(Base):
     
     # Relationships
     sub_module = relationship("SubModule")
-    
-    # Unique constraint: feature name must be unique within a sub-module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Release(Base):
     __tablename__ = "releases"
@@ -323,11 +313,6 @@ class TestCaseStory(Base):
     test_case = relationship("TestCase", backref="story_links")
     story = relationship("JiraStory", backref="test_case_links")
     linker = relationship("User", foreign_keys=[linked_by])
-    
-    # Unique constraint
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class FeatureFile(Base):
     __tablename__ = "feature_files"

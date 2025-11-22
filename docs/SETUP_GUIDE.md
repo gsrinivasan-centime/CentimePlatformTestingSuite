@@ -9,8 +9,8 @@ Before setting up the project, ensure you have the following installed:
 - **Python 3.9 or higher**
 - **Node.js 16 or higher** and npm
 - **Git**
+- **PostgreSQL 12 or higher** (see [PostgreSQL Setup Guide](POSTGRESQL_SETUP.md))
 - **Chrome or Firefox browser** (for Selenium tests)
-- **SQLite** (usually comes pre-installed)
 
 ## Backend Setup
 
@@ -38,7 +38,20 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 4. Setup PostgreSQL Database
+
+Follow the detailed PostgreSQL setup guide:
+```bash
+# See full instructions in docs/POSTGRESQL_SETUP.md
+```
+
+Quick setup:
+```bash
+# Create database (if not already created)
+psql -U postgres -c "CREATE DATABASE test_management;"
+```
+
+### 5. Configure Environment Variables
 
 ```bash
 # Copy the example environment file
@@ -51,35 +64,32 @@ nano .env  # or use any text editor
 Update the following in `.env`:
 ```env
 SECRET_KEY=your-super-secret-key-change-this-in-production
-DATABASE_URL=sqlite:///./test_management.db
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_management
 ALLOWED_ORIGINS=http://localhost:3000
 ALLOWED_EMAIL_DOMAIN=centime.com
 ```
 
-### 5. Initialize Database
+### 6. Initialize Database with Alembic
 
-The database will be automatically created when you first run the application. The tables will be created based on the models defined.
+Run the initialization script to create tables and seed data:
 
-### 6. Create Initial Admin User
-
-Start the FastAPI server:
 ```bash
-uvicorn app.main:app --reload
+python init_db_postgres.py
 ```
 
-Then use the API to register an admin user:
+This will:
+- Run Alembic migrations to create all tables
+- Create admin user (admin@centime.com / Admin123!)
+- Create test user (tester@centime.com / Tester123!)
+- Create sample modules and data
+
+**Alternative: Manual setup**
 ```bash
-curl -X POST "http://localhost:8000/api/auth/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "admin@centime.com",
-    "password": "Admin123!",
-    "full_name": "Admin User",
-    "role": "admin"
-  }'
+# Run migrations only
+alembic upgrade head
 ```
 
-### 7. Create Initial Modules
+### 7. Verify Setup
 
 ```bash
 curl -X POST "http://localhost:8000/api/modules" \

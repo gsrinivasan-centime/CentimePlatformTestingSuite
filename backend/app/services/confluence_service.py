@@ -281,6 +281,113 @@ class ConfluenceService:
         except Exception as e:
             print(f"✗ Error deleting file from Confluence: {str(e)}")
             return False
+    
+    def upload_feature_file(self, filename: str, content: str, page_id: Optional[str] = None) -> Dict[str, str]:
+        """
+        Upload a feature file (text content) to Confluence
+        
+        Args:
+            filename: Name of the feature file (should end with .feature)
+            content: Content of the feature file
+            page_id: Optional page ID (defaults to configured page)
+            
+        Returns:
+            Dict containing attachment details
+        """
+        if not self.session:
+            raise HTTPException(status_code=503, detail="Confluence service not configured")
+        
+        target_page_id = page_id or self.page_id
+        if not target_page_id:
+            raise HTTPException(status_code=500, detail="Confluence page ID not configured")
+        
+        try:
+            # Ensure filename ends with .feature
+            if not filename.endswith('.feature'):
+                filename = f"{filename}.feature"
+            
+            # Convert content to bytes
+            content_bytes = content.encode('utf-8')
+            
+            # Upload attachment to Confluence page
+            upload_url = f"{self.confluence_url}/rest/api/content/{target_page_id}/child/attachment"
+            
+            files = {
+                'file': (filename, content_bytes, 'text/plain')
+            }
+            
+            # Check if attachment with same name already exists
+            check_url = f"{self.confluence_url}/rest/api/content/{target_page_id}/child/attachment"
+            check_params = {
+                'filename': filename,
+                'expand': 'version'
+            }
+            
+            existing_response = self.session.get(check_url, params=check_params)
+            
+            if existing_response.status_code == 200:
+                existing_data = existing_response.json()
+                
+                # If file exists, update it
+                if existing_data.get('results') and len(existing_data['results']) > 0:
+                    attachment_id = existing_data['results'][0]['id']
+                    update_url = f"{self.confluence_url}/rest/api/content/{target_page_id}/child/attachment/{attachment_id}/data"
+                    
+                    response = self.session.post(
+                        update_url,
+                        files=files,
+                        headers={'X-Atlassian-Token': 'no-check'}
+                    )
+                else:
+                    # Create new attachment
+                    response = self.session.post(
+                        upload_url,
+                        files=files,
+                        headers={'X-Atlassian-Token': 'no-check'}
+                    )
+            else:
+                # Create new attachment
+                response = self.session.post(
+                    upload_url,
+                    files=files,
+                    headers={'X-Atlassian-Token': 'no-check'}
+                )
+            
+            if response.status_code not in [200, 201]:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to upload feature file to Confluence: {response.text}"
+                )
+            
+            result = response.json()
+            
+            # Extract attachment details from response
+            if 'results' in result:
+                attachment = result['results'][0]
+            else:
+                attachment = result
+            
+            # Build the download URL
+            download_path = attachment.get('_links', {}).get('download', '')
+            download_url = f"{self.confluence_url}{download_path}" if download_path else ""
+            
+            # Build the view URL
+            view_path = attachment.get('_links', {}).get('webui', '')
+            view_url = f"{self.confluence_url}{view_path}" if view_path else ""
+            
+            return {
+                'id': attachment.get('id'),
+                'name': filename,
+                'view_link': view_url,
+                'download_link': download_url,
+                'confluence_attachment_id': attachment.get('id'),
+                'confluence_page_id': target_page_id
+            }
+            
+        except requests.RequestException as e:
+            raise HTTPException(status_code=500, detail=f"Failed to upload feature file to Confluence: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error uploading feature file to Confluence: {str(e)}")
 
 # Singleton instance
 confluence_service = ConfluenceService()

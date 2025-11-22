@@ -41,6 +41,12 @@ export const issueService = {
             params: { query }
         });
         return response.data;
+    },
+    getByStory: async (storyId) => {
+        const response = await api.get('/issues/', {
+            params: { jira_story_id: storyId }
+        });
+        return response.data;
     }
 };
 

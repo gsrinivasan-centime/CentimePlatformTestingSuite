@@ -38,6 +38,8 @@ import {
 } from '@mui/icons-material';
 import api from '../../services/api';
 import ResizableTableCell from '../../components/ResizableTableCell';
+import StoryIssuesList from '../../components/StoryIssuesList';
+import IssueDetail from '../../components/IssueDetail';
 
 const StoriesView = ({ releaseId }) => {
   const [stories, setStories] = useState([]);
@@ -49,6 +51,11 @@ const StoriesView = ({ releaseId }) => {
   const [expandedIssues, setExpandedIssues] = useState({});
   const [syncing, setSyncing] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Issue dialog state
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState(null);
+  const [issueRefreshTrigger, setIssueRefreshTrigger] = useState(0);
   
   // Test case details accordion state
   const [expandedTestCase, setExpandedTestCase] = useState(null);
@@ -176,6 +183,18 @@ const StoriesView = ({ releaseId }) => {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleEditIssue = (issue) => {
+    setSelectedIssue(issue);
+    setIssueDialogOpen(true);
+  };
+
+  const handleSaveIssue = async () => {
+    setIssueDialogOpen(false);
+    setSelectedIssue(null);
+    setIssueRefreshTrigger(prev => prev + 1);
+    await fetchStories(); // Refresh to update issue stats
   };
 
 
@@ -763,13 +782,13 @@ const StoriesView = ({ releaseId }) => {
                   <TableCell colSpan={8} sx={{ p: 0 }}>
                     <Collapse in={expandedIssues[story.story_id]}>
                       <Box sx={{ p: 2, bgcolor: 'grey.100' }}>
-                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                           <BugReportIcon fontSize="small" color="error" />
                           Linked Issues
                         </Typography>
                         {story.issue_stats && story.issue_stats.total > 0 ? (
                           <Box>
-                            <Grid container spacing={2} sx={{ mb: 2 }}>
+                            <Grid container spacing={2} sx={{ mb: 3 }}>
                               <Grid item xs={12} sm={6} md={2.4}>
                                 <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
                                   <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
@@ -811,6 +830,11 @@ const StoriesView = ({ releaseId }) => {
                                 </Card>
                               </Grid>
                             </Grid>
+                            <StoryIssuesList 
+                              storyId={story.story_id}
+                              onEdit={handleEditIssue}
+                              refreshTrigger={issueRefreshTrigger}
+                            />
                           </Box>
                         ) : (
                           <Typography variant="body2" color="text.secondary">
@@ -1163,6 +1187,17 @@ const StoriesView = ({ releaseId }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Issue Detail Dialog */}
+      <IssueDetail
+        open={issueDialogOpen}
+        onClose={() => {
+          setIssueDialogOpen(false);
+          setSelectedIssue(null);
+        }}
+        onSave={handleSaveIssue}
+        issue={selectedIssue}
+      />
     </Box>
   );
 };

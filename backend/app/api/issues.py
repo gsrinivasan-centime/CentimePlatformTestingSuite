@@ -23,6 +23,7 @@ def list_issues(
     status: Optional[str] = None,
     module_id: Optional[int] = None,
     release_id: Optional[int] = None,
+    jira_story_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -34,6 +35,8 @@ def list_issues(
         query = query.filter(Issue.module_id == module_id)
     if release_id:
         query = query.filter(Issue.release_id == release_id)
+    if jira_story_id:
+        query = query.filter(Issue.jira_story_id == jira_story_id)
         
     issues = query.order_by(Issue.created_at.desc()).offset(skip).limit(limit).all()
     return issues

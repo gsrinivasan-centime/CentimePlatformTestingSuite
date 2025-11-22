@@ -76,6 +76,7 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
             }
 
             setOpenDetail(false);
+            setSelectedIssue(null);
             setRefreshTrigger(prev => prev + 1);
         } catch (error) {
             console.error('Error saving issue:', error);
@@ -124,7 +125,10 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
 
             <IssueDetail
                 open={openDetail}
-                onClose={() => setOpenDetail(false)}
+                onClose={() => {
+                    setOpenDetail(false);
+                    setSelectedIssue(null);
+                }}
                 onSave={handleSaveIssue}
                 onDelete={handleDeleteIssue}
                 issue={selectedIssue}

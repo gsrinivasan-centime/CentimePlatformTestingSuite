@@ -138,7 +138,7 @@ def update_issue(
     return db_issue
 
 @router.delete("/{issue_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_issue(
+async def delete_issue(
     issue_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -146,7 +146,51 @@ def delete_issue(
     db_issue = db.query(Issue).filter(Issue.id == issue_id).first()
     if not db_issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-        
+    
+    # Delete associated media files from storage before deleting the issue
+    deleted_files = []
+    failed_files = []
+    
+    # Delete video if exists
+    if db_issue.video_url:
+        try:
+            success = await file_storage.delete_file(db_issue.video_url)
+            if success:
+                deleted_files.append(db_issue.video_url)
+            else:
+                failed_files.append(db_issue.video_url)
+        except Exception as e:
+            print(f"Error deleting video file: {e}")
+            failed_files.append(db_issue.video_url)
+    
+    # Delete screenshots if exist
+    if db_issue.screenshot_urls:
+        try:
+            # Parse screenshot URLs (newline separated)
+            screenshot_list = db_issue.screenshot_urls.split('\n')
+            screenshot_list = [url.strip() for url in screenshot_list if url.strip()]
+            
+            for screenshot_url in screenshot_list:
+                try:
+                    success = await file_storage.delete_file(screenshot_url)
+                    if success:
+                        deleted_files.append(screenshot_url)
+                    else:
+                        failed_files.append(screenshot_url)
+                except Exception as e:
+                    print(f"Error deleting screenshot file: {e}")
+                    failed_files.append(screenshot_url)
+        except Exception as e:
+            print(f"Error processing screenshot URLs: {e}")
+    
+    # Log deletion results
+    if deleted_files:
+        print(f"✓ Deleted {len(deleted_files)} media file(s) for issue {issue_id}")
+    if failed_files:
+        print(f"⚠ Failed to delete {len(failed_files)} media file(s) for issue {issue_id}")
+        # We continue with issue deletion even if some files failed to delete
+    
+    # Delete the issue from database
     db.delete(db_issue)
     db.commit()
     return None

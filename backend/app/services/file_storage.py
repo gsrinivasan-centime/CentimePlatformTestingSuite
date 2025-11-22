@@ -49,6 +49,45 @@ class FileStorageService:
     def get_backend_name(self) -> str:
         """Get the name of the current storage backend"""
         return self.backend
+    
+    async def delete_file(self, file_url: str) -> bool:
+        """
+        Delete a file from the configured backend
+        
+        Args:
+            file_url: The URL or identifier of the file to delete
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if self.backend == "confluence":
+            return await confluence_service.delete_file(file_url)
+        elif self.backend == "google_drive":
+            # TODO: Implement Google Drive delete if needed
+            print(f"Warning: Delete not implemented for Google Drive backend")
+            return False
+        else:
+            return False
+    
+    async def delete_file_by_name(self, filename: str, page_id: str = None) -> bool:
+        """
+        Delete a file by filename from the configured backend
+        
+        Args:
+            filename: Name of the file to delete
+            page_id: Optional page/folder identifier
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if self.backend == "confluence":
+            return await confluence_service.delete_file_by_name(filename, page_id)
+        elif self.backend == "google_drive":
+            # TODO: Implement Google Drive delete if needed
+            print(f"Warning: Delete not implemented for Google Drive backend")
+            return False
+        else:
+            return False
 
 # Singleton instance
 file_storage = FileStorageService()

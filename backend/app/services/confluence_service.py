@@ -170,6 +170,117 @@ class ConfluenceService:
         except Exception as e:
             print(f"✗ Error verifying Confluence page access: {str(e)}")
             return False
+    
+    async def delete_file(self, file_url: str) -> bool:
+        """
+        Delete a file attachment from Confluence
+        
+        Args:
+            file_url: The download URL or view URL of the attachment
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if not self.session:
+            print("Warning: Confluence service not configured")
+            return False
+        
+        try:
+            # Extract attachment ID from URL
+            # URL format: https://domain.atlassian.net/wiki/download/attachments/PAGE_ID/filename
+            # or: https://domain.atlassian.net/wiki/rest/api/content/ATTACHMENT_ID
+            
+            attachment_id = None
+            
+            # Try to extract ID from different URL patterns
+            if '/rest/api/content/' in file_url:
+                # Direct content API URL
+                parts = file_url.split('/rest/api/content/')
+                if len(parts) > 1:
+                    attachment_id = parts[1].split('/')[0].split('?')[0]
+            elif '/download/attachments/' in file_url or '/attachments/' in file_url:
+                # Download URL - need to find attachment by filename and page
+                # This requires querying the page's attachments
+                # For now, we'll skip this pattern and handle it differently
+                print(f"Warning: Cannot extract attachment ID from URL: {file_url}")
+                return False
+            
+            if not attachment_id:
+                print(f"Warning: Could not extract attachment ID from URL: {file_url}")
+                return False
+            
+            # Delete the attachment
+            delete_url = f"{self.confluence_url}/rest/api/content/{attachment_id}"
+            response = self.session.delete(delete_url)
+            
+            if response.status_code in [200, 204]:
+                print(f"✓ Successfully deleted attachment {attachment_id}")
+                return True
+            else:
+                print(f"✗ Failed to delete attachment {attachment_id}: Status {response.status_code}")
+                print(f"  Response: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"✗ Error deleting file from Confluence: {str(e)}")
+            return False
+    
+    async def delete_file_by_name(self, filename: str, page_id: Optional[str] = None) -> bool:
+        """
+        Delete a file attachment from Confluence by filename
+        
+        Args:
+            filename: Name of the file to delete
+            page_id: Optional page ID (defaults to configured page)
+            
+        Returns:
+            True if deletion was successful, False otherwise
+        """
+        if not self.session:
+            print("Warning: Confluence service not configured")
+            return False
+        
+        target_page_id = page_id or self.page_id
+        if not target_page_id:
+            print("Warning: No page ID configured")
+            return False
+        
+        try:
+            # Find the attachment by filename
+            check_url = f"{self.confluence_url}/rest/api/content/{target_page_id}/child/attachment"
+            check_params = {
+                'filename': filename,
+                'expand': 'version'
+            }
+            
+            response = self.session.get(check_url, params=check_params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get('results') and len(data['results']) > 0:
+                    attachment_id = data['results'][0]['id']
+                    
+                    # Delete the attachment
+                    delete_url = f"{self.confluence_url}/rest/api/content/{attachment_id}"
+                    delete_response = self.session.delete(delete_url)
+                    
+                    if delete_response.status_code in [200, 204]:
+                        print(f"✓ Successfully deleted attachment '{filename}' (ID: {attachment_id})")
+                        return True
+                    else:
+                        print(f"✗ Failed to delete attachment '{filename}': Status {delete_response.status_code}")
+                        return False
+                else:
+                    print(f"Warning: Attachment '{filename}' not found on page {target_page_id}")
+                    return False
+            else:
+                print(f"✗ Failed to query attachments: Status {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"✗ Error deleting file from Confluence: {str(e)}")
+            return False
 
 # Singleton instance
 confluence_service = ConfluenceService()

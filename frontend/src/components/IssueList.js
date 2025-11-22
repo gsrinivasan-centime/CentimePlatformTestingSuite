@@ -15,8 +15,6 @@ import {
     Select,
     TablePagination,
     Collapse,
-    Grid,
-    Card,
     Dialog,
     DialogContent,
     DialogActions,
@@ -32,15 +30,12 @@ import {
     Link as LinkIcon
 } from '@mui/icons-material';
 import { issueService } from '../services/issueService';
-import AuthenticatedImage from './AuthenticatedImage';
-import AuthenticatedVideo from './AuthenticatedVideo';
 import ResizableTableCell from './ResizableTableCell';
+import IssueContentRenderer from './IssueContentRenderer';
 import api from '../services/api';
 
 const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }) => {
     const [open, setOpen] = useState(false);
-    const [imageModalOpen, setImageModalOpen] = useState(false);
-    const [selectedImage, setSelectedImage] = useState(null);
     const [status, setStatus] = useState(issue.status);
     const [priority, setPriority] = useState(issue.priority);
     const [jiraAssigneeId, setJiraAssigneeId] = useState(issue.jira_assignee_id || '');
@@ -313,91 +308,15 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
                     <Collapse in={open} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 2 }}>
                             <Typography variant="h6" gutterBottom component="div">
-                                Details
+                                Issue Description
                             </Typography>
-                            <Typography variant="body1" paragraph>
-                                {issue.description || 'No description provided.'}
-                            </Typography>
-
-                            {issue.video_url && (
-                                <Box sx={{ mb: 2 }}>
-                                    <Typography variant="subtitle2" gutterBottom>Video</Typography>
-                                    <AuthenticatedVideo
-                                        src={`/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}`}
-                                        width="640"
-                                        height="360"
-                                    />
-                                </Box>
-                            )}
-
-                            {screenshots.length > 0 && (
-                                <Box>
-                                    <Typography variant="subtitle2" gutterBottom>Screenshots</Typography>
-                                    <Grid container spacing={2}>
-                                        {screenshots.map((url, index) => (
-                                            <Grid item key={index}>
-                                                <Card 
-                                                    sx={{ 
-                                                        maxWidth: 300, 
-                                                        cursor: 'pointer',
-                                                        '&:hover': {
-                                                            boxShadow: 6,
-                                                            transform: 'scale(1.02)',
-                                                            transition: 'all 0.2s'
-                                                        }
-                                                    }}
-                                                    onClick={() => {
-                                                        setSelectedImage({
-                                                            url: `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`,
-                                                            index: index + 1
-                                                        });
-                                                        setImageModalOpen(true);
-                                                    }}
-                                                >
-                                                    <AuthenticatedImage
-                                                        src={`/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`}
-                                                        alt={`Screenshot ${index + 1}`}
-                                                        sx={{ width: '100%', height: 200, objectFit: 'cover' }}
-                                                    />
-                                                </Card>
-                                            </Grid>
-                                        ))}
-                                    </Grid>
-                                </Box>
-                            )}
-
-                            {/* Image Preview Modal */}
-                            <Dialog
-                                open={imageModalOpen}
-                                onClose={() => setImageModalOpen(false)}
-                                maxWidth="lg"
-                                fullWidth
-                            >
-                                <DialogActions sx={{ p: 1 }}>
-                                    <IconButton 
-                                        onClick={() => setImageModalOpen(false)}
-                                        sx={{ ml: 'auto' }}
-                                    >
-                                        <CloseIcon />
-                                    </IconButton>
-                                </DialogActions>
-                                <DialogContent sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                                    {selectedImage && (
-                                        <Box sx={{ width: '100%', textAlign: 'center' }}>
-                                            <AuthenticatedImage
-                                                src={selectedImage.url}
-                                                alt={`Screenshot ${selectedImage.index}`}
-                                                sx={{ 
-                                                    maxWidth: '100%', 
-                                                    maxHeight: '80vh', 
-                                                    objectFit: 'contain',
-                                                    borderRadius: 1
-                                                }}
-                                            />
-                                        </Box>
-                                    )}
-                                </DialogContent>
-                            </Dialog>
+                            <IssueContentRenderer
+                                htmlContent={issue.description}
+                                videoUrl={issue.video_url ? `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}` : ''}
+                                screenshotUrls={screenshots.map(url => 
+                                    `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`
+                                ).join('\n')}
+                            />
                         </Box>
                     </Collapse>
                 </TableCell>

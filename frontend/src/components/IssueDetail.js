@@ -13,16 +13,14 @@ import {
     Select,
     Box,
     Typography,
-    IconButton,
     Autocomplete,
-    CircularProgress,
-    Chip
+    CircularProgress
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon } from '@mui/icons-material';
 import { moduleService } from '../services/moduleService';
-import { userService } from '../services/userService';
 import { jiraStoriesAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import RichTextEditor from './RichTextEditor';
 
 const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId, defaultStoryId }) => {
     const { user } = useAuth();
@@ -91,6 +89,25 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                     screenshotFiles: []
                 });
             }
+        } else {
+            // Reset form when dialog closes
+            setFormData({
+                title: '',
+                description: '',
+                status: 'Open',
+                priority: 'Medium',
+                severity: 'Major',
+                module_id: '',
+                assigned_to: '',
+                jira_assignee_id: '',
+                jira_assignee_name: '',
+                video_url: '',
+                screenshot_urls: '',
+                reporter_name: '',
+                jira_story_id: '',
+                videoFile: null,
+                screenshotFiles: []
+            });
         }
     }, [open, issue, user, defaultStoryId]);
 
@@ -189,15 +206,27 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                         required
                     />
 
-                    <TextField
-                        name="description"
-                        label="Description"
-                        value={formData.description}
-                        onChange={handleChange}
-                        multiline
-                        rows={4}
-                        fullWidth
-                    />
+                    <Box>
+                        <Typography variant="subtitle2" gutterBottom sx={{ mb: 1 }}>
+                            Description *
+                        </Typography>
+                        <RichTextEditor
+                            value={formData.description}
+                            onChange={(html, mediaFiles) => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    description: html,
+                                    videoFile: mediaFiles.find(f => f.type.startsWith('video/')) || prev.videoFile,
+                                    screenshotFiles: mediaFiles.filter(f => f.type.startsWith('image/'))
+                                }));
+                            }}
+                            placeholder="Describe the issue with inline media support..."
+                            existingMedia={[
+                                ...(formData.video_url ? [formData.video_url] : []),
+                                ...(formData.screenshot_urls ? formData.screenshot_urls.split('\n').filter(Boolean) : [])
+                            ]}
+                        />
+                    </Box>
 
                     <Grid container spacing={2}>
                         <Grid item xs={12} sm={6}>
@@ -305,89 +334,6 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                             />
                         </Grid>
                     </Grid>
-
-                    <Typography variant="subtitle1" sx={{ mt: 1 }}>Media Uploads</Typography>
-
-                    <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" color="textSecondary" gutterBottom>
-                            Upload Video (Google Drive)
-                        </Typography>
-                        <input
-                            accept="video/*"
-                            style={{ display: 'none' }}
-                            id="video-upload"
-                            type="file"
-                            onChange={(e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                    setFormData(prev => ({ ...prev, videoFile: file }));
-                                }
-                            }}
-                        />
-                        <label htmlFor="video-upload">
-                            <Button variant="outlined" component="span" startIcon={<AddIcon />}>
-                                Select Video
-                            </Button>
-                        </label>
-                        {formData.videoFile && (
-                            <Chip
-                                label={formData.videoFile.name}
-                                onDelete={() => setFormData(prev => ({ ...prev, videoFile: null }))}
-                                sx={{ ml: 1 }}
-                            />
-                        )}
-                        {formData.video_url && !formData.videoFile && (
-                            <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                                Current Video: <a href={formData.video_url} target="_blank" rel="noopener noreferrer">View</a>
-                            </Typography>
-                        )}
-                    </Box>
-
-                    <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" color="textSecondary" gutterBottom>
-                            Upload Screenshots
-                        </Typography>
-                        <input
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            id="screenshot-upload"
-                            type="file"
-                            multiple
-                            onChange={(e) => {
-                                const files = Array.from(e.target.files);
-                                if (files.length > 0) {
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        screenshotFiles: [...(prev.screenshotFiles || []), ...files]
-                                    }));
-                                }
-                            }}
-                        />
-                        <label htmlFor="screenshot-upload">
-                            <Button variant="outlined" component="span" startIcon={<AddIcon />}>
-                                Select Screenshots
-                            </Button>
-                        </label>
-                        <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                            {formData.screenshotFiles?.map((file, index) => (
-                                <Chip
-                                    key={index}
-                                    label={file.name}
-                                    onDelete={() => {
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            screenshotFiles: prev.screenshotFiles.filter((_, i) => i !== index)
-                                        }));
-                                    }}
-                                />
-                            ))}
-                        </Box>
-                        {formData.screenshot_urls && (
-                            <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                                {formData.screenshot_urls.split('\n').length} existing screenshots linked.
-                            </Typography>
-                        )}
-                    </Box>
 
                     {formData.jira_story_id && (
                         <TextField

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Container,
@@ -21,27 +21,24 @@ import { useToast } from '../context/ToastContext';
 
 const Issues = () => {
     const [stats, setStats] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [openDetail, setOpenDetail] = useState(false);
     const [selectedIssue, setSelectedIssue] = useState(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const { showSuccess, showError } = useToast();
 
-    useEffect(() => {
-        fetchStats();
-    }, [refreshTrigger]);
-
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         try {
             const data = await issueService.getStats();
             setStats(data);
-            setLoading(false);
         } catch (error) {
             console.error('Error fetching stats:', error);
             showError('Failed to load issue statistics');
-            setLoading(false);
         }
-    };
+    }, [showError]);
+
+    useEffect(() => {
+        fetchStats();
+    }, [refreshTrigger, fetchStats]);
 
     const handleCreateClick = () => {
         setSelectedIssue(null);

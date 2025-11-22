@@ -262,6 +262,15 @@ class ModuleTestReport(BaseModel):
     skipped: int
     pass_percentage: float
 
+class IssueStats(BaseModel):
+    total_issues: int
+    open: int
+    in_progress: int
+    resolved: int
+    closed: int
+    by_priority: dict  # {high: int, medium: int, low: int, critical: int}
+    by_module: List[dict]  # [{module_name: str, count: int}]
+
 class ReleaseReport(BaseModel):
     release_version: str
     release_name: Optional[str]
@@ -276,6 +285,7 @@ class ReleaseReport(BaseModel):
     skipped: int
     pass_percentage: float
     module_reports: List[ModuleTestReport]
+    issue_stats: Optional[IssueStats]
     generated_at: datetime
 
 # Release Test Case Schemas
@@ -389,6 +399,7 @@ class ReleaseDashboard(BaseModel):
     pass_rate: float
     module_stats: List[ModuleStats]
     critical_issues: List[str]
+    issue_stats: Optional[IssueStats]
     last_updated: datetime
 
 # Tree View Schemas
@@ -518,6 +529,59 @@ class FeatureFile(FeatureFileBase):
     created_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Issue Schemas
+class IssueBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    status: Optional[str] = "Open"
+    priority: Optional[str] = "Medium"
+    severity: Optional[str] = "Major"
+    module_id: Optional[int] = None
+    release_id: Optional[int] = None
+    test_case_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    
+    # New fields
+    video_url: Optional[str] = None
+    screenshot_urls: Optional[str] = None
+    jira_assignee_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+    jira_story_id: Optional[str] = None
+
+class IssueCreate(IssueBase):
+    pass
+
+class IssueUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    severity: Optional[str] = None
+    module_id: Optional[int] = None
+    release_id: Optional[int] = None
+    test_case_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    jira_assignee_id: Optional[str] = None
+    jira_assignee_name: Optional[str] = None
+    jira_story_id: Optional[str] = None
+    closed_at: Optional[datetime] = None
+
+class Issue(IssueBase):
+    id: int
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+    closed_at: Optional[datetime] = None
+    
+    # Nested models for display
+    module: Optional[Module] = None
+    assignee: Optional[User] = None
+    creator: Optional[User] = None
     
     class Config:
         from_attributes = True

@@ -3,7 +3,7 @@ from typing import List
 import json
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "sqlite:///./test_management.db"
+    DATABASE_URL: str = "postgresql://postgres:password@db.supabase.co:5432/postgres"  # Set via .env file
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
@@ -24,6 +24,20 @@ class Settings(BaseSettings):
     JIRA_SERVER: str = ""
     JIRA_EMAIL: str = ""
     JIRA_API_TOKEN: str = ""
+
+    # Google Drive Integration (Optional)
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""
+    GOOGLE_DRIVE_FOLDER_ID: str = ""
+    
+    # Confluence Integration (Alternative to Google Drive)
+    CONFLUENCE_URL: str = ""  # e.g., https://your-company.atlassian.net/wiki
+    CONFLUENCE_EMAIL: str = ""  # Same as JIRA email usually
+    CONFLUENCE_API_TOKEN: str = ""  # Same as JIRA token if using Atlassian Cloud
+    CONFLUENCE_SPACE_KEY: str = ""  # Space where attachments will be stored
+    CONFLUENCE_PAGE_ID: str = ""  # Page ID where attachments will be uploaded
+    
+    # File Storage Backend Selection
+    FILE_STORAGE_BACKEND: str = "confluence"  # Options: "confluence" or "google_drive"
     
     model_config = SettingsConfigDict(env_file=".env")
     

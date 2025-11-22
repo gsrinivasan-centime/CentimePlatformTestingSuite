@@ -24,12 +24,14 @@ import {
   Refresh as RefreshIcon,
   Add as AddIcon,
   Article as ArticleIcon,
-  Sync as SyncIcon
+  Sync as SyncIcon,
+  BugReport as BugReportIcon
 } from '@mui/icons-material';
 import api, { jiraStoriesAPI } from '../../services/api';
 import DashboardView from './DashboardView';
 import TreeView from './TreeView';
 import StoriesView from './StoriesView';
+import ReleaseIssuesView from './ReleaseIssuesView';
 import ManageTestCasesDialog from './ManageTestCasesDialog';
 
 const ReleaseDetail = () => {
@@ -75,30 +77,30 @@ const ReleaseDetail = () => {
 
   const handleSyncStories = async () => {
     if (!release) return;
-    
+
     // Open confirmation dialog
     setConfirmSyncDialogOpen(true);
   };
 
   const handleConfirmSync = async () => {
     setConfirmSyncDialogOpen(false);
-    
+
     setSyncingStories(true);
     setSyncMessage(null);
-    
+
     try {
       const response = await jiraStoriesAPI.syncByRelease(release.version);
-      
+
       setSyncMessage({
         severity: 'success',
         text: `${response.message}. Created: ${response.created_count}, Updated: ${response.updated_count}`
       });
-      
+
       // Refresh the page after a short delay to show the new stories
       setTimeout(() => {
         handleRefresh();
       }, 1500);
-      
+
     } catch (err) {
       console.error('Error syncing stories:', err);
       setSyncMessage({
@@ -163,20 +165,25 @@ const ReleaseDetail = () => {
       <Paper sx={{ mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 2 }}>
           <Tabs value={currentTab} onChange={handleTabChange}>
-            <Tab 
-              icon={<DashboardIcon />} 
-              iconPosition="start" 
-              label="Dashboard" 
+            <Tab
+              icon={<DashboardIcon />}
+              iconPosition="start"
+              label="Dashboard"
             />
-            <Tab 
-              icon={<ArticleIcon />} 
-              iconPosition="start" 
-              label="Stories" 
+            <Tab
+              icon={<ArticleIcon />}
+              iconPosition="start"
+              label="Stories"
             />
-            <Tab 
-              icon={<TreeIcon />} 
-              iconPosition="start" 
-              label="Modules" 
+            <Tab
+              icon={<TreeIcon />}
+              iconPosition="start"
+              label="Modules"
+            />
+            <Tab
+              icon={<BugReportIcon />}
+              iconPosition="start"
+              label="Issues"
             />
           </Tabs>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -216,8 +223,8 @@ const ReleaseDetail = () => {
       {/* Tab Content */}
       <Box>
         {currentTab === 0 && (
-          <DashboardView 
-            releaseId={releaseId} 
+          <DashboardView
+            releaseId={releaseId}
             key={`dashboard-${refreshKey}`}
             onNavigateToTree={() => setCurrentTab(2)}
           />
@@ -227,6 +234,13 @@ const ReleaseDetail = () => {
         )}
         {currentTab === 2 && (
           <TreeView releaseId={releaseId} key={`tree-${refreshKey}`} />
+        )}
+        {currentTab === 3 && (
+          <ReleaseIssuesView
+            releaseId={releaseId}
+            releaseVersion={release?.version}
+            key={`issues-${refreshKey}`}
+          />
         )}
       </Box>
 

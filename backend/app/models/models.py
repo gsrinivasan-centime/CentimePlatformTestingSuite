@@ -86,11 +86,6 @@ class SubModule(Base):
     
     # Relationships
     module = relationship("Module", back_populates="sub_modules")
-    
-    # Unique constraint: sub-module name must be unique within a module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Feature(Base):
     __tablename__ = "features"
@@ -103,11 +98,6 @@ class Feature(Base):
     
     # Relationships
     sub_module = relationship("SubModule")
-    
-    # Unique constraint: feature name must be unique within a sub-module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Release(Base):
     __tablename__ = "releases"
@@ -323,11 +313,6 @@ class TestCaseStory(Base):
     test_case = relationship("TestCase", backref="story_links")
     story = relationship("JiraStory", backref="test_case_links")
     linker = relationship("User", foreign_keys=[linked_by])
-    
-    # Unique constraint
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class FeatureFile(Base):
     __tablename__ = "feature_files"
@@ -345,4 +330,42 @@ class FeatureFile(Base):
     # Relationships
     module = relationship("Module", foreign_keys=[module_id])
     creator = relationship("User", foreign_keys=[created_by])
+
+
+class Issue(Base):
+    __tablename__ = "issues"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default="Open", index=True)  # Open, In Progress, Closed, Resolved
+    priority = Column(String(20), default="Medium")  # High, Medium, Low, Critical
+    severity = Column(String(20), default="Major")  # Critical, Major, Minor, Trivial
+    
+    # New fields for refactor
+    video_url = Column(String, nullable=True)
+    screenshot_urls = Column(Text, nullable=True)  # JSON string or comma-separated
+    jira_assignee_id = Column(String(100), nullable=True)
+    jira_assignee_name = Column(String(255), nullable=True)
+    reporter_name = Column(String(100), nullable=True)
+    jira_story_id = Column(String(50), nullable=True)
+    
+    # Linkages
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=True)
+    
+    # Metadata
+    created_by = Column(Integer, ForeignKey("users.id"))
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    module = relationship("Module", backref="issues")
+    release = relationship("Release", backref="issues")
+    test_case = relationship("TestCase", backref="issues")
+    creator = relationship("User", foreign_keys=[created_by])
+    assignee = relationship("User", foreign_keys=[assigned_to])
 

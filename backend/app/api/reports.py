@@ -83,6 +83,57 @@ def get_release_report(
     total_test_cases = db.query(TestCase).count()
     overall_pass_percentage = (total_passed / total_executed * 100) if total_executed > 0 else 0
     
+    # Get issue statistics for this release
+    from app.models.models import Issue
+    from app.schemas.schemas import IssueStats
+    
+    issues_query = db.query(Issue).filter(Issue.release_id == release_id)
+    total_issues = issues_query.count()
+    
+    issue_stats = None
+    if total_issues > 0:
+        # Count by status
+        open_count = issues_query.filter(func.lower(Issue.status) == 'open').count()
+        in_progress_count = issues_query.filter(func.lower(Issue.status) == 'in progress').count()
+        resolved_count = issues_query.filter(func.lower(Issue.status) == 'resolved').count()
+        closed_count = issues_query.filter(func.lower(Issue.status) == 'closed').count()
+        
+        # Count by priority
+        priority_counts = db.query(
+            func.lower(Issue.priority),
+            func.count(Issue.id)
+        ).filter(
+            Issue.release_id == release_id
+        ).group_by(
+            func.lower(Issue.priority)
+        ).all()
+        
+        by_priority = {priority: count for priority, count in priority_counts if priority}
+        
+        # Count by module
+        module_issue_counts = db.query(
+            Module.name,
+            func.count(Issue.id)
+        ).join(
+            Issue, Module.id == Issue.module_id
+        ).filter(
+            Issue.release_id == release_id
+        ).group_by(
+            Module.name
+        ).all()
+        
+        by_module = [{"module_name": name, "count": count} for name, count in module_issue_counts]
+        
+        issue_stats = IssueStats(
+            total_issues=total_issues,
+            open=open_count,
+            in_progress=in_progress_count,
+            resolved=resolved_count,
+            closed=closed_count,
+            by_priority=by_priority,
+            by_module=by_module
+        )
+    
     return ReleaseReport(
         release_version=release.version,
         release_name=release.name,
@@ -97,6 +148,7 @@ def get_release_report(
         skipped=total_skipped,
         pass_percentage=round(overall_pass_percentage, 2),
         module_reports=module_reports,
+        issue_stats=issue_stats,
         generated_at=datetime.utcnow()
     )
 

@@ -331,6 +331,54 @@ def get_release_dashboard(
     for rtc, test_case in critical_tests:
         critical_issues.append(f"{test_case.test_id}: {test_case.title} [{rtc.execution_status.value}]")
     
+    # Get issue statistics for this release
+    issues_query = db.query(models.Issue).filter(models.Issue.release_id == release_id)
+    total_issues = issues_query.count()
+    
+    issue_stats = None
+    if total_issues > 0:
+        # Count by status
+        open_count = issues_query.filter(func.lower(models.Issue.status) == 'open').count()
+        in_progress_count = issues_query.filter(func.lower(models.Issue.status) == 'in progress').count()
+        resolved_count = issues_query.filter(func.lower(models.Issue.status) == 'resolved').count()
+        closed_count = issues_query.filter(func.lower(models.Issue.status) == 'closed').count()
+        
+        # Count by priority
+        priority_counts = db.query(
+            func.lower(models.Issue.priority),
+            func.count(models.Issue.id)
+        ).filter(
+            models.Issue.release_id == release_id
+        ).group_by(
+            func.lower(models.Issue.priority)
+        ).all()
+        
+        by_priority = {priority: count for priority, count in priority_counts if priority}
+        
+        # Count by module
+        module_issue_counts = db.query(
+            models.Module.name,
+            func.count(models.Issue.id)
+        ).join(
+            models.Issue, models.Module.id == models.Issue.module_id
+        ).filter(
+            models.Issue.release_id == release_id
+        ).group_by(
+            models.Module.name
+        ).all()
+        
+        by_module = [{"module_name": name, "count": count} for name, count in module_issue_counts]
+        
+        issue_stats = schemas.IssueStats(
+            total_issues=total_issues,
+            open=open_count,
+            in_progress=in_progress_count,
+            resolved=resolved_count,
+            closed=closed_count,
+            by_priority=by_priority,
+            by_module=by_module
+        )
+    
     return schemas.ReleaseDashboard(
         release_id=release_id,
         release_version=release.version,
@@ -347,6 +395,7 @@ def get_release_dashboard(
         pass_rate=round(pass_rate, 2),
         module_stats=module_stats,
         critical_issues=critical_issues,
+        issue_stats=issue_stats,
         last_updated=datetime.utcnow()
     )
 

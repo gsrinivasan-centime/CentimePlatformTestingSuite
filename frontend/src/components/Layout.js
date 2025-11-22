@@ -77,8 +77,8 @@ const Layout = ({ children }) => {
 
   const drawer = (
     <div>
-      <Toolbar 
-        sx={{ 
+      <Toolbar
+        sx={{
           cursor: 'pointer',
           bgcolor: 'primary.main',
           display: 'flex',
@@ -87,7 +87,7 @@ const Layout = ({ children }) => {
           '&:hover': {
             bgcolor: 'primary.dark',
           }
-        }} 
+        }}
         onClick={() => navigate('/dashboard')}
       >
         <Box

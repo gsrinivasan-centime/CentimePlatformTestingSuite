@@ -3,7 +3,7 @@ from typing import List
 import json
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/test_management"
+    DATABASE_URL: str = "postgresql://postgres:password@db.supabase.co:5432/postgres"  # Set via .env file
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes

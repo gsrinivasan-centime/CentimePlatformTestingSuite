@@ -16,6 +16,7 @@ import requests
 
 router = APIRouter()
 
+@router.get("", response_model=List[IssueSchema])
 @router.get("/", response_model=List[IssueSchema])
 def list_issues(
     skip: int = 0,

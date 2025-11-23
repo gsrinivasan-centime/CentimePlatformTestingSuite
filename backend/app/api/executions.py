@@ -13,6 +13,7 @@ import os
 
 router = APIRouter()
 
+@router.get("", response_model=List[TestExecutionSchema])
 @router.get("/", response_model=List[TestExecutionSchema])
 def list_executions(
     skip: int = 0,

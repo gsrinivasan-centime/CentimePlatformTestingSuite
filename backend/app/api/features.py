@@ -15,6 +15,7 @@ def get_current_admin_user(current_user: User = Depends(get_current_active_user)
         raise HTTPException(status_code=403, detail="Not enough permissions")
     return current_user
 
+@router.get("", response_model=List[FeatureSchema])
 @router.get("/", response_model=List[FeatureSchema])
 def get_features(
     skip: int = 0,

@@ -70,6 +70,7 @@ def auto_link_story_test_cases_to_release(db: Session, story_id: str, release_ve
     
     db.commit()
 
+@router.get("", response_model=List[JiraStorySchema])
 @router.get("/", response_model=List[JiraStorySchema])
 def get_all_stories(
     epic_id: Optional[str] = None,

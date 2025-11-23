@@ -9,6 +9,7 @@ from app.api.auth import get_current_active_user
 
 router = APIRouter()
 
+@router.get("", response_model=List[ReleaseSchema])
 @router.get("/", response_model=List[ReleaseSchema])
 def list_releases(
     skip: int = 0,

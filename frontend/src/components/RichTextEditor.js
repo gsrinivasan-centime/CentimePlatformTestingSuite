@@ -40,6 +40,37 @@ const RichTextEditor = ({ value = '', onChange, placeholder = 'Describe the issu
     const [mediaFiles, setMediaFiles] = useState([]);
     const [mediaPlaceholders, setMediaPlaceholders] = useState([]);
     const fileInputRef = useRef(null);
+    const previousValueRef = useRef(value);
+    const isInitialMount = useRef(true);
+
+    // Update editor state when value prop changes (for editing existing content)
+    useEffect(() => {
+        // Skip on initial mount since state is already initialized
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            previousValueRef.current = value;
+            return;
+        }
+
+        // Only update if the value prop actually changed
+        if (value !== previousValueRef.current) {
+            previousValueRef.current = value;
+            
+            if (value) {
+                const contentBlock = htmlToDraft(value);
+                if (contentBlock) {
+                    const contentState = ContentState.createFromBlockArray(contentBlock.contentBlocks);
+                    setEditorState(EditorState.createWithContent(contentState));
+                }
+            } else {
+                setEditorState(EditorState.createEmpty());
+            }
+            
+            // Reset media files when content changes externally
+            setMediaFiles([]);
+            setMediaPlaceholders([]);
+        }
+    }, [value]);
 
     // Notify parent of changes
     useEffect(() => {

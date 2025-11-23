@@ -27,11 +27,14 @@ import {
     Edit as EditIcon,
     Delete as DeleteIcon,
     Close as CloseIcon,
-    Link as LinkIcon
+    Link as LinkIcon,
+    Save as SaveIcon,
+    Cancel as CancelIcon
 } from '@mui/icons-material';
 import { issueService } from '../services/issueService';
 import ResizableTableCell from './ResizableTableCell';
 import IssueContentRenderer from './IssueContentRenderer';
+import RichTextEditor from './RichTextEditor';
 import api from '../services/api';
 
 const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }) => {
@@ -42,6 +45,9 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
     const [linkDialogOpen, setLinkDialogOpen] = useState(false);
     const [stories, setStories] = useState([]);
     const [selectedStory, setSelectedStory] = useState(null);
+    const [isEditingDescription, setIsEditingDescription] = useState(false);
+    const [editedDescription, setEditedDescription] = useState(issue.description || '');
+    const [isSavingDescription, setIsSavingDescription] = useState(false);
 
     const handleStatusChange = async (newStatus) => {
         try {
@@ -103,6 +109,26 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
             console.error('Failed to link story:', error);
             alert('Failed to link story');
         }
+    };
+
+    const handleSaveDescription = async () => {
+        try {
+            setIsSavingDescription(true);
+            await onUpdate(issue.id, { description: editedDescription });
+            setIsEditingDescription(false);
+            // Update the issue object so the rendered content updates
+            issue.description = editedDescription;
+        } catch (error) {
+            console.error('Failed to update description:', error);
+            alert('Failed to update description');
+        } finally {
+            setIsSavingDescription(false);
+        }
+    };
+
+    const handleCancelEditDescription = () => {
+        setEditedDescription(issue.description || '');
+        setIsEditingDescription(false);
     };
 
     // Parse screenshots
@@ -307,16 +333,62 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
                 <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
                     <Collapse in={open} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 2 }}>
-                            <Typography variant="h6" gutterBottom component="div">
-                                Issue Description
-                            </Typography>
-                            <IssueContentRenderer
-                                htmlContent={issue.description}
-                                videoUrl={issue.video_url ? `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}` : ''}
-                                screenshotUrls={screenshots.map(url => 
-                                    `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`
-                                ).join('\n')}
-                            />
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                <Typography variant="h6" component="div">
+                                    Issue Description
+                                </Typography>
+                                {!isEditingDescription && (
+                                    <IconButton
+                                        size="small"
+                                        color="primary"
+                                        onClick={() => {
+                                            setEditedDescription(issue.description || '');
+                                            setIsEditingDescription(true);
+                                        }}
+                                        title="Edit Description"
+                                    >
+                                        <EditIcon fontSize="small" />
+                                    </IconButton>
+                                )}
+                            </Box>
+                            
+                            {isEditingDescription ? (
+                                <Box>
+                                    <RichTextEditor
+                                        value={editedDescription}
+                                        onChange={(html) => {
+                                            setEditedDescription(html);
+                                        }}
+                                        placeholder="Edit issue description..."
+                                    />
+                                    <Box sx={{ display: 'flex', gap: 1, mt: 2, justifyContent: 'flex-end' }}>
+                                        <Button
+                                            variant="outlined"
+                                            startIcon={<CancelIcon />}
+                                            onClick={handleCancelEditDescription}
+                                            disabled={isSavingDescription}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            variant="contained"
+                                            startIcon={<SaveIcon />}
+                                            onClick={handleSaveDescription}
+                                            disabled={isSavingDescription}
+                                        >
+                                            {isSavingDescription ? 'Saving...' : 'Save'}
+                                        </Button>
+                                    </Box>
+                                </Box>
+                            ) : (
+                                <IssueContentRenderer
+                                    htmlContent={issue.description}
+                                    videoUrl={issue.video_url ? `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}` : ''}
+                                    screenshotUrls={screenshots.map(url => 
+                                        `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`
+                                    ).join('\n')}
+                                />
+                            )}
                         </Box>
                     </Collapse>
                 </TableCell>

@@ -42,6 +42,7 @@ const RichTextEditor = ({ value = '', onChange, placeholder = 'Describe the issu
     const fileInputRef = useRef(null);
     const previousValueRef = useRef(value);
     const isInitialMount = useRef(true);
+    const isInternalUpdate = useRef(false);
 
     // Update editor state when value prop changes (for editing existing content)
     useEffect(() => {
@@ -52,7 +53,13 @@ const RichTextEditor = ({ value = '', onChange, placeholder = 'Describe the issu
             return;
         }
 
-        // Only update if the value prop actually changed
+        // Skip if this is an internal update (from user typing)
+        if (isInternalUpdate.current) {
+            isInternalUpdate.current = false;
+            return;
+        }
+
+        // Only update if the value prop actually changed from external source
         if (value !== previousValueRef.current) {
             previousValueRef.current = value;
             
@@ -72,19 +79,18 @@ const RichTextEditor = ({ value = '', onChange, placeholder = 'Describe the issu
         }
     }, [value]);
 
-    // Notify parent of changes
-    useEffect(() => {
-        const rawContentState = convertToRaw(editorState.getCurrentContent());
+    const handleEditorChange = (newEditorState) => {
+        setEditorState(newEditorState);
+        
+        // Mark this as internal update and notify parent
+        isInternalUpdate.current = true;
+        
+        const rawContentState = convertToRaw(newEditorState.getCurrentContent());
         const html = draftToHtml(rawContentState);
         
         if (onChange) {
             onChange(html, mediaFiles);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editorState, mediaFiles]);
-
-    const handleEditorChange = (newEditorState) => {
-        setEditorState(newEditorState);
     };
 
     const handleDrop = (e) => {

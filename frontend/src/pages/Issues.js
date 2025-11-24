@@ -55,20 +55,60 @@ const Issues = () => {
         setSelectedIssue(null);
     };
 
-    const handleSaveIssue = async (issueData) => {
+    const handleSaveIssue = async (issueData, mediaFiles) => {
         try {
             if (selectedIssue) {
+                // Update existing issue
                 await issueService.update(selectedIssue.id, issueData);
+                
+                // Upload media files if any
+                if (mediaFiles && (mediaFiles.video || (mediaFiles.screenshots && mediaFiles.screenshots.length > 0))) {
+                    const formData = new FormData();
+                    
+                    // Backend expects all files under 'files' parameter
+                    if (mediaFiles.video) {
+                        formData.append('files', mediaFiles.video);
+                    }
+                    
+                    if (mediaFiles.screenshots && mediaFiles.screenshots.length > 0) {
+                        mediaFiles.screenshots.forEach((file) => {
+                            formData.append('files', file);
+                        });
+                    }
+                    
+                    await issueService.uploadMedia(selectedIssue.id, formData);
+                }
+                
                 showSuccess('Issue updated successfully');
             } else {
-                await issueService.create(issueData);
+                // Create new issue
+                const createdIssue = await issueService.create(issueData);
+                
+                // Upload media files if any
+                if (mediaFiles && (mediaFiles.video || (mediaFiles.screenshots && mediaFiles.screenshots.length > 0))) {
+                    const formData = new FormData();
+                    
+                    // Backend expects all files under 'files' parameter
+                    if (mediaFiles.video) {
+                        formData.append('files', mediaFiles.video);
+                    }
+                    
+                    if (mediaFiles.screenshots && mediaFiles.screenshots.length > 0) {
+                        mediaFiles.screenshots.forEach((file) => {
+                            formData.append('files', file);
+                        });
+                    }
+                    
+                    await issueService.uploadMedia(createdIssue.id, formData);
+                }
+                
                 showSuccess('Issue created successfully');
             }
             handleCloseDetail();
             setRefreshTrigger(prev => prev + 1);
         } catch (error) {
             console.error('Error saving issue:', error);
-            showError('Failed to save issue');
+            showError('Failed to save issue: ' + (error.response?.data?.detail || error.message));
         }
     };
 

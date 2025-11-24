@@ -110,6 +110,7 @@ def get_all_stories(
     
     return stories_with_counts
 
+@router.post("", response_model=JiraStorySchema)
 @router.post("/", response_model=JiraStorySchema)
 def create_story(
     story: JiraStoryCreate,

@@ -33,6 +33,7 @@ def get_features(
     features = query.offset(skip).limit(limit).all()
     return features
 
+@router.post("", response_model=FeatureSchema, status_code=201)
 @router.post("/", response_model=FeatureSchema, status_code=201)
 def create_feature(
     feature: FeatureCreate,

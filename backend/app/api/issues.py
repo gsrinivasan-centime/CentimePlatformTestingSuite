@@ -42,6 +42,7 @@ def list_issues(
     issues = query.order_by(Issue.created_at.desc()).offset(skip).limit(limit).all()
     return issues
 
+@router.post("", response_model=IssueSchema, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=IssueSchema, status_code=status.HTTP_201_CREATED)
 def create_issue(
     issue: IssueCreate,

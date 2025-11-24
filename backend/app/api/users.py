@@ -38,8 +38,9 @@ def get_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return users
 
+@router.post("", response_model=UserSchema, status_code=201)
 @router.post("/", response_model=UserSchema, status_code=201)
 def create_user(
     user: UserCreate,

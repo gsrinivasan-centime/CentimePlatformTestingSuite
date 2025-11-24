@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7 days
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
     ALLOWED_EMAIL_DOMAIN: str = "centime.com"
+    FRONTEND_URL: str = "http://localhost:3000"  # Frontend URL for email verification links
     
     # Email Configuration (Gmail SMTP - Free)
     SMTP_HOST: str = "smtp.gmail.com"
@@ -39,7 +40,7 @@ class Settings(BaseSettings):
     # File Storage Backend Selection
     FILE_STORAGE_BACKEND: str = "confluence"  # Options: "confluence" or "google_drive"
     
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     
     @property
     def cors_origins(self) -> List[str]:

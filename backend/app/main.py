@@ -13,6 +13,8 @@ app = FastAPI(
     title="Centime Test Management System",
     description="Test case management and execution system for Cash Management System",
     version="1.0.0"
+    # Note: We keep default redirect_slashes=True to handle both /api/path and /api/path/
+    # Frontend should call APIs without trailing slashes to avoid 307 redirects
 )
 
 # CORS configuration

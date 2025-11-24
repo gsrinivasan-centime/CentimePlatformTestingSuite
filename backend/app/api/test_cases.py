@@ -57,6 +57,7 @@ def get_next_test_id(
     next_id = generate_test_id(tag, db)
     return {"test_id": next_id}
 
+@router.get("", response_model=List[TestCaseSchema])
 @router.get("/", response_model=List[TestCaseSchema])
 def list_test_cases(
     skip: int = 0,

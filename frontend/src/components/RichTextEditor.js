@@ -40,20 +40,57 @@ const RichTextEditor = ({ value = '', onChange, placeholder = 'Describe the issu
     const [mediaFiles, setMediaFiles] = useState([]);
     const [mediaPlaceholders, setMediaPlaceholders] = useState([]);
     const fileInputRef = useRef(null);
+    const previousValueRef = useRef(value);
+    const isInitialMount = useRef(true);
+    const isInternalUpdate = useRef(false);
 
-    // Notify parent of changes
+    // Update editor state when value prop changes (for editing existing content)
     useEffect(() => {
-        const rawContentState = convertToRaw(editorState.getCurrentContent());
+        // Skip on initial mount since state is already initialized
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            previousValueRef.current = value;
+            return;
+        }
+
+        // Skip if this is an internal update (from user typing)
+        if (isInternalUpdate.current) {
+            isInternalUpdate.current = false;
+            return;
+        }
+
+        // Only update if the value prop actually changed from external source
+        if (value !== previousValueRef.current) {
+            previousValueRef.current = value;
+            
+            if (value) {
+                const contentBlock = htmlToDraft(value);
+                if (contentBlock) {
+                    const contentState = ContentState.createFromBlockArray(contentBlock.contentBlocks);
+                    setEditorState(EditorState.createWithContent(contentState));
+                }
+            } else {
+                setEditorState(EditorState.createEmpty());
+            }
+            
+            // Reset media files when content changes externally
+            setMediaFiles([]);
+            setMediaPlaceholders([]);
+        }
+    }, [value]);
+
+    const handleEditorChange = (newEditorState) => {
+        setEditorState(newEditorState);
+        
+        // Mark this as internal update and notify parent
+        isInternalUpdate.current = true;
+        
+        const rawContentState = convertToRaw(newEditorState.getCurrentContent());
         const html = draftToHtml(rawContentState);
         
         if (onChange) {
             onChange(html, mediaFiles);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editorState, mediaFiles]);
-
-    const handleEditorChange = (newEditorState) => {
-        setEditorState(newEditorState);
     };
 
     const handleDrop = (e) => {

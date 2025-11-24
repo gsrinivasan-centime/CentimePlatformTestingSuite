@@ -8,6 +8,7 @@ from app.api.auth import get_current_active_user
 
 router = APIRouter()
 
+@router.get("", response_model=List[ModuleSchema])
 @router.get("/", response_model=List[ModuleSchema])
 def list_modules(
     skip: int = 0,

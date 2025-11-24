@@ -27,21 +27,29 @@ import {
     Edit as EditIcon,
     Delete as DeleteIcon,
     Close as CloseIcon,
-    Link as LinkIcon
+    Link as LinkIcon,
+    Save as SaveIcon,
+    Cancel as CancelIcon
 } from '@mui/icons-material';
 import { issueService } from '../services/issueService';
 import ResizableTableCell from './ResizableTableCell';
 import IssueContentRenderer from './IssueContentRenderer';
+import RichTextEditor from './RichTextEditor';
 import api from '../services/api';
 
-const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }) => {
+const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, modules }) => {
     const [open, setOpen] = useState(false);
     const [status, setStatus] = useState(issue.status);
     const [priority, setPriority] = useState(issue.priority);
+    const [moduleId, setModuleId] = useState(issue.module_id || '');
     const [jiraAssigneeId, setJiraAssigneeId] = useState(issue.jira_assignee_id || '');
     const [linkDialogOpen, setLinkDialogOpen] = useState(false);
     const [stories, setStories] = useState([]);
     const [selectedStory, setSelectedStory] = useState(null);
+    const [isEditingDescription, setIsEditingDescription] = useState(false);
+    const [editedDescription, setEditedDescription] = useState(issue.description || '');
+    const [editedMediaFiles, setEditedMediaFiles] = useState([]);
+    const [isSavingDescription, setIsSavingDescription] = useState(false);
 
     const handleStatusChange = async (newStatus) => {
         try {
@@ -60,6 +68,16 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
         } catch (error) {
             setPriority(issue.priority); // Revert on error
             console.error('Failed to update priority:', error);
+        }
+    };
+
+    const handleModuleChange = async (newModuleId) => {
+        try {
+            setModuleId(newModuleId);
+            await onUpdate(issue.id, { module_id: newModuleId || null });
+        } catch (error) {
+            setModuleId(issue.module_id); // Revert on error
+            console.error('Failed to update module:', error);
         }
     };
 
@@ -103,6 +121,55 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
             console.error('Failed to link story:', error);
             alert('Failed to link story');
         }
+    };
+
+    const handleSaveDescription = async () => {
+        try {
+            setIsSavingDescription(true);
+            
+            // First, upload media files if any
+            if (editedMediaFiles.length > 0) {
+                const formData = new FormData();
+                
+                // Backend expects all files under 'files' parameter
+                editedMediaFiles.forEach((file) => {
+                    formData.append('files', file);
+                });
+                
+                // Upload media files
+                const uploadResult = await issueService.uploadMedia(issue.id, formData);
+                
+                // Update issue with new media URLs
+                await onUpdate(issue.id, { 
+                    description: editedDescription,
+                    video_url: uploadResult.video_url || issue.video_url,
+                    screenshot_urls: uploadResult.screenshot_urls || issue.screenshot_urls
+                });
+                
+                // Update local issue object
+                issue.description = editedDescription;
+                if (uploadResult.video_url) issue.video_url = uploadResult.video_url;
+                if (uploadResult.screenshot_urls) issue.screenshot_urls = uploadResult.screenshot_urls;
+            } else {
+                // No media files, just update description
+                await onUpdate(issue.id, { description: editedDescription });
+                issue.description = editedDescription;
+            }
+            
+            setIsEditingDescription(false);
+            setEditedMediaFiles([]);
+        } catch (error) {
+            console.error('Failed to update description:', error);
+            alert('Failed to update description: ' + (error.response?.data?.detail || error.message));
+        } finally {
+            setIsSavingDescription(false);
+        }
+    };
+
+    const handleCancelEditDescription = () => {
+        setEditedDescription(issue.description || '');
+        setEditedMediaFiles([]);
+        setIsEditingDescription(false);
     };
 
     // Parse screenshots
@@ -165,19 +232,35 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
                         />
                     ) : '-'}
                 </TableCell>
-                <TableCell 
-                    align="center"
-                    sx={{ 
-                        width: 150,
-                        cursor: 'pointer', 
-                        '&:hover': { backgroundColor: 'action.hover' },
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                    }}
-                    onClick={() => setOpen(!open)}
-                >
-                    {issue.module ? issue.module.name : '-'}
+                <TableCell align="center" sx={{ width: 150 }}>
+                    <FormControl fullWidth size="small">
+                        <Select
+                            value={moduleId}
+                            onChange={(e) => handleModuleChange(e.target.value)}
+                            variant="standard"
+                            disableUnderline
+                            displayEmpty
+                            sx={{
+                                fontSize: '0.875rem',
+                                '& .MuiSelect-select': {
+                                    py: 0.5,
+                                    px: 1,
+                                    textAlign: 'center'
+                                },
+                                '&:hover': {
+                                    backgroundColor: 'action.hover',
+                                    borderRadius: 1
+                                }
+                            }}
+                        >
+                            <MenuItem value="">-</MenuItem>
+                            {modules.map((module) => (
+                                <MenuItem key={module.id} value={module.id}>
+                                    {module.name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
                 </TableCell>
                 <TableCell align="center" sx={{ width: 150 }}>
                     <FormControl fullWidth size="small">
@@ -273,14 +356,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
                         }}
                     />
                 </TableCell>
-                <TableCell align="center" sx={{ width: 150 }}>
-                    <IconButton 
-                        size="small" 
-                        onClick={() => onEdit(issue)}
-                        title="Edit Issue"
-                    >
-                        <EditIcon fontSize="small" />
-                    </IconButton>
+                <TableCell align="center" sx={{ width: 100 }}>
                     <IconButton 
                         size="small" 
                         onClick={() => onDelete(issue.id)}
@@ -307,16 +383,63 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
                 <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
                     <Collapse in={open} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 2 }}>
-                            <Typography variant="h6" gutterBottom component="div">
-                                Issue Description
-                            </Typography>
-                            <IssueContentRenderer
-                                htmlContent={issue.description}
-                                videoUrl={issue.video_url ? `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}` : ''}
-                                screenshotUrls={screenshots.map(url => 
-                                    `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`
-                                ).join('\n')}
-                            />
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                <Typography variant="h6" component="div">
+                                    Issue Description
+                                </Typography>
+                                {!isEditingDescription && (
+                                    <IconButton
+                                        size="small"
+                                        color="primary"
+                                        onClick={() => {
+                                            setEditedDescription(issue.description || '');
+                                            setIsEditingDescription(true);
+                                        }}
+                                        title="Edit Description"
+                                    >
+                                        <EditIcon fontSize="small" />
+                                    </IconButton>
+                                )}
+                            </Box>
+                            
+                            {isEditingDescription ? (
+                                <Box>
+                                    <RichTextEditor
+                                        value={editedDescription}
+                                        onChange={(html, mediaFiles) => {
+                                            setEditedDescription(html);
+                                            setEditedMediaFiles(mediaFiles);
+                                        }}
+                                        placeholder="Edit issue description..."
+                                    />
+                                    <Box sx={{ display: 'flex', gap: 1, mt: 2, justifyContent: 'flex-end' }}>
+                                        <Button
+                                            variant="outlined"
+                                            startIcon={<CancelIcon />}
+                                            onClick={handleCancelEditDescription}
+                                            disabled={isSavingDescription}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            variant="contained"
+                                            startIcon={<SaveIcon />}
+                                            onClick={handleSaveDescription}
+                                            disabled={isSavingDescription}
+                                        >
+                                            {isSavingDescription ? 'Saving...' : 'Save'}
+                                        </Button>
+                                    </Box>
+                                </Box>
+                            ) : (
+                                <IssueContentRenderer
+                                    htmlContent={issue.description}
+                                    videoUrl={issue.video_url ? `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(issue.video_url)}` : ''}
+                                    screenshotUrls={screenshots.map(url => 
+                                        `/issues/${issue.id}/media-proxy?url=${encodeURIComponent(url)}`
+                                    ).join('\n')}
+                                />
+                            )}
                         </Box>
                     </Collapse>
                 </TableCell>
@@ -388,6 +511,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [jiraUsers, setJiraUsers] = useState([]);
+    const [modules, setModules] = useState([]);
     const [filters, setFilters] = useState({
         id: '',
         title: '',
@@ -428,9 +552,19 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         }
     };
 
+    const fetchModules = async () => {
+        try {
+            const response = await api.get('/modules');
+            setModules(response.data);
+        } catch (error) {
+            console.error('Error fetching modules:', error);
+        }
+    };
+
     useEffect(() => {
         fetchIssues();
         fetchJiraUsers();
+        fetchModules();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshTrigger]);
 
@@ -591,6 +725,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                                     onUpdate={handleUpdate}
                                     jiraUsers={jiraUsers}
                                     jiraUsersMap={jiraUsersMap}
+                                    modules={modules}
                                 />
                             ))}
                         {issues.length === 0 && !loading && (

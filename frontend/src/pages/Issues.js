@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Container,
@@ -21,27 +21,24 @@ import { useToast } from '../context/ToastContext';
 
 const Issues = () => {
     const [stats, setStats] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [openDetail, setOpenDetail] = useState(false);
     const [selectedIssue, setSelectedIssue] = useState(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const { showSuccess, showError } = useToast();
 
-    useEffect(() => {
-        fetchStats();
-    }, [refreshTrigger]);
-
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         try {
             const data = await issueService.getStats();
             setStats(data);
-            setLoading(false);
         } catch (error) {
             console.error('Error fetching stats:', error);
             showError('Failed to load issue statistics');
-            setLoading(false);
         }
-    };
+    }, [showError]);
+
+    useEffect(() => {
+        fetchStats();
+    }, [refreshTrigger, fetchStats]);
 
     const handleCreateClick = () => {
         setSelectedIssue(null);
@@ -58,20 +55,60 @@ const Issues = () => {
         setSelectedIssue(null);
     };
 
-    const handleSaveIssue = async (issueData) => {
+    const handleSaveIssue = async (issueData, mediaFiles) => {
         try {
             if (selectedIssue) {
+                // Update existing issue
                 await issueService.update(selectedIssue.id, issueData);
+                
+                // Upload media files if any
+                if (mediaFiles && (mediaFiles.video || (mediaFiles.screenshots && mediaFiles.screenshots.length > 0))) {
+                    const formData = new FormData();
+                    
+                    // Backend expects all files under 'files' parameter
+                    if (mediaFiles.video) {
+                        formData.append('files', mediaFiles.video);
+                    }
+                    
+                    if (mediaFiles.screenshots && mediaFiles.screenshots.length > 0) {
+                        mediaFiles.screenshots.forEach((file) => {
+                            formData.append('files', file);
+                        });
+                    }
+                    
+                    await issueService.uploadMedia(selectedIssue.id, formData);
+                }
+                
                 showSuccess('Issue updated successfully');
             } else {
-                await issueService.create(issueData);
+                // Create new issue
+                const createdIssue = await issueService.create(issueData);
+                
+                // Upload media files if any
+                if (mediaFiles && (mediaFiles.video || (mediaFiles.screenshots && mediaFiles.screenshots.length > 0))) {
+                    const formData = new FormData();
+                    
+                    // Backend expects all files under 'files' parameter
+                    if (mediaFiles.video) {
+                        formData.append('files', mediaFiles.video);
+                    }
+                    
+                    if (mediaFiles.screenshots && mediaFiles.screenshots.length > 0) {
+                        mediaFiles.screenshots.forEach((file) => {
+                            formData.append('files', file);
+                        });
+                    }
+                    
+                    await issueService.uploadMedia(createdIssue.id, formData);
+                }
+                
                 showSuccess('Issue created successfully');
             }
             handleCloseDetail();
             setRefreshTrigger(prev => prev + 1);
         } catch (error) {
             console.error('Error saving issue:', error);
-            showError('Failed to save issue');
+            showError('Failed to save issue: ' + (error.response?.data?.detail || error.message));
         }
     };
 

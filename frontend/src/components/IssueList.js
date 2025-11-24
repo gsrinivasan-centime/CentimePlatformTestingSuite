@@ -356,6 +356,11 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, 
                         }}
                     />
                 </TableCell>
+                <TableCell align="center" sx={{ width: 150 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                        {issue.reporter_name || '-'}
+                    </Typography>
+                </TableCell>
                 <TableCell align="center" sx={{ width: 100 }}>
                     <IconButton 
                         size="small" 
@@ -380,7 +385,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, 
             </TableRow>
             
             <TableRow>
-                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
                     <Collapse in={open} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 2 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -519,7 +524,8 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         module: '',
         status: '',
         priority: '',
-        assignee: ''
+        assignee: '',
+        reporter: ''
     });
 
     // Memoized lookup map for JIRA users to avoid repeated .find() calls
@@ -610,6 +616,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         if (filters.status && issue.status !== filters.status) return false;
         if (filters.priority && issue.priority !== filters.priority) return false;
         if (filters.assignee && issue.jira_assignee_name && !issue.jira_assignee_name.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
+        if (filters.reporter && issue.reporter_name && !issue.reporter_name.toLowerCase().includes(filters.reporter.toLowerCase())) return false;
         return true;
     };
 
@@ -621,7 +628,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                 <Typography variant="h6">All Issues ({filteredIssues.length})</Typography>
             </Box>
 
-            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto', maxWidth: '100%' }}>
                 <Table sx={{ width: '100%', tableLayout: 'fixed' }} size="small">
                     <TableHead>
                         <TableRow>
@@ -632,6 +639,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                             <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Status</ResizableTableCell>
                             <ResizableTableCell minWidth={100} initialWidth={120} isHeader={true} align="center">Priority</ResizableTableCell>
                             <ResizableTableCell minWidth={150} initialWidth={180} isHeader={true} align="center">Assigned To</ResizableTableCell>
+                            <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Reporter</ResizableTableCell>
                             <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true} align="center">Actions</ResizableTableCell>
                         </TableRow>
                         <TableRow>
@@ -707,6 +715,15 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
                                     placeholder="Filter..."
                                     value={filters.assignee}
                                     onChange={(e) => setFilters({ ...filters, assignee: e.target.value })}
+                                    fullWidth
+                                />
+                            </TableCell>
+                            <TableCell>
+                                <TextField
+                                    size="small"
+                                    placeholder="Filter..."
+                                    value={filters.reporter}
+                                    onChange={(e) => setFilters({ ...filters, reporter: e.target.value })}
                                     fullWidth
                                 />
                             </TableCell>

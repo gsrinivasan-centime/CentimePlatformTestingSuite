@@ -129,6 +129,10 @@ const TestCases = () => {
   // Inline editing state
   const [editingCell, setEditingCell] = useState(null); // { testCaseId, field }
   const [editValue, setEditValue] = useState('');
+  
+  // Inline editing dropdown options for hierarchy fields
+  const [inlineSubModules, setInlineSubModules] = useState([]);
+  const [inlineFeatures, setInlineFeatures] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -656,8 +660,38 @@ const TestCases = () => {
   // Tag options for dropdown
   const tagOptions = ['smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
 
+  // Load inline editing options for hierarchy fields
+  const loadInlineSubModules = async (moduleId) => {
+    if (!moduleId) {
+      setInlineSubModules([]);
+      setInlineFeatures([]);
+      return;
+    }
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId);
+      setInlineSubModules(options);
+    } catch (err) {
+      console.error('Failed to load inline sub-modules:', err);
+      setInlineSubModules([]);
+    }
+  };
+
+  const loadInlineFeatures = async (moduleId, subModule) => {
+    if (!moduleId || !subModule) {
+      setInlineFeatures([]);
+      return;
+    }
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId, subModule);
+      setInlineFeatures(options);
+    } catch (err) {
+      console.error('Failed to load inline features:', err);
+      setInlineFeatures([]);
+    }
+  };
+
   // Inline editing handlers
-  const handleCellClick = (testCase, field, e) => {
+  const handleCellClick = async (testCase, field, e) => {
     e.stopPropagation(); // Prevent row click
     setEditingCell({ testCaseId: testCase.id, field });
     
@@ -666,6 +700,19 @@ const TestCases = () => {
       // Convert comma-separated string to array for Autocomplete
       const tagsArray = testCase.tags ? testCase.tags.split(',').map(t => t.trim()) : [];
       setEditValue(tagsArray);
+    } else if (field === 'module_id') {
+      setEditValue(testCase.module_id || '');
+    } else if (field === 'sub_module') {
+      setEditValue(testCase.sub_module || '');
+      // Load sub-modules for this test case's module
+      await loadInlineSubModules(testCase.module_id);
+    } else if (field === 'feature_section') {
+      setEditValue(testCase.feature_section || '');
+      // Load features for this test case's module and sub-module
+      await loadInlineFeatures(testCase.module_id, testCase.sub_module);
+    } else if (field === 'automation_status') {
+      // Default to 'working' if not set
+      setEditValue(testCase.automation_status || 'working');
     } else {
       setEditValue(testCase[field] || '');
     }
@@ -674,7 +721,12 @@ const TestCases = () => {
   const handleInlineEditChange = async (testCase, field, newValue) => {
     // For Select dropdowns (test_type, tag, automation_status), save immediately on change
     // Check if value actually changed
-    let oldValue = testCase[field] || '';
+    let oldValue = testCase[field];
+    
+    // Handle null/undefined for automation_status - treat as 'working'
+    if (field === 'automation_status' && !oldValue) {
+      oldValue = 'working';
+    }
     
     if (oldValue === newValue) {
       // No change, just close the editor
@@ -690,12 +742,12 @@ const TestCases = () => {
       };
 
       await testCasesAPI.update(testCase.id, updateData);
-      showSuccess(`${field} updated successfully`);
+      showSuccess(`${field.replace('_', ' ')} updated successfully`);
       reloadData();
       setEditingCell(null);
       setEditValue('');
     } catch (err) {
-      showError(`Failed to update ${field}`);
+      showError(`Failed to update ${field.replace('_', ' ')}`);
     }
   };
 
@@ -1070,14 +1122,41 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'module_id', e)}
                     >
-                      <Chip
-                        label={getModuleName(testCase.module_id)}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'module_id' ? (
+                        <Select
+                          open={true}
+                          value={editValue}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setEditValue(newValue);
+                            handleInlineEditChange(testCase, 'module_id', newValue);
+                          }}
+                          onClose={() => {
+                            setTimeout(() => handleInlineEditCancel(), 0);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                          }}
+                          size="small"
+                          autoFocus
+                          sx={{ minWidth: 130 }}
+                        >
+                          {modules.map((module) => (
+                            <MenuItem key={module.id} value={module.id}>
+                              {module.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Chip
+                          label={getModuleName(testCase.module_id)}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      )}
                     </TableCell>
                     <TableCell 
                       sx={{ 
@@ -1086,9 +1165,44 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'sub_module', e)}
                     >
-                      {testCase.sub_module ? (
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'sub_module' ? (
+                        <Autocomplete
+                          open
+                          freeSolo
+                          value={editValue}
+                          options={inlineSubModules.map(sm => sm.name)}
+                          onChange={(event, newValue) => {
+                            setEditValue(newValue || '');
+                            if (newValue) {
+                              handleInlineEditChange(testCase, 'sub_module', newValue);
+                            }
+                          }}
+                          onInputChange={(event, newValue) => {
+                            setEditValue(newValue);
+                          }}
+                          onClose={() => {
+                            // Save on close if value changed
+                            if (editValue !== (testCase.sub_module || '')) {
+                              handleInlineEditChange(testCase, 'sub_module', editValue);
+                            } else {
+                              handleInlineEditCancel();
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                            if (e.key === 'Enter') {
+                              handleInlineEditChange(testCase, 'sub_module', editValue);
+                            }
+                          }}
+                          size="small"
+                          sx={{ minWidth: 150 }}
+                          renderInput={(params) => (
+                            <TextField {...params} autoFocus placeholder="Sub-module" size="small" />
+                          )}
+                        />
+                      ) : testCase.sub_module ? (
                         <Chip
                           label={testCase.sub_module}
                           size="small"
@@ -1106,9 +1220,44 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'feature_section', e)}
                     >
-                      {testCase.feature_section ? (
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'feature_section' ? (
+                        <Autocomplete
+                          open
+                          freeSolo
+                          value={editValue}
+                          options={inlineFeatures.map(f => f.name)}
+                          onChange={(event, newValue) => {
+                            setEditValue(newValue || '');
+                            if (newValue) {
+                              handleInlineEditChange(testCase, 'feature_section', newValue);
+                            }
+                          }}
+                          onInputChange={(event, newValue) => {
+                            setEditValue(newValue);
+                          }}
+                          onClose={() => {
+                            // Save on close if value changed
+                            if (editValue !== (testCase.feature_section || '')) {
+                              handleInlineEditChange(testCase, 'feature_section', editValue);
+                            } else {
+                              handleInlineEditCancel();
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                            if (e.key === 'Enter') {
+                              handleInlineEditChange(testCase, 'feature_section', editValue);
+                            }
+                          }}
+                          size="small"
+                          sx={{ minWidth: 150 }}
+                          renderInput={(params) => (
+                            <TextField {...params} autoFocus placeholder="Feature" size="small" />
+                          )}
+                        />
+                      ) : testCase.feature_section ? (
                         <Chip
                           label={testCase.feature_section}
                           size="small"
@@ -1264,8 +1413,17 @@ const TestCases = () => {
                       )}
                     </TableCell>
                     <TableCell 
-                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      onClick={(e) => testCase.test_type === 'automated' && handleCellClick(testCase, 'automation_status', e)}
+                      sx={{ 
+                        whiteSpace: 'nowrap', 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis',
+                        cursor: testCase.test_type === 'automated' ? 'pointer' : 'default'
+                      }}
+                      onClick={(e) => {
+                        if (testCase.test_type === 'automated') {
+                          handleCellClick(testCase, 'automation_status', e);
+                        }
+                      }}
                     >
                       {testCase.test_type === 'automated' ? (
                         editingCell?.testCaseId === testCase.id && editingCell?.field === 'automation_status' ? (
@@ -1688,14 +1846,41 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'module_id', e)}
                                       >
-                                        <Chip
-                                          label={getModuleName(testCase.module_id)}
-                                          size="small"
-                                          color="primary"
-                                          variant="outlined"
-                                        />
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'module_id' ? (
+                                          <Select
+                                            open={true}
+                                            value={editValue}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setEditValue(newValue);
+                                              handleInlineEditChange(testCase, 'module_id', newValue);
+                                            }}
+                                            onClose={() => {
+                                              setTimeout(() => handleInlineEditCancel(), 0);
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                            }}
+                                            size="small"
+                                            autoFocus
+                                            sx={{ minWidth: 130 }}
+                                          >
+                                            {modules.map((module) => (
+                                              <MenuItem key={module.id} value={module.id}>
+                                                {module.name}
+                                              </MenuItem>
+                                            ))}
+                                          </Select>
+                                        ) : (
+                                          <Chip
+                                            label={getModuleName(testCase.module_id)}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                          />
+                                        )}
                                       </TableCell>
                                       <TableCell 
                                         sx={{ 
@@ -1704,9 +1889,43 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'sub_module', e)}
                                       >
-                                        {testCase.sub_module ? (
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'sub_module' ? (
+                                          <Autocomplete
+                                            open
+                                            freeSolo
+                                            value={editValue}
+                                            options={inlineSubModules.map(sm => sm.name)}
+                                            onChange={(event, newValue) => {
+                                              setEditValue(newValue || '');
+                                              if (newValue) {
+                                                handleInlineEditChange(testCase, 'sub_module', newValue);
+                                              }
+                                            }}
+                                            onInputChange={(event, newValue) => {
+                                              setEditValue(newValue);
+                                            }}
+                                            onClose={() => {
+                                              if (editValue !== (testCase.sub_module || '')) {
+                                                handleInlineEditChange(testCase, 'sub_module', editValue);
+                                              } else {
+                                                handleInlineEditCancel();
+                                              }
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                              if (e.key === 'Enter') {
+                                                handleInlineEditChange(testCase, 'sub_module', editValue);
+                                              }
+                                            }}
+                                            size="small"
+                                            sx={{ minWidth: 150 }}
+                                            renderInput={(params) => (
+                                              <TextField {...params} autoFocus placeholder="Sub-module" size="small" />
+                                            )}
+                                          />
+                                        ) : testCase.sub_module ? (
                                           <Chip
                                             label={testCase.sub_module}
                                             size="small"
@@ -1724,9 +1943,43 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'feature_section', e)}
                                       >
-                                        {testCase.feature_section ? (
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'feature_section' ? (
+                                          <Autocomplete
+                                            open
+                                            freeSolo
+                                            value={editValue}
+                                            options={inlineFeatures.map(f => f.name)}
+                                            onChange={(event, newValue) => {
+                                              setEditValue(newValue || '');
+                                              if (newValue) {
+                                                handleInlineEditChange(testCase, 'feature_section', newValue);
+                                              }
+                                            }}
+                                            onInputChange={(event, newValue) => {
+                                              setEditValue(newValue);
+                                            }}
+                                            onClose={() => {
+                                              if (editValue !== (testCase.feature_section || '')) {
+                                                handleInlineEditChange(testCase, 'feature_section', editValue);
+                                              } else {
+                                                handleInlineEditCancel();
+                                              }
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                              if (e.key === 'Enter') {
+                                                handleInlineEditChange(testCase, 'feature_section', editValue);
+                                              }
+                                            }}
+                                            size="small"
+                                            sx={{ minWidth: 150 }}
+                                            renderInput={(params) => (
+                                              <TextField {...params} autoFocus placeholder="Feature" size="small" />
+                                            )}
+                                          />
+                                        ) : testCase.feature_section ? (
                                           <Chip
                                             label={testCase.feature_section}
                                             size="small"

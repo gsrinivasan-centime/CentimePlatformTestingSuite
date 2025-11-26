@@ -323,43 +323,6 @@ async def update_feature_file(
     return db_file
 
 
-@router.post("/feature-files/{file_id}/publish")
-async def publish_feature_file_to_confluence(
-    file_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Manually publish/sync a feature file to Confluence"""
-    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
-    if not db_file:
-        raise HTTPException(status_code=404, detail="Feature file not found")
-    
-    if not db_file.content:
-        raise HTTPException(status_code=400, detail="Feature file has no content to publish")
-    
-    try:
-        confluence_result = confluence_service.upload_feature_file(
-            filename=db_file.name,
-            content=db_file.content
-        )
-        
-        # Update database record with Confluence metadata
-        db_file.confluence_url = confluence_result.get('download_link')
-        db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
-        db_file.confluence_page_id = confluence_result.get('confluence_page_id')
-        db_file.status = 'published'  # Update status to published
-        db.commit()
-        db.refresh(db_file)
-        
-        return {
-            "message": f"Feature file '{db_file.name}' published to Confluence successfully",
-            "confluence_url": confluence_result.get('view_link'),
-            "download_url": confluence_result.get('download_link')
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to publish to Confluence: {str(e)}")
-
-
 @router.delete("/feature-files/{file_id}")
 async def delete_feature_file(
     file_id: int,
@@ -555,6 +518,22 @@ async def publish_feature_file(
     
     # Update file status to published
     db_file.status = "published"
+    
+    # Also upload to Confluence
+    confluence_url = None
+    try:
+        confluence_result = confluence_service.upload_feature_file(
+            filename=db_file.name,
+            content=db_file.content
+        )
+        db_file.confluence_url = confluence_result.get('download_link')
+        db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
+        db_file.confluence_page_id = confluence_result.get('confluence_page_id')
+        confluence_url = confluence_result.get('view_link')
+    except Exception as e:
+        print(f"⚠️ Failed to upload to Confluence: {e}")
+        # Continue even if Confluence upload fails
+    
     db.commit()
     db.refresh(db_file)
     
@@ -562,6 +541,7 @@ async def publish_feature_file(
         "message": f"File published successfully. Created {created_count} test case(s).",
         "file": db_file,
         "test_cases_created": created_count,
+        "confluence_url": confluence_url,
         "errors": errors if errors else None
     }
 

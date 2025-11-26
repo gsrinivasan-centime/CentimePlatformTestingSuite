@@ -571,9 +571,17 @@ export const featureFilesAPI = {
     return response.data;
   },
   
-  // Publish feature file
-  publish: async (id) => {
-    const response = await api.post(`/step-catalog/feature-files/${id}/publish`);
+  // Preview scenarios before publishing
+  previewScenarios: async (id) => {
+    const response = await api.get(`/step-catalog/feature-files/${id}/preview-scenarios`);
+    return response.data;
+  },
+  
+  // Publish feature file with scenario types
+  publish: async (id, scenarioTypes = null) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/publish`, {
+      scenario_types: scenarioTypes
+    });
     return response.data;
   },
   

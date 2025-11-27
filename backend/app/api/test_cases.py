@@ -83,6 +83,7 @@ def list_test_cases(
     test_cases = query.offset(skip).limit(limit).all()
     return test_cases
 
+@router.post("", response_model=TestCaseSchema, status_code=201)
 @router.post("/", response_model=TestCaseSchema, status_code=201)
 def create_test_case(
     test_case: TestCaseCreate,

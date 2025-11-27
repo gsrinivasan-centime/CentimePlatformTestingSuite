@@ -47,6 +47,7 @@ import { jiraStoriesAPI, testCasesAPI, modulesAPI } from '../services/api';
 import { issueService } from '../services/issueService';
 import ResizableTableCell from '../components/ResizableTableCell';
 import IssueDetail from '../components/IssueDetail';
+import TruncatedText from '../components/TruncatedText';
 
 const Stories = () => {
   const [stories, setStories] = useState([]);
@@ -739,7 +740,7 @@ const Stories = () => {
                         />
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {story.title}
+                        <TruncatedText text={story.title} />
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {story.epic_id ? (
@@ -753,10 +754,10 @@ const Stories = () => {
                         <Chip label={story.priority} size="small" color={getPriorityColor(story.priority)} />
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {story.assignee || '-'}
+                        <TruncatedText text={story.assignee || '-'} />
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {story.release || '-'}
+                        <TruncatedText text={story.release || '-'} />
                       </TableCell>
                       <TableCell align="center" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         <Chip

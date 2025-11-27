@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
@@ -323,41 +323,83 @@ async def update_feature_file(
     return db_file
 
 
-@router.post("/feature-files/{file_id}/publish")
-async def publish_feature_file_to_confluence(
+@router.get("/feature-files/{file_id}/preview-scenarios")
+async def preview_scenarios(
     file_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Manually publish/sync a feature file to Confluence"""
+    """Preview scenarios in a feature file before publishing - returns list of scenarios that will become test cases"""
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    
     db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
     if not db_file.content:
-        raise HTTPException(status_code=400, detail="Feature file has no content to publish")
+        raise HTTPException(status_code=400, detail="Feature file has no content")
     
+    # Parse the feature file content
     try:
-        confluence_result = confluence_service.upload_feature_file(
-            filename=db_file.name,
-            content=db_file.content
-        )
-        
-        # Update database record with Confluence metadata
-        db_file.confluence_url = confluence_result.get('download_link')
-        db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
-        db_file.confluence_page_id = confluence_result.get('confluence_page_id')
-        db_file.status = 'published'  # Update status to published
-        db.commit()
-        db.refresh(db_file)
-        
-        return {
-            "message": f"Feature file '{db_file.name}' published to Confluence successfully",
-            "confluence_url": confluence_result.get('view_link'),
-            "download_url": confluence_result.get('download_link')
-        }
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to publish to Confluence: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    feature_name = feature.get('name', db_file.name)
+    scenarios = []
+    
+    # Process each scenario
+    for idx, child in enumerate(feature.get('children', [])):
+        # Check if child is a Scenario or ScenarioOutline (direct children, not nested)
+        child_type = child.get('type', '')
+        if child_type not in ['Scenario', 'ScenarioOutline']:
+            # Also check for 'scenario' key (older gherkin versions)
+            if 'scenario' in child:
+                child = child['scenario']
+                child_type = child.get('type', 'Scenario')
+            else:
+                continue
+            
+        scenario_name = child.get('name', 'Unnamed Scenario')
+        scenario_keyword = child.get('keyword', 'Scenario').strip()
+        
+        # Collect steps
+        steps_list = []
+        for step in child.get('steps', []):
+            keyword = step.get('keyword', '').strip()
+            text = step.get('text', '').strip()
+            steps_list.append(f"{keyword} {text}")
+        
+        # Check for examples (Scenario Outline)
+        examples = child.get('examples', [])
+        has_examples = len(examples) > 0
+        
+        scenarios.append({
+            "index": idx,
+            "name": scenario_name,
+            "keyword": scenario_keyword,
+            "steps": steps_list,
+            "has_examples": has_examples,
+            "suggested_type": "api"  # Default suggestion
+        })
+    
+    return {
+        "file_id": file_id,
+        "file_name": db_file.name,
+        "feature_name": feature_name,
+        "scenario_count": len(scenarios),
+        "scenarios": scenarios
+    }
 
 
 @router.delete("/feature-files/{file_id}")
@@ -379,10 +421,18 @@ async def delete_feature_file(
 @router.post("/feature-files/{file_id}/publish")
 async def publish_feature_file(
     file_id: int,
+    body: Optional[dict] = Body(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Publish a feature file and create test cases from scenarios"""
+    """Publish a feature file and create test cases from scenarios
+    
+    body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
+    If not provided, defaults to "api" for all scenarios
+    """
+    # Extract scenario_types from body if provided
+    scenario_types = body.get('scenario_types') if body else None
+    
     from gherkin.parser import Parser
     from gherkin.token_scanner import TokenScanner
     from app.models.models import TestCase, Module
@@ -400,6 +450,12 @@ async def publish_feature_file(
             "file": db_file,
             "test_cases_created": 0
         }
+    
+    # Build type map from scenario_types
+    type_map = {}
+    if scenario_types:
+        for st in scenario_types:
+            type_map[st.get('index', -1)] = st.get('type', 'api')
     
     # Get module info if available
     module = None
@@ -430,7 +486,8 @@ async def publish_feature_file(
         prefix_map = {
             'ui': 'UI',
             'api': 'API',
-            'hybrid': 'HYB'
+            'hybrid': 'HYB',
+            'integration': 'INT'
         }
         prefix = prefix_map.get(tag.lower(), 'TC')
         
@@ -449,17 +506,25 @@ async def publish_feature_file(
         
         return f"{prefix}{new_number:04d}"
     
-    # Determine test type and tag (default to manual/api)
-    test_type = "manual"
-    tag = "api"
-    
     # Process each scenario
+    scenario_index = 0
     for child in feature.get('children', []):
         try:
-            if child.get('type') not in ['Scenario', 'ScenarioOutline']:
-                continue
+            # Check if child is a Scenario or ScenarioOutline (direct children, not nested)
+            child_type = child.get('type', '')
+            if child_type not in ['Scenario', 'ScenarioOutline']:
+                # Also check for 'scenario' key (older gherkin versions)
+                if 'scenario' in child:
+                    scenario = child['scenario']
+                else:
+                    continue
+            else:
+                scenario = child
             
-            scenario = child
+            # Get type for this scenario from the type_map, default to 'api'
+            tag = type_map.get(scenario_index, 'api')
+            test_type = "manual"  # Default to manual
+            
             scenario_name = scenario.get('name', 'Unnamed Scenario')
             scenario_keyword = scenario.get('keyword', 'Scenario').strip()
             
@@ -503,7 +568,7 @@ async def publish_feature_file(
                         description=f"Feature: {feature_name}\n\nScenario Outline: {scenario_name}",
                         test_type=test_type,
                         tag=tag,
-                        tags="bdd,gherkin",
+                        tags="regression",
                         module_id=db_file.module_id,
                         sub_module=None,
                         feature_section=feature_name,
@@ -530,7 +595,7 @@ async def publish_feature_file(
                     description=f"Feature: {feature_name}\n\n{scenario_keyword}: {scenario_name}",
                     test_type=test_type,
                     tag=tag,
-                    tags="bdd,gherkin",
+                    tags="regression",
                     module_id=db_file.module_id,
                     sub_module=None,
                     feature_section=feature_name,
@@ -547,14 +612,33 @@ async def publish_feature_file(
                 db.add(db_test_case)
                 db.commit()
                 created_count += 1
+            
+            scenario_index += 1
                 
         except Exception as e:
             errors.append(f"Scenario '{scenario.get('name', 'Unknown')}': {str(e)}")
             db.rollback()
+            scenario_index += 1
             continue
     
     # Update file status to published
     db_file.status = "published"
+    
+    # Also upload to Confluence
+    confluence_url = None
+    try:
+        confluence_result = confluence_service.upload_feature_file(
+            filename=db_file.name,
+            content=db_file.content
+        )
+        db_file.confluence_url = confluence_result.get('download_link')
+        db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
+        db_file.confluence_page_id = confluence_result.get('confluence_page_id')
+        confluence_url = confluence_result.get('view_link')
+    except Exception as e:
+        print(f"⚠️ Failed to upload to Confluence: {e}")
+        # Continue even if Confluence upload fails
+    
     db.commit()
     db.refresh(db_file)
     
@@ -562,6 +646,7 @@ async def publish_feature_file(
         "message": f"File published successfully. Created {created_count} test case(s).",
         "file": db_file,
         "test_cases_created": created_count,
+        "confluence_url": confluence_url,
         "errors": errors if errors else None
     }
 

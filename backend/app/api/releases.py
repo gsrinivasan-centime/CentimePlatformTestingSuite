@@ -37,6 +37,7 @@ def list_releases(
     
     return releases
 
+@router.post("", response_model=ReleaseSchema, status_code=201)
 @router.post("/", response_model=ReleaseSchema, status_code=201)
 def create_release(
     release: ReleaseCreate,

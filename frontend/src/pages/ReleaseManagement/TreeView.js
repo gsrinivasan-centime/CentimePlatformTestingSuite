@@ -43,6 +43,7 @@ import {
 import { getReleaseTreeView, updateReleaseTestCase, removeTestCaseFromRelease } from '../../services/releaseManagementApi';
 import { testCasesAPI } from '../../services/api';
 import ResizableTableCell from '../../components/ResizableTableCell';
+import TruncatedText from '../../components/TruncatedText';
 
 const STATUS_COLORS = {
   passed: '#4caf50',
@@ -369,9 +370,7 @@ const TreeView = ({ releaseId }) => {
                                   sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
                                   onClick={() => handleToggleTestCase(testCase)}
                                 >
-                                  <Tooltip title={testCase.title}>
-                                    <span>{testCase.title}</span>
-                                  </Tooltip>
+                                  <TruncatedText text={testCase.title} />
                                 </TableCell>
                                 <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                                   <Chip 
@@ -397,7 +396,7 @@ const TreeView = ({ releaseId }) => {
                                   />
                                 </TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {testCase.executed_by || '-'}
+                                  <TruncatedText text={testCase.executed_by || '-'} />
                                 </TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                   {testCase.execution_date 
@@ -405,12 +404,10 @@ const TreeView = ({ releaseId }) => {
                                     : '-'}
                                 </TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  <Tooltip title={testCase.comments || ''}>
-                                    <span>{testCase.comments || '-'}</span>
-                                  </Tooltip>
+                                  <TruncatedText text={testCase.comments || '-'} />
                                 </TableCell>
                                 <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {testCase.bug_ids || '-'}
+                                  <TruncatedText text={testCase.bug_ids || '-'} />
                                 </TableCell>
                                 <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                                   <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', alignItems: 'center' }}>

@@ -40,6 +40,7 @@ import api from '../../services/api';
 import ResizableTableCell from '../../components/ResizableTableCell';
 import StoryIssuesList from '../../components/StoryIssuesList';
 import IssueDetail from '../../components/IssueDetail';
+import TruncatedText from '../../components/TruncatedText';
 
 const StoriesView = ({ releaseId }) => {
   const [stories, setStories] = useState([]);
@@ -421,7 +422,7 @@ const StoriesView = ({ releaseId }) => {
                     />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {story.title}
+                    <TruncatedText text={story.title} />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {story.epic_id ? (
@@ -443,7 +444,7 @@ const StoriesView = ({ releaseId }) => {
                     />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {story.assignee || '-'}
+                    <TruncatedText text={story.assignee || '-'} />
                   </TableCell>
                   <TableCell 
                     align="center" 
@@ -575,7 +576,7 @@ const StoriesView = ({ releaseId }) => {
                                     sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300, cursor: 'pointer' }}
                                     onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
                                   >
-                                    {tc.title}
+                                    <TruncatedText text={tc.title} />
                                   </TableCell>
                                   <TableCell 
                                     sx={{ whiteSpace: 'nowrap', cursor: 'pointer' }}

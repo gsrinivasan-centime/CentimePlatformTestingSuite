@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import { AuthProvider } from './context/AuthContext';
 import { ToastProvider, useToast } from './context/ToastContext';
-import { setErrorHandler } from './services/api';
+import { LoadingProvider, useLoading } from './context/LoadingContext';
+import { setErrorHandler, setLoadingHandlers } from './services/api';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -39,13 +40,16 @@ const theme = createTheme({
 
 function AppContent() {
   const { showError } = useToast();
+  const { startLoading, stopLoading } = useLoading();
 
   useEffect(() => {
     // Set global error handler for all API calls
     setErrorHandler((message) => {
       showError(message);
     });
-  }, [showError]);
+    // Set global loading handlers for all API calls
+    setLoadingHandlers(startLoading, stopLoading);
+  }, [showError, startLoading, stopLoading]);
 
   return (
     <Router>
@@ -178,7 +182,9 @@ function App() {
       <CssBaseline />
       <AuthProvider>
         <ToastProvider>
-          <AppContent />
+          <LoadingProvider>
+            <AppContent />
+          </LoadingProvider>
         </ToastProvider>
       </AuthProvider>
     </ThemeProvider>

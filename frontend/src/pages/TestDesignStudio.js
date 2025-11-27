@@ -56,6 +56,7 @@ import {
   Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import { stepCatalogAPI, featureFilesAPI, modulesAPI } from '../services/api';
+import PublishPreviewModal from '../components/PublishPreviewModal';
 
 const MAX_FILES_PER_USER = 5;
 
@@ -101,6 +102,13 @@ const TestDesignStudio = () => {
   const [detectedNewSteps, setDetectedNewSteps] = useState([]);
   const [showNewStepBadge, setShowNewStepBadge] = useState(false);
   const detectionTimeoutRef = useRef(null);
+  
+  // Publish preview modal state
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const [publishPreviewData, setPublishPreviewData] = useState(null);
+  const [publishPreviewLoading, setPublishPreviewLoading] = useState(false);
+  const [publishPreviewError, setPublishPreviewError] = useState(null);
+  const [fileToPublish, setFileToPublish] = useState(null);
   
   // Editor settings with localStorage persistence
   const [editorTheme, setEditorTheme] = useState(() => {
@@ -267,17 +275,40 @@ const TestDesignStudio = () => {
   };
 
   const handlePublish = async (file) => {
-    setLoading(true);
+    // Open the preview modal and load scenarios
+    setFileToPublish(file);
+    setPublishModalOpen(true);
+    setPublishPreviewLoading(true);
+    setPublishPreviewError(null);
+    setPublishPreviewData(null);
+    
     try {
       // Detect new steps before publishing
       const newSteps = detectNewSteps(file.content);
       if (newSteps.length > 0) {
         setDetectedNewSteps(newSteps);
-        setNewStepsDialogOpen(true);
+        setShowNewStepBadge(true);
       }
 
-      // Publish the file (this creates test cases from scenarios)
-      const response = await featureFilesAPI.publish(file.id);
+      // Get preview of scenarios
+      const preview = await featureFilesAPI.previewScenarios(file.id);
+      setPublishPreviewData(preview);
+    } catch (error) {
+      console.error('Error loading publish preview:', error);
+      setPublishPreviewError(
+        error.response?.data?.detail || 'Error loading scenarios from feature file'
+      );
+    } finally {
+      setPublishPreviewLoading(false);
+    }
+  };
+
+  const handleConfirmPublish = async (scenarioTypes) => {
+    if (!fileToPublish) return;
+    
+    try {
+      // Publish the file with scenario types
+      const response = await featureFilesAPI.publish(fileToPublish.id, scenarioTypes);
       
       const testCasesCreated = response.test_cases_created || 0;
       if (testCasesCreated > 0) {
@@ -289,6 +320,10 @@ const TestDesignStudio = () => {
         showSnackbar('File published, but no test cases were created.', 'warning');
       }
       
+      // Close modal and refresh
+      setPublishModalOpen(false);
+      setFileToPublish(null);
+      setPublishPreviewData(null);
       await loadFeatureFiles();
     } catch (error) {
       console.error('Error publishing file:', error);
@@ -296,9 +331,14 @@ const TestDesignStudio = () => {
         error.response?.data?.detail || 'Error publishing file',
         'error'
       );
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const handleClosePublishModal = () => {
+    setPublishModalOpen(false);
+    setFileToPublish(null);
+    setPublishPreviewData(null);
+    setPublishPreviewError(null);
   };
 
   const handleRestore = async (file) => {
@@ -1472,6 +1512,16 @@ const TestDesignStudio = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Publish Preview Modal */}
+      <PublishPreviewModal
+        open={publishModalOpen}
+        onClose={handleClosePublishModal}
+        previewData={publishPreviewData}
+        loading={publishPreviewLoading}
+        error={publishPreviewError}
+        onPublish={handleConfirmPublish}
+      />
     </>
   );
 

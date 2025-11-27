@@ -16,6 +16,15 @@ export const setErrorHandler = (handler) => {
   errorHandler = handler;
 };
 
+// Global loading handler functions
+let loadingStartHandler = null;
+let loadingStopHandler = null;
+
+export const setLoadingHandlers = (startHandler, stopHandler) => {
+  loadingStartHandler = startHandler;
+  loadingStopHandler = stopHandler;
+};
+
 // Flag to prevent multiple refresh attempts
 let isRefreshing = false;
 let failedQueue = [];
@@ -32,24 +41,42 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// Add token to requests
+// Add token to requests and trigger loading state
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Start loading indicator for all API calls
+    if (loadingStartHandler) {
+      loadingStartHandler();
+    }
     return config;
   },
   (error) => {
+    // Stop loading on request error
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
     return Promise.reject(error);
   }
 );
 
 // Handle response errors with global error handler
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Stop loading on successful response
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
+    return response;
+  },
   async (error) => {
+    // Stop loading on error response
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
     // Handle network errors
     if (!error.response) {
       if (errorHandler) {
@@ -571,9 +598,17 @@ export const featureFilesAPI = {
     return response.data;
   },
   
-  // Publish feature file
-  publish: async (id) => {
-    const response = await api.post(`/step-catalog/feature-files/${id}/publish`);
+  // Preview scenarios before publishing
+  previewScenarios: async (id) => {
+    const response = await api.get(`/step-catalog/feature-files/${id}/preview-scenarios`);
+    return response.data;
+  },
+  
+  // Publish feature file with scenario types
+  publish: async (id, scenarioTypes = null) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/publish`, {
+      scenario_types: scenarioTypes
+    });
     return response.data;
   },
   

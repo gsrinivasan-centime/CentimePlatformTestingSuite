@@ -35,6 +35,7 @@ def get_sub_modules(
     
     return query.order_by(SubModuleModel.name).all()
 
+@router.post("", response_model=SubModule)
 @router.post("/", response_model=SubModule)
 def create_sub_module(
     sub_module: SubModuleCreate,

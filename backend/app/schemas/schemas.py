@@ -202,6 +202,17 @@ class TestCaseUpdate(BaseModel):
     test_data: Optional[str] = None
     automated_script_path: Optional[str] = None
 
+# NEW: Bulk update schema
+class TestCaseBulkUpdate(BaseModel):
+    test_case_ids: List[int]
+    module_id: Optional[int] = None
+    sub_module: Optional[str] = None
+    feature_section: Optional[str] = None
+    test_type: Optional[TestType] = None
+    tag: Optional[TestTag] = None
+    tags: Optional[str] = None
+    automation_status: Optional[AutomationStatus] = None
+
 class TestCase(TestCaseBase):
     id: int
     created_at: datetime

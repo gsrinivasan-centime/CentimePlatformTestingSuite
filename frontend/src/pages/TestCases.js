@@ -35,6 +35,9 @@ import {
   Card,
   CardContent,
   Tooltip,
+  Checkbox,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -45,6 +48,7 @@ import {
   ViewList as ViewListIcon,
   AccountTree as TreeViewIcon,
   ExpandMore as ExpandMoreIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { testCasesAPI, modulesAPI } from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
@@ -135,6 +139,22 @@ const TestCases = () => {
   // Inline editing dropdown options for hierarchy fields
   const [inlineSubModules, setInlineSubModules] = useState([]);
   const [inlineFeatures, setInlineFeatures] = useState([]);
+
+  // Bulk selection and update state
+  const [selectedTestCases, setSelectedTestCases] = useState(new Set());
+  const [bulkUpdateLoading, setBulkUpdateLoading] = useState(false);
+  const [bulkUpdateData, setBulkUpdateData] = useState({
+    module_id: '',
+    sub_module: '',
+    feature_section: '',
+    test_type: '',
+    tag: '',
+    tags: '',
+    automation_status: '',
+  });
+  // Options for bulk update dropdowns
+  const [bulkSubModules, setBulkSubModules] = useState([]);
+  const [bulkFeatures, setBulkFeatures] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -798,6 +818,128 @@ const TestCases = () => {
     setEditValue('');
   };
 
+  // Bulk selection handlers
+  const handleSelectAll = (event) => {
+    if (event.target.checked) {
+      // Select all test cases currently displayed (filtered or all)
+      const allIds = new Set(testCases.map(tc => tc.id));
+      setSelectedTestCases(allIds);
+    } else {
+      setSelectedTestCases(new Set());
+    }
+  };
+
+  const handleSelectTestCase = (id) => {
+    const newSelected = new Set(selectedTestCases);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedTestCases(newSelected);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTestCases(new Set());
+    setBulkUpdateData({
+      module_id: '',
+      sub_module: '',
+      feature_section: '',
+      test_type: '',
+      tag: '',
+      tags: '',
+      automation_status: '',
+    });
+    setBulkSubModules([]);
+    setBulkFeatures([]);
+  };
+
+  const handleBulkUpdateFieldChange = async (field, value) => {
+    setBulkUpdateData(prev => ({ ...prev, [field]: value }));
+    
+    // Handle cascading dropdowns for hierarchy
+    if (field === 'module_id') {
+      // Reset sub_module and feature when module changes
+      setBulkUpdateData(prev => ({ 
+        ...prev, 
+        module_id: value,
+        sub_module: '', 
+        feature_section: '' 
+      }));
+      setBulkFeatures([]);
+      
+      if (value) {
+        try {
+          const options = await testCasesAPI.getHierarchyOptions(value);
+          setBulkSubModules(options.sub_modules || []);
+        } catch (err) {
+          console.error('Error loading bulk sub-modules:', err);
+          setBulkSubModules([]);
+        }
+      } else {
+        setBulkSubModules([]);
+      }
+    } else if (field === 'sub_module') {
+      // Reset feature when sub_module changes
+      setBulkUpdateData(prev => ({ 
+        ...prev, 
+        sub_module: value,
+        feature_section: '' 
+      }));
+      
+      if (value && bulkUpdateData.module_id) {
+        try {
+          const options = await testCasesAPI.getHierarchyOptions(bulkUpdateData.module_id, value);
+          setBulkFeatures(options.features || []);
+        } catch (err) {
+          console.error('Error loading bulk features:', err);
+          setBulkFeatures([]);
+        }
+      } else {
+        setBulkFeatures([]);
+      }
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedTestCases.size === 0) {
+      showError('No test cases selected');
+      return;
+    }
+
+    // Build update data with only non-empty values
+    const updatePayload = {};
+    Object.entries(bulkUpdateData).forEach(([key, value]) => {
+      if (value !== '' && value !== null && value !== undefined) {
+        if (key === 'module_id') {
+          updatePayload[key] = parseInt(value, 10);
+        } else {
+          updatePayload[key] = value;
+        }
+      }
+    });
+
+    if (Object.keys(updatePayload).length === 0) {
+      showError('Please select at least one field to update');
+      return;
+    }
+
+    setBulkUpdateLoading(true);
+    try {
+      const result = await testCasesAPI.bulkUpdate(
+        Array.from(selectedTestCases),
+        updatePayload
+      );
+      showSuccess(result.message || `Successfully updated ${selectedTestCases.size} test cases`);
+      handleClearSelection();
+      reloadData();
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to update test cases');
+    } finally {
+      setBulkUpdateLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -886,13 +1028,208 @@ const TestCases = () => {
         </ToggleButtonGroup>
       </Box>
 
+      {/* Bulk Action Bar - Shows when items are selected */}
+      {selectedTestCases.size > 0 && (
+        <Paper 
+          elevation={3} 
+          sx={{ 
+            mb: 2, 
+            p: 2, 
+            backgroundColor: 'primary.light',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2
+          }}
+        >
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Box display="flex" alignItems="center" gap={2}>
+              <Typography variant="subtitle1" fontWeight="bold" color="primary.contrastText">
+                {selectedTestCases.size} test case{selectedTestCases.size > 1 ? 's' : ''} selected
+              </Typography>
+              <IconButton 
+                size="small" 
+                onClick={handleClearSelection}
+                sx={{ color: 'primary.contrastText' }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={handleBulkUpdate}
+              disabled={bulkUpdateLoading}
+              startIcon={bulkUpdateLoading ? <CircularProgress size={16} color="inherit" /> : null}
+            >
+              {bulkUpdateLoading ? 'Updating...' : 'Apply Changes'}
+            </Button>
+          </Box>
+          
+          <Box display="flex" flexWrap="wrap" gap={2}>
+            {/* Module */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Module</InputLabel>
+              <Select
+                value={bulkUpdateData.module_id}
+                label="Module"
+                onChange={(e) => handleBulkUpdateFieldChange('module_id', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {modules.map((module) => (
+                  <MenuItem key={module.id} value={module.id}>
+                    {module.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Sub-Module */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Sub-Module</InputLabel>
+              <Select
+                value={bulkUpdateData.sub_module}
+                label="Sub-Module"
+                onChange={(e) => handleBulkUpdateFieldChange('sub_module', e.target.value)}
+                disabled={!bulkUpdateData.module_id}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {bulkSubModules.map((sm) => (
+                  <MenuItem key={sm.name} value={sm.name}>
+                    {sm.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Feature */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Feature</InputLabel>
+              <Select
+                value={bulkUpdateData.feature_section}
+                label="Feature"
+                onChange={(e) => handleBulkUpdateFieldChange('feature_section', e.target.value)}
+                disabled={!bulkUpdateData.module_id || !bulkUpdateData.sub_module}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {bulkFeatures.map((f) => (
+                  <MenuItem key={f.name} value={f.name}>
+                    {f.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Type */}
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={bulkUpdateData.test_type}
+                label="Type"
+                onChange={(e) => handleBulkUpdateFieldChange('test_type', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="manual">Manual</MenuItem>
+                <MenuItem value="automated">Automated</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Tag (ui/api/hybrid) */}
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Tag</InputLabel>
+              <Select
+                value={bulkUpdateData.tag}
+                label="Tag"
+                onChange={(e) => handleBulkUpdateFieldChange('tag', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="ui">UI</MenuItem>
+                <MenuItem value="api">API</MenuItem>
+                <MenuItem value="hybrid">Hybrid</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Tags (smoke, regression, etc.) */}
+            <Autocomplete
+              multiple
+              size="small"
+              options={tagOptions}
+              value={bulkUpdateData.tags ? bulkUpdateData.tags.split(',').filter(t => t) : []}
+              onChange={(e, newValue) => handleBulkUpdateFieldChange('tags', newValue.join(','))}
+              renderInput={(params) => (
+                <TextField {...params} label="Tags" placeholder="Select tags" />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    {...getTagProps({ index })}
+                    key={option}
+                    label={option}
+                    size="small"
+                    color={
+                      option === 'smoke' ? 'primary' :
+                      option === 'regression' ? 'error' :
+                      option === 'sanity' ? 'success' :
+                      option === 'prod' ? 'secondary' :
+                      'default'
+                    }
+                  />
+                ))
+              }
+              sx={{ minWidth: 200, backgroundColor: 'white', borderRadius: 1 }}
+            />
+
+            {/* Status */}
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={bulkUpdateData.automation_status}
+                label="Status"
+                onChange={(e) => handleBulkUpdateFieldChange('automation_status', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="working">Working</MenuItem>
+                <MenuItem value="not_working">Not Working</MenuItem>
+                <MenuItem value="intermittent">Intermittent</MenuItem>
+                <MenuItem value="maintenance">Maintenance</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </Paper>
+      )}
+
       {viewType === 'list' ? (
         /* List View */
         <Paper>
           <TableContainer sx={{ overflowX: 'auto' }}>
-            <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+            <Table size="small" sx={{ minWidth: 1550, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 50 }}>
+                  <Checkbox
+                    indeterminate={selectedTestCases.size > 0 && selectedTestCases.size < testCases.length}
+                    checked={testCases.length > 0 && selectedTestCases.size === testCases.length}
+                    onChange={handleSelectAll}
+                    color="primary"
+                  />
+                </TableCell>
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
                 <ResizableTableCell minWidth={200} initialWidth={250} isHeader>Title</ResizableTableCell>
                 <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Module</ResizableTableCell>
@@ -906,6 +1243,7 @@ const TestCases = () => {
               </TableRow>
               {/* Filter Row */}
               <TableRow>
+                <TableCell padding="checkbox" />
                 <TableCell>
                   <TextField
                     size="small"
@@ -1081,12 +1419,27 @@ const TestCases = () => {
                   <React.Fragment key={testCase.id}>
                   <TableRow 
                     hover
+                    selected={selectedTestCases.has(testCase.id)}
                     sx={{ 
                       '&:hover': {
                         backgroundColor: 'action.hover',
+                      },
+                      '&.Mui-selected': {
+                        backgroundColor: 'primary.lighter',
+                      },
+                      '&.Mui-selected:hover': {
+                        backgroundColor: 'primary.light',
                       }
                     }}
                   >
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedTestCases.has(testCase.id)}
+                        onChange={() => handleSelectTestCase(testCase.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        color="primary"
+                      />
+                    </TableCell>
                     <TableCell 
                       sx={{ 
                         whiteSpace: 'nowrap', 
@@ -1511,7 +1864,7 @@ const TestCases = () => {
                   {/* Accordion Row for Details */}
                   {expandedTestCase === testCase.id && (
                     <TableRow>
-                      <TableCell colSpan={10} sx={{ py: 0, px: 0, border: 0 }}>
+                      <TableCell colSpan={11} sx={{ py: 0, px: 0, border: 0 }}>
                         <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
                           {/* Preconditions */}
                           {testCase.preconditions && (
@@ -1751,9 +2104,31 @@ const TestCases = () => {
                           </AccordionSummary>
                           <AccordionDetails>
                             <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-                              <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+                              <Table size="small" sx={{ minWidth: 1550, tableLayout: 'fixed' }}>
                                 <TableHead>
                                   <TableRow>
+                                    <TableCell padding="checkbox" sx={{ width: 50 }}>
+                                      <Checkbox
+                                        indeterminate={
+                                          feature.testCases.some(tc => selectedTestCases.has(tc.id)) &&
+                                          !feature.testCases.every(tc => selectedTestCases.has(tc.id))
+                                        }
+                                        checked={
+                                          feature.testCases.length > 0 &&
+                                          feature.testCases.every(tc => selectedTestCases.has(tc.id))
+                                        }
+                                        onChange={(e) => {
+                                          const newSelected = new Set(selectedTestCases);
+                                          if (e.target.checked) {
+                                            feature.testCases.forEach(tc => newSelected.add(tc.id));
+                                          } else {
+                                            feature.testCases.forEach(tc => newSelected.delete(tc.id));
+                                          }
+                                          setSelectedTestCases(newSelected);
+                                        }}
+                                        color="primary"
+                                      />
+                                    </TableCell>
                                     <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
                                     <ResizableTableCell minWidth={200} initialWidth={300} isHeader>Title</ResizableTableCell>
                                     <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Module</ResizableTableCell>
@@ -1808,12 +2183,27 @@ const TestCases = () => {
                                     <React.Fragment key={testCase.id}>
                                     <TableRow 
                                       hover
+                                      selected={selectedTestCases.has(testCase.id)}
                                       sx={{ 
                                         '&:hover': {
                                           backgroundColor: 'action.hover',
+                                        },
+                                        '&.Mui-selected': {
+                                          backgroundColor: 'primary.lighter',
+                                        },
+                                        '&.Mui-selected:hover': {
+                                          backgroundColor: 'primary.light',
                                         }
                                       }}
                                     >
+                                      <TableCell padding="checkbox">
+                                        <Checkbox
+                                          checked={selectedTestCases.has(testCase.id)}
+                                          onChange={() => handleSelectTestCase(testCase.id)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          color="primary"
+                                        />
+                                      </TableCell>
                                       <TableCell 
                                         sx={{ 
                                           whiteSpace: 'nowrap', 
@@ -2241,7 +2631,7 @@ const TestCases = () => {
                                     {/* Accordion Row for Details */}
                                     {expandedTestCase === testCase.id && (
                                       <TableRow>
-                                        <TableCell colSpan={10} sx={{ py: 0, px: 0, border: 0 }}>
+                                        <TableCell colSpan={11} sx={{ py: 0, px: 0, border: 0 }}>
                                           <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
                                             {/* Preconditions */}
                                             {testCase.preconditions && (

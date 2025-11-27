@@ -382,6 +382,15 @@ export const testCasesAPI = {
     const response = await api.get('/test-cases/by-jira-story', { params });
     return response.data;
   },
+
+  // NEW: Bulk update test cases
+  bulkUpdate: async (testCaseIds, updateData) => {
+    const response = await api.put('/test-cases/bulk-update', {
+      test_case_ids: testCaseIds,
+      ...updateData
+    });
+    return response.data;
+  },
 };
 
 // Releases API

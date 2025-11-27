@@ -49,6 +49,7 @@ import {
 import { testCasesAPI, modulesAPI } from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
 import ScenarioExamplesTable from '../components/ScenarioExamplesTable';
+import TruncatedText from '../components/TruncatedText';
 import { useToast } from '../context/ToastContext';
 
 const TestCases = () => {
@@ -1114,7 +1115,7 @@ const TestCases = () => {
                       }}
                       onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
                     >
-                      {testCase.title}
+                      <TruncatedText text={testCase.title} />
                     </TableCell>
                     <TableCell 
                       sx={{ 
@@ -1841,7 +1842,7 @@ const TestCases = () => {
                                         }}
                                         onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
                                       >
-                                        {testCase.title}
+                                        <TruncatedText text={testCase.title} />
                                       </TableCell>
                                       <TableCell 
                                         sx={{ 

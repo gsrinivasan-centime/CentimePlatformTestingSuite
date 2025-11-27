@@ -35,6 +35,7 @@ import { issueService } from '../services/issueService';
 import ResizableTableCell from './ResizableTableCell';
 import IssueContentRenderer from './IssueContentRenderer';
 import RichTextEditor from './RichTextEditor';
+import TruncatedText from './TruncatedText';
 import api from '../services/api';
 
 const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, modules }) => {
@@ -206,7 +207,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, 
                     }}
                     onClick={() => setOpen(!open)}
                 >
-                    {issue.title}
+                    <TruncatedText text={issue.title} />
                 </TableCell>
                 <TableCell 
                     align="center"

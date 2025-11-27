@@ -32,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import api from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
+import TruncatedText from '../components/TruncatedText';
 
 const Reports = () => {
   const [loading, setLoading] = useState(false);
@@ -526,8 +527,8 @@ const Reports = () => {
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {story.story_id}
                         </TableCell>
-                        <TableCell sx={{ whiteSpace: 'normal', wordWrap: 'break-word' }} title={story.story_title}>
-                          {story.story_title}
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <TruncatedText text={story.story_title} />
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {story.epic_id || 'N/A'}

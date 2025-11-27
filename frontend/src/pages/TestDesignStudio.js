@@ -16,9 +16,6 @@ import {
   DialogActions,
   Alert,
   Snackbar,
-  Card,
-  CardContent,
-  CardActions,
   Divider,
   CircularProgress,
   MenuItem,
@@ -733,66 +730,101 @@ const TestDesignStudio = () => {
             </Button>
           </Box>
         ) : (
-          <Grid container spacing={2}>
-            {featureFiles.map((file) => (
-              <Grid item xs={12} md={6} lg={4} key={file.id}>
-                <Card variant="outlined">
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>
-                        {file.name}
-                      </Typography>
-                      <Chip 
-                        label={file.status === 'published' ? 'Published' : 'Draft'} 
-                        color={file.status === 'published' ? 'success' : 'default'} 
-                        size="small" 
-                      />
-                    </Box>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, minHeight: 40 }}>
-                      {file.description || 'No description'}
-                    </Typography>
-                    <Divider sx={{ my: 1 }} />
-                    <Typography variant="caption" color="text.secondary">
-                      Module: {modules.find(m => m.id === file.module_id)?.name || 'None'}
-                    </Typography>
-                    <br />
-                    <Typography variant="caption" color="text.secondary">
-                      Created: {new Date(file.created_at).toLocaleDateString()}
-                    </Typography>
-                  </CardContent>
-                  <CardActions>
-                    {file.status === 'published' ? (
-                      <>
-                        <Button size="small" startIcon={<VisibilityIcon />} onClick={() => handleViewFile(file)}>
-                          View
-                        </Button>
-                        <Button 
-                          size="small" 
-                          color="warning"
-                          startIcon={<PublishIcon />} 
-                          onClick={() => handleRestore(file)}
-                        >
-                          Restore
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditFile(file)}>
-                          Edit
-                        </Button>
-                        <Button size="small" startIcon={<PublishIcon />} onClick={() => handlePublish(file)}>
-                          Publish
-                        </Button>
-                      </>
-                    )}
-                    <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteFile(file)}>
-                      Delete
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Grid>
+          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            {/* List Header */}
+            <Box sx={{ 
+              display: 'grid', 
+              gridTemplateColumns: '2fr 1.5fr 1fr 1fr 200px', 
+              gap: 2, 
+              p: 1.5, 
+              bgcolor: 'grey.100',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              fontWeight: 'bold'
+            }}>
+              <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Description</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Module</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
+            </Box>
+            {/* List Items */}
+            {featureFiles.map((file, index) => (
+              <Box 
+                key={file.id}
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '2fr 1.5fr 1fr 1fr 200px', 
+                  gap: 2, 
+                  p: 1.5, 
+                  alignItems: 'center',
+                  borderBottom: index < featureFiles.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  '&:hover': { bgcolor: 'action.hover' }
+                }}
+              >
+                <Box>
+                  <Typography variant="body2" fontWeight="medium">
+                    {file.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Created: {new Date(file.created_at).toLocaleDateString()}
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }}>
+                  {file.description || 'No description'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {modules.find(m => m.id === file.module_id)?.name || 'None'}
+                </Typography>
+                <Box>
+                  <Chip 
+                    label={file.status === 'published' ? 'Published' : 'Draft'} 
+                    color={file.status === 'published' ? 'success' : 'default'} 
+                    size="small" 
+                  />
+                </Box>
+                <Stack direction="row" spacing={0.5} justifyContent="center">
+                  {file.status === 'published' ? (
+                    <>
+                      <Tooltip title="View">
+                        <IconButton size="small" onClick={() => handleViewFile(file)}>
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Restore to Draft">
+                        <IconButton size="small" color="warning" onClick={() => handleRestore(file)}>
+                          <PublishIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <>
+                      <Tooltip title="Edit">
+                        <IconButton size="small" color="primary" onClick={() => handleEditFile(file)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Publish">
+                        <IconButton size="small" color="success" onClick={() => handlePublish(file)}>
+                          <PublishIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                  <Tooltip title="Delete">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteFile(file)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Box>
             ))}
-          </Grid>
+          </Box>
         )}
       </Paper>
 
@@ -810,41 +842,68 @@ const TestDesignStudio = () => {
             </Typography>
           </Box>
         ) : (
-          <Grid container spacing={2}>
-            {recentUploads.map((upload) => (
-              <Grid item xs={12} md={6} lg={4} key={upload.id}>
-                <Card variant="outlined" sx={{ bgcolor: '#f5f5f5' }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="h6" sx={{ fontSize: '1rem' }}>
-                        {upload.name}
-                      </Typography>
-                      <Chip label="Published" color="success" size="small" />
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Uploaded: {new Date(upload.updated_at || upload.created_at).toLocaleDateString()}
-                    </Typography>
-                  </CardContent>
-                  <CardActions>
-                    <Button size="small" startIcon={<VisibilityIcon />} onClick={() => handleViewFile(upload)}>
-                      View
-                    </Button>
-                    <Button 
-                      size="small" 
-                      color="warning"
-                      startIcon={<PublishIcon />} 
-                      onClick={() => handleRestore(upload)}
-                    >
-                      Restore
-                    </Button>
-                    <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteUpload(upload.id)}>
-                      Remove
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Grid>
+          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            {/* List Header */}
+            <Box sx={{ 
+              display: 'grid', 
+              gridTemplateColumns: '2fr 1.5fr 1fr 150px', 
+              gap: 2, 
+              p: 1.5, 
+              bgcolor: 'success.50',
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              fontWeight: 'bold'
+            }}>
+              <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Uploaded</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
+            </Box>
+            {/* List Items */}
+            {recentUploads.map((upload, index) => (
+              <Box 
+                key={upload.id}
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '2fr 1.5fr 1fr 150px', 
+                  gap: 2, 
+                  p: 1.5, 
+                  alignItems: 'center',
+                  bgcolor: 'grey.50',
+                  borderBottom: index < recentUploads.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  '&:hover': { bgcolor: 'action.hover' }
+                }}
+              >
+                <Typography variant="body2" fontWeight="medium">
+                  {upload.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {new Date(upload.updated_at || upload.created_at).toLocaleDateString()}
+                </Typography>
+                <Box>
+                  <Chip label="Published" color="success" size="small" />
+                </Box>
+                <Stack direction="row" spacing={0.5} justifyContent="center">
+                  <Tooltip title="View">
+                    <IconButton size="small" onClick={() => handleViewFile(upload)}>
+                      <VisibilityIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Restore to Draft">
+                    <IconButton size="small" color="warning" onClick={() => handleRestore(upload)}>
+                      <PublishIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Remove">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteUpload(upload.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Box>
             ))}
-          </Grid>
+          </Box>
         )}
       </Paper>
 

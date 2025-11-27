@@ -162,7 +162,7 @@ class TestCaseBase(BaseModel):
     title: str
     description: Optional[str] = None
     test_type: TestType
-    module_id: int
+    module_id: Optional[int] = None
     sub_module: Optional[str] = None  # NEW: e.g., "Suppliers", "Invoices"
     feature_section: Optional[str] = None  # NEW: e.g., "Supplier Profile", "List View"
     tag: TestTag  # NEW: ui/api/hybrid - used for auto-generating test_id

@@ -322,15 +322,19 @@ class FeatureFile(Base):
     content = Column(Text, nullable=False)  # Gherkin feature file content
     description = Column(Text, nullable=True)
     module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
-    status = Column(String(20), default="draft")  # draft, published, archived
+    status = Column(String(20), default="draft")  # draft, pending_approval, published, archived
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     published_at = Column(DateTime, nullable=True)  # Track when file was published for archive ordering
+    submitted_for_approval_at = Column(DateTime, nullable=True)  # When tester submitted for approval
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who approved
+    approved_at = Column(DateTime, nullable=True)  # When admin approved
     
     # Relationships
     module = relationship("Module", foreign_keys=[module_id])
     creator = relationship("User", foreign_keys=[created_by])
+    approver = relationship("User", foreign_keys=[approved_by])
 
 
 class Issue(Base):

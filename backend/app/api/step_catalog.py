@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
-from app.models.models import StepCatalog, FeatureFile, User
+from app.models.models import StepCatalog, FeatureFile, User, UserRole
 from app.schemas.schemas import (
     StepCatalog as StepCatalogSchema,
     StepCatalogCreate,
@@ -230,17 +230,70 @@ async def get_all_feature_files(
     return files
 
 
+@router.get("/feature-files/pending-approval/list")
+async def get_pending_approval_files(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get files pending approval
+    
+    - Admins: See all pending files from all users
+    - Testers: See only their own pending files
+    """
+    if current_user.role == UserRole.ADMIN:
+        # Admins see all pending approval files
+        files = db.query(FeatureFile).filter(
+            FeatureFile.status == "pending_approval"
+        ).order_by(FeatureFile.submitted_for_approval_at.desc()).all()
+        
+        # Enrich with creator info
+        result = []
+        for file in files:
+            creator = db.query(User).filter(User.id == file.created_by).first()
+            result.append({
+                "id": file.id,
+                "name": file.name,
+                "description": file.description,
+                "content": file.content,  # Include content for viewing
+                "module_id": file.module_id,
+                "status": file.status,
+                "created_by": file.created_by,
+                "creator_name": creator.full_name if creator else "Unknown",
+                "creator_email": creator.email if creator else "Unknown",
+                "created_at": file.created_at,
+                "submitted_for_approval_at": file.submitted_for_approval_at
+            })
+        return result
+    else:
+        # Testers see only their own pending files
+        files = db.query(FeatureFile).filter(
+            FeatureFile.created_by == current_user.id,
+            FeatureFile.status == "pending_approval"
+        ).order_by(FeatureFile.submitted_for_approval_at.desc()).all()
+        return files
+
+
 @router.get("/feature-files/{file_id}", response_model=FeatureFileSchema)
 async def get_feature_file(
     file_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get a specific feature file (only if owned by current user)"""
-    file = db.query(FeatureFile).filter(
-        FeatureFile.id == file_id,
-        FeatureFile.created_by == current_user.id
-    ).first()
+    """Get a specific feature file
+    
+    - Admins can view any file
+    - Testers can only view their own files
+    """
+    if current_user.role == UserRole.ADMIN:
+        # Admins can view any file
+        file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    else:
+        # Testers can only view their own files
+        file = db.query(FeatureFile).filter(
+            FeatureFile.id == file_id,
+            FeatureFile.created_by == current_user.id
+        ).first()
+    
     if not file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     return file
@@ -455,22 +508,14 @@ async def publish_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Publish a feature file and create test cases from scenarios
+    """Submit a feature file for approval (testers) or to review queue (admins)
     
-    Limits:
-    - Maximum 100 archived files per user
-    - When 101st file is archived, the oldest archived file (by published_at) is deleted
+    - Testers: File goes to 'pending_approval' status, awaiting admin approval
+    - Admins: File goes to 'pending_approval' status, admin can self-approve from Review section
     
     body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
     If not provided, defaults to "api" for all scenarios
     """
-    # Extract scenario_types from body if provided
-    scenario_types = body.get('scenario_types') if body else None
-    
-    from gherkin.parser import Parser
-    from gherkin.token_scanner import TokenScanner
-    from app.models.models import TestCase, Module
-    from app.schemas.schemas import TestCaseCreate
     from datetime import datetime
     
     db_file = db.query(FeatureFile).filter(
@@ -480,13 +525,92 @@ async def publish_feature_file(
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
-    # Check if already published
+    # Check if already published or pending
     if db_file.status == "published":
         return {
             "message": "File is already published",
             "file": db_file,
-            "test_cases_created": 0
+            "requires_approval": False
         }
+    
+    if db_file.status == "pending_approval":
+        return {
+            "message": "File is already pending approval",
+            "file": db_file,
+            "requires_approval": True
+        }
+    
+    # Validate gherkin content before submitting
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+        feature = gherkin_document.get('feature')
+        if not feature:
+            raise HTTPException(status_code=400, detail="No feature found in file")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    # Store scenario_types in the file for later use during approval
+    if body and body.get('scenario_types'):
+        db_file.description = db_file.description or ""
+        # Store scenario types as JSON in a special format
+        import json
+        scenario_data = json.dumps({"scenario_types": body.get('scenario_types')})
+        # We'll store it temporarily - could use a separate field in future
+    
+    # Set status to pending_approval for both testers and admins
+    db_file.status = "pending_approval"
+    db_file.submitted_for_approval_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    is_admin = current_user.role == UserRole.ADMIN
+    
+    return {
+        "message": "File submitted for approval" if not is_admin else "File added to review queue. Please approve from the Review Test Cases section.",
+        "file": db_file,
+        "requires_approval": True,
+        "is_admin": is_admin
+    }
+
+
+@router.post("/feature-files/{file_id}/approve")
+async def approve_feature_file(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Approve a pending feature file and create test cases (Admin only)
+    
+    body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
+    """
+    # Only admins can approve
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can approve feature files")
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="File is not pending approval")
+    
+    # Extract scenario_types from body if provided
+    scenario_types = body.get('scenario_types') if body else None
+    
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from app.models.models import TestCase, Module
+    from datetime import datetime
     
     # Build type map from scenario_types
     type_map = {}
@@ -547,10 +671,9 @@ async def publish_feature_file(
     scenario_index = 0
     for child in feature.get('children', []):
         try:
-            # Check if child is a Scenario or ScenarioOutline (direct children, not nested)
+            # Check if child is a Scenario or ScenarioOutline
             child_type = child.get('type', '')
             if child_type not in ['Scenario', 'ScenarioOutline']:
-                # Also check for 'scenario' key (older gherkin versions)
                 if 'scenario' in child:
                     scenario = child['scenario']
                 else:
@@ -560,7 +683,7 @@ async def publish_feature_file(
             
             # Get type for this scenario from the type_map, default to 'api'
             tag = type_map.get(scenario_index, 'api')
-            test_type = "manual"  # Default to manual
+            test_type = "manual"
             
             scenario_name = scenario.get('name', 'Unnamed Scenario')
             scenario_keyword = scenario.get('keyword', 'Scenario').strip()
@@ -578,7 +701,6 @@ async def publish_feature_file(
             examples = scenario.get('examples', [])
             
             if examples and len(examples) > 0:
-                # Scenario Outline - create test case with examples
                 for example_set in examples:
                     table_header = example_set.get('tableHeader')
                     table_body = example_set.get('tableBody', [])
@@ -623,7 +745,6 @@ async def publish_feature_file(
                     db.commit()
                     created_count += 1
             else:
-                # Regular Scenario
                 test_id = generate_test_id(tag, db)
                 
                 db_test_case = TestCase(
@@ -658,16 +779,13 @@ async def publish_feature_file(
             scenario_index += 1
             continue
     
-    # Update file status to published and set published_at
+    # Update file status to published
     db_file.status = "published"
-    from datetime import datetime
     db_file.published_at = datetime.utcnow()
+    db_file.approved_by = current_user.id
+    db_file.approved_at = datetime.utcnow()
     
-    # Check archive limit and handle if this file gets archived later
-    # When a file is published, we need to track it for future archiving
-    # The archive limit check will happen when status changes to "archived"
-    
-    # Also upload to Confluence
+    # Upload to Confluence
     confluence_url = None
     try:
         confluence_result = confluence_service.upload_feature_file(
@@ -680,17 +798,53 @@ async def publish_feature_file(
         confluence_url = confluence_result.get('view_link')
     except Exception as e:
         print(f"⚠️ Failed to upload to Confluence: {e}")
-        # Continue even if Confluence upload fails
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    # Get creator info
+    creator = db.query(User).filter(User.id == db_file.created_by).first()
+    
+    return {
+        "message": f"File approved and published successfully. Created {created_count} test case(s).",
+        "file": db_file,
+        "test_cases_created": created_count,
+        "confluence_url": confluence_url,
+        "creator_name": creator.full_name if creator else "Unknown",
+        "errors": errors if errors else None
+    }
+
+
+@router.post("/feature-files/{file_id}/reject")
+async def reject_feature_file(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reject a pending feature file and return to draft (Admin only)"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can reject feature files")
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="File is not pending approval")
+    
+    reason = body.get('reason', '') if body else ''
+    
+    # Return to draft status
+    db_file.status = "draft"
+    db_file.submitted_for_approval_at = None
     
     db.commit()
     db.refresh(db_file)
     
     return {
-        "message": f"File published successfully. Created {created_count} test case(s).",
-        "file": db_file,
-        "test_cases_created": created_count,
-        "confluence_url": confluence_url,
-        "errors": errors if errors else None
+        "message": f"File rejected and returned to draft. Reason: {reason}" if reason else "File rejected and returned to draft.",
+        "file": db_file
     }
 
 

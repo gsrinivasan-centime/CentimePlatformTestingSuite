@@ -51,13 +51,19 @@ import {
   Brightness7 as Brightness7Icon,
   WrapText as WrapTextIcon,
   Visibility as VisibilityIcon,
+  HourglassEmpty as HourglassEmptyIcon,
+  RateReview as RateReviewIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { stepCatalogAPI, featureFilesAPI, modulesAPI } from '../services/api';
 import PublishPreviewModal from '../components/PublishPreviewModal';
+import { useAuth } from '../context/AuthContext';
 
 const MAX_FILES_PER_USER = 5;
 
 const TestDesignStudio = () => {
+  const { user } = useAuth();
   // View state
   const [view, setView] = useState('dashboard'); // 'dashboard' or 'editor'
   
@@ -74,6 +80,7 @@ const TestDesignStudio = () => {
   // File management state
   const [featureFiles, setFeatureFiles] = useState([]);
   const [recentUploads, setRecentUploads] = useState([]);
+  const [pendingApprovalFiles, setPendingApprovalFiles] = useState([]); // Files awaiting approval
   const [currentFile, setCurrentFile] = useState(null);
   
   // UI state
@@ -159,10 +166,15 @@ const TestDesignStudio = () => {
       
       const uploads = await featureFilesAPI.getAll({ status: 'published' });
       setRecentUploads(Array.isArray(uploads) ? uploads : []);
+      
+      // Load pending approval files
+      const pending = await featureFilesAPI.getPendingApproval();
+      setPendingApprovalFiles(Array.isArray(pending) ? pending : []);
     } catch (error) {
       console.error('Error loading files:', error);
       setFeatureFiles([]);
       setRecentUploads([]);
+      setPendingApprovalFiles([]);
     }
   };
 
@@ -304,17 +316,26 @@ const TestDesignStudio = () => {
     if (!fileToPublish) return;
     
     try {
-      // Publish the file with scenario types
+      // Submit the file for approval
       const response = await featureFilesAPI.publish(fileToPublish.id, scenarioTypes);
       
-      const testCasesCreated = response.test_cases_created || 0;
-      if (testCasesCreated > 0) {
-        showSnackbar(
-          `File published successfully! Created ${testCasesCreated} test case(s).`,
-          'success'
-        );
+      if (response.requires_approval) {
+        // File submitted for approval
+        const isAdmin = user?.role === 'admin';
+        if (isAdmin) {
+          showSnackbar(
+            'File added to Review Test Cases. Please approve it from there.',
+            'info'
+          );
+        } else {
+          showSnackbar(
+            'File submitted for approval. An admin will review it soon.',
+            'success'
+          );
+        }
       } else {
-        showSnackbar('File published, but no test cases were created.', 'warning');
+        // Already published (shouldn't happen normally)
+        showSnackbar('File is already published.', 'info');
       }
       
       // Close modal and refresh
@@ -325,9 +346,49 @@ const TestDesignStudio = () => {
     } catch (error) {
       console.error('Error publishing file:', error);
       showSnackbar(
-        error.response?.data?.detail || 'Error publishing file',
+        error.response?.data?.detail || 'Error submitting file for approval',
         'error'
       );
+    }
+  };
+
+  // Handle approve (admin only)
+  const handleApprove = async (file) => {
+    setLoading(true);
+    try {
+      const response = await featureFilesAPI.approve(file.id);
+      const testCasesCreated = response.test_cases_created || 0;
+      showSnackbar(
+        `File approved! Created ${testCasesCreated} test case(s).`,
+        'success'
+      );
+      await loadFeatureFiles();
+    } catch (error) {
+      console.error('Error approving file:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error approving file',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle reject (admin only)
+  const handleReject = async (file) => {
+    setLoading(true);
+    try {
+      await featureFilesAPI.reject(file.id, 'Needs revision');
+      showSnackbar('File rejected and returned to draft.', 'warning');
+      await loadFeatureFiles();
+    } catch (error) {
+      console.error('Error rejecting file:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error rejecting file',
+        'error'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -827,6 +888,162 @@ const TestDesignStudio = () => {
           </Box>
         )}
       </Paper>
+
+      {/* Sent for Approval Section (for testers - shows their own pending files) */}
+      {user?.role !== 'admin' && (
+        <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'warning.50' }}>
+          <Typography variant="h6" gutterBottom>
+            <HourglassEmptyIcon sx={{ verticalAlign: 'middle', mr: 1, color: 'warning.main' }} />
+            Sent for Approval ({pendingApprovalFiles.length})
+          </Typography>
+
+          {pendingApprovalFiles.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+              <Typography variant="body2" color="text.secondary">
+                No feature files pending approval. When you submit a feature file for publishing, it will appear here.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 1 }}>
+              {/* List Header */}
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: '2fr 1.5fr 1fr 100px', 
+                gap: 2, 
+                p: 1.5, 
+                bgcolor: 'warning.100',
+                borderBottom: '1px solid',
+                borderColor: 'warning.light',
+                fontWeight: 'bold'
+              }}>
+                <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">Submitted</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
+              </Box>
+              {/* List Items */}
+              {pendingApprovalFiles.map((file, index) => (
+                <Box 
+                  key={file.id}
+                  sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '2fr 1.5fr 1fr 100px', 
+                    gap: 2, 
+                    p: 1.5, 
+                    alignItems: 'center',
+                    bgcolor: 'white',
+                    borderBottom: index < pendingApprovalFiles.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'warning.light',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="medium">
+                    {file.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {file.submitted_for_approval_at ? new Date(file.submitted_for_approval_at).toLocaleDateString() : '-'}
+                  </Typography>
+                  <Box>
+                    <Chip label="Pending Approval" color="warning" size="small" />
+                  </Box>
+                  <Stack direction="row" spacing={0.5} justifyContent="center">
+                    <Tooltip title="View">
+                      <IconButton size="small" onClick={() => handleViewFile(file)}>
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Paper>
+      )}
+
+      {/* Review Test Cases Section (for admins - shows all pending files) */}
+      {user?.role === 'admin' && (
+        <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'info.50' }}>
+          <Typography variant="h6" gutterBottom>
+            <RateReviewIcon sx={{ verticalAlign: 'middle', mr: 1, color: 'info.main' }} />
+            Review Test Cases ({pendingApprovalFiles.length})
+          </Typography>
+
+          {pendingApprovalFiles.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
+              <Typography variant="body2" color="text.secondary">
+                No feature files pending review. When testers submit feature files for approval, they will appear here.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ border: '1px solid', borderColor: 'info.light', borderRadius: 1 }}>
+              {/* List Header */}
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 180px', 
+                gap: 2, 
+                p: 1.5, 
+                bgcolor: 'info.100',
+                borderBottom: '1px solid',
+                borderColor: 'info.light',
+                fontWeight: 'bold'
+              }}>
+                <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">Created By</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">Submitted</Typography>
+                <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
+              </Box>
+              {/* List Items */}
+              {pendingApprovalFiles.map((file, index) => (
+                <Box 
+                  key={file.id}
+                  sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 180px', 
+                    gap: 2, 
+                    p: 1.5, 
+                    alignItems: 'center',
+                    bgcolor: 'white',
+                    borderBottom: index < pendingApprovalFiles.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'info.light',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="medium">
+                    {file.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {file.creator_name || file.creator_email || 'Unknown'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {file.submitted_for_approval_at ? new Date(file.submitted_for_approval_at).toLocaleDateString() : '-'}
+                  </Typography>
+                  <Box>
+                    <Chip label="Pending" color="warning" size="small" />
+                  </Box>
+                  <Stack direction="row" spacing={0.5} justifyContent="center">
+                    <Tooltip title="View">
+                      <IconButton size="small" onClick={() => handleViewFile(file)}>
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Approve">
+                      <IconButton size="small" color="success" onClick={() => handleApprove(file)}>
+                        <CheckCircleOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Reject">
+                      <IconButton size="small" color="error" onClick={() => handleReject(file)}>
+                        <CancelIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Paper>
+      )}
 
       {/* Recently Uploaded Section */}
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>

@@ -34,6 +34,7 @@ import {
   Divider,
   Card,
   CardContent,
+  Tooltip,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -658,7 +659,7 @@ const TestCases = () => {
   };
 
   // Tag options for dropdown
-  const tagOptions = ['smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
+  const tagOptions = ['prod', 'smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
 
   // Load inline editing options for hierarchy fields
   const loadInlineSubModules = async (moduleId) => {
@@ -1398,6 +1399,7 @@ const TestCases = () => {
                               label={tag.trim()}
                               size="small"
                               color={
+                                tag.trim() === 'prod' ? 'secondary' :
                                 tag.trim() === 'smoke' ? 'error' :
                                 tag.trim() === 'regression' ? 'primary' :
                                 tag.trim() === 'sanity' ? 'success' :
@@ -1458,7 +1460,9 @@ const TestCases = () => {
                           />
                         )
                       ) : (
-                        <Typography variant="body2" color="text.secondary">-</Typography>
+                        <Tooltip title="Status is only applicable for Automated test cases" arrow>
+                          <Typography variant="body2" color="text.secondary" sx={{ cursor: 'help' }}>-</Typography>
+                        </Tooltip>
                       )}
                     </TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2127,6 +2131,7 @@ const TestCases = () => {
                                                 label={tag.trim()}
                                                 size="small"
                                                 color={
+                                                  tag.trim() === 'prod' ? 'secondary' :
                                                   tag.trim() === 'smoke' ? 'error' :
                                                   tag.trim() === 'regression' ? 'primary' :
                                                   tag.trim() === 'sanity' ? 'success' :
@@ -2183,7 +2188,9 @@ const TestCases = () => {
                                             />
                                           )
                                         ) : (
-                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                          <Tooltip title="Status is only applicable for Automated test cases" arrow>
+                                            <Typography variant="body2" color="text.secondary" sx={{ cursor: 'help' }}>-</Typography>
+                                          </Tooltip>
                                         )}
                                       </TableCell>
                                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
@@ -2777,6 +2784,7 @@ const TestCases = () => {
                               label={tag.trim()}
                               size="small"
                               color={
+                                tag.trim() === 'prod' ? 'secondary' :
                                 tag.trim() === 'smoke' ? 'error' :
                                 tag.trim() === 'regression' ? 'primary' :
                                 tag.trim() === 'sanity' ? 'success' :

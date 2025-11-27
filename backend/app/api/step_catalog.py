@@ -205,6 +205,10 @@ async def search_step_suggestions(
 
 # ============== Feature File Endpoints ==============
 
+# Constants for feature file limits
+MAX_DRAFT_FILES = 5
+MAX_ARCHIVED_FILES = 100
+
 @router.get("/feature-files", response_model=List[FeatureFileSchema])
 async def get_all_feature_files(
     status: Optional[str] = Query(None, description="Filter by status (draft, published, archived)"),
@@ -212,8 +216,9 @@ async def get_all_feature_files(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all feature files"""
-    query = db.query(FeatureFile)
+    """Get all feature files for the current user only"""
+    # Filter by current user - each user sees only their own files
+    query = db.query(FeatureFile).filter(FeatureFile.created_by == current_user.id)
     
     if status:
         query = query.filter(FeatureFile.status == status)
@@ -231,8 +236,11 @@ async def get_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get a specific feature file"""
-    file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    """Get a specific feature file (only if owned by current user)"""
+    file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
     if not file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     return file
@@ -244,7 +252,23 @@ async def create_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new feature file and upload to Confluence"""
+    """Create a new feature file and upload to Confluence
+    
+    Limits:
+    - Maximum 5 draft files per user
+    """
+    # Check draft limit (max 5)
+    draft_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "draft"
+    ).count()
+    
+    if draft_count >= MAX_DRAFT_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_DRAFT_FILES} draft files allowed. Please publish or delete existing drafts."
+        )
+    
     # Create database entry
     db_file = FeatureFile(
         **file.dict(),
@@ -284,8 +308,11 @@ async def update_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update an existing feature file and sync to Confluence"""
-    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    """Update an existing feature file and sync to Confluence (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
@@ -408,8 +435,11 @@ async def delete_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a feature file"""
-    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    """Delete a feature file (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
@@ -427,6 +457,10 @@ async def publish_feature_file(
 ):
     """Publish a feature file and create test cases from scenarios
     
+    Limits:
+    - Maximum 100 archived files per user
+    - When 101st file is archived, the oldest archived file (by published_at) is deleted
+    
     body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
     If not provided, defaults to "api" for all scenarios
     """
@@ -439,7 +473,10 @@ async def publish_feature_file(
     from app.schemas.schemas import TestCaseCreate
     from datetime import datetime
     
-    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
@@ -621,8 +658,14 @@ async def publish_feature_file(
             scenario_index += 1
             continue
     
-    # Update file status to published
+    # Update file status to published and set published_at
     db_file.status = "published"
+    from datetime import datetime
+    db_file.published_at = datetime.utcnow()
+    
+    # Check archive limit and handle if this file gets archived later
+    # When a file is published, we need to track it for future archiving
+    # The archive limit check will happen when status changes to "archived"
     
     # Also upload to Confluence
     confluence_url = None
@@ -657,8 +700,11 @@ async def restore_feature_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Restore a published feature file back to draft status"""
-    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    """Restore a published feature file back to draft status (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
     if not db_file:
         raise HTTPException(status_code=404, detail="Feature file not found")
     
@@ -666,6 +712,18 @@ async def restore_feature_file(
         raise HTTPException(
             status_code=400,
             detail="Only published files can be restored to draft"
+        )
+    
+    # Check draft limit before restoring
+    draft_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "draft"
+    ).count()
+    
+    if draft_count >= MAX_DRAFT_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_DRAFT_FILES} draft files allowed. Please publish or delete existing drafts before restoring."
         )
     
     # Change status back to draft
@@ -677,3 +735,67 @@ async def restore_feature_file(
         "message": "File restored to draft successfully",
         "file": db_file
     }
+
+
+@router.post("/feature-files/{file_id}/archive")
+async def archive_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Archive a published feature file
+    
+    Limits:
+    - Maximum 100 archived files per user
+    - When 101st file is archived, the oldest archived file (by published_at) is deleted
+    """
+    from datetime import datetime
+    
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Only published files can be archived"
+        )
+    
+    # Check current archived count
+    archived_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "archived"
+    ).count()
+    
+    deleted_file_name = None
+    
+    # If already at max, delete the oldest archived file (by published_at)
+    if archived_count >= MAX_ARCHIVED_FILES:
+        oldest_archived = db.query(FeatureFile).filter(
+            FeatureFile.created_by == current_user.id,
+            FeatureFile.status == "archived"
+        ).order_by(FeatureFile.published_at.asc().nullsfirst()).first()
+        
+        if oldest_archived:
+            deleted_file_name = oldest_archived.name
+            db.delete(oldest_archived)
+            db.commit()
+    
+    # Archive the current file
+    db_file.status = "archived"
+    db.commit()
+    db.refresh(db_file)
+    
+    response = {
+        "message": "File archived successfully",
+        "file": db_file
+    }
+    
+    if deleted_file_name:
+        response["oldest_deleted"] = deleted_file_name
+        response["message"] = f"File archived successfully. Oldest archived file '{deleted_file_name}' was deleted due to {MAX_ARCHIVED_FILES} file limit."
+    
+    return response

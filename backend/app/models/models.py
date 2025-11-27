@@ -326,6 +326,7 @@ class FeatureFile(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)  # Track when file was published for archive ordering
     
     # Relationships
     module = relationship("Module", foreign_keys=[module_id])

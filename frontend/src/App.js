@@ -23,6 +23,7 @@ import Users from './pages/Users';
 import Stories from './pages/Stories';
 import Issues from './pages/Issues';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
+import ApplicationSettings from './pages/ApplicationSettings';
 
 const theme = createTheme({
   palette: {
@@ -165,6 +166,16 @@ function AppContent() {
             <AdminRoute>
               <Layout>
                 <Users />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AdminRoute>
+              <Layout>
+                <ApplicationSettings />
               </Layout>
             </AdminRoute>
           }

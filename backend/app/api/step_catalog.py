@@ -482,6 +482,141 @@ async def preview_scenarios(
     }
 
 
+@router.post("/feature-files/{file_id}/check-similarity")
+async def check_similarity(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Check similarity of scenarios in a feature file against existing test cases.
+    
+    Returns similarity scores for each scenario to help identify potential duplicates.
+    
+    Body (optional):
+        threshold: int (0-100) - Override the default similarity threshold
+    """
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from app.services.embedding_service import get_embedding_service, DEFAULT_MODEL
+    from app.models.models import ApplicationSetting
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if not db_file.content:
+        raise HTTPException(status_code=400, detail="Feature file has no content")
+    
+    # Get settings
+    threshold_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "similarity_threshold").first()
+    threshold = int(threshold_setting.value) if threshold_setting else 75
+    
+    model_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "embedding_model").first()
+    current_model = model_setting.value if model_setting else DEFAULT_MODEL
+    
+    # Allow threshold override from request
+    if body and "threshold" in body:
+        threshold = body["threshold"]
+    
+    # Parse the feature file content
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    embedding_service = get_embedding_service()
+    model_status = embedding_service.get_model_status()
+    
+    results = []
+    
+    # Process each scenario
+    for idx, child in enumerate(feature.get('children', [])):
+        child_type = child.get('type', '')
+        if child_type not in ['Scenario', 'ScenarioOutline']:
+            if 'scenario' in child:
+                child = child['scenario']
+            else:
+                continue
+        
+        scenario_name = child.get('name', 'Unnamed Scenario')
+        
+        # Collect steps as text
+        steps_list = []
+        for step in child.get('steps', []):
+            keyword = step.get('keyword', '').strip()
+            text = step.get('text', '').strip()
+            steps_list.append(f"{keyword} {text}")
+        steps_text = " ".join(steps_list)
+        
+        # Prepare text for embedding
+        text_for_embedding = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+        
+        # Generate embedding for this scenario
+        try:
+            embedding = embedding_service.generate_embedding(text_for_embedding, current_model)
+            
+            # Find similar test cases
+            similar = embedding_service.find_similar_test_cases(
+                embedding=embedding,
+                db=db,
+                threshold=threshold,
+                limit=1  # Get only the most similar
+            )
+            
+            if similar:
+                top_match = similar[0]
+                results.append({
+                    "index": idx,
+                    "scenario_name": scenario_name,
+                    "similarity_percent": top_match["similarity_percent"],
+                    "similar_test_case_id": top_match["test_id"],
+                    "similar_test_case_db_id": top_match["test_case_id"],
+                    "similar_test_case_title": top_match["title"],
+                    "is_potential_duplicate": top_match["similarity_percent"] >= threshold
+                })
+            else:
+                results.append({
+                    "index": idx,
+                    "scenario_name": scenario_name,
+                    "similarity_percent": 0,
+                    "similar_test_case_id": None,
+                    "similar_test_case_db_id": None,
+                    "similar_test_case_title": None,
+                    "is_potential_duplicate": False
+                })
+        except Exception as e:
+            print(f"Error processing scenario '{scenario_name}': {e}")
+            results.append({
+                "index": idx,
+                "scenario_name": scenario_name,
+                "similarity_percent": 0,
+                "similar_test_case_id": None,
+                "similar_test_case_db_id": None,
+                "similar_test_case_title": None,
+                "is_potential_duplicate": False,
+                "error": str(e)
+            })
+    
+    return {
+        "file_id": file_id,
+        "threshold": threshold,
+        "model_used": current_model,
+        "model_status": model_status.get(current_model, {}).get("status", "unknown"),
+        "results": results
+    }
+
+
 @router.delete("/feature-files/{file_id}")
 async def delete_feature_file(
     file_id: int,
@@ -609,8 +744,14 @@ async def approve_feature_file(
     
     from gherkin.parser import Parser
     from gherkin.token_scanner import TokenScanner
-    from app.models.models import TestCase, Module
+    from app.models.models import TestCase, Module, ApplicationSetting
+    from app.services.embedding_service import get_embedding_service, DEFAULT_MODEL
     from datetime import datetime
+    
+    # Get embedding settings
+    embedding_service = get_embedding_service()
+    model_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "embedding_model").first()
+    current_model = model_setting.value if model_setting else DEFAULT_MODEL
     
     # Build type map from scenario_types
     type_map = {}
@@ -721,6 +862,14 @@ async def approve_feature_file(
                     
                     test_id = generate_test_id(tag, db)
                     
+                    # Generate embedding for similarity search
+                    embedding_text = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+                    try:
+                        embedding = embedding_service.generate_embedding(embedding_text, current_model)
+                    except Exception as e:
+                        print(f"Warning: Failed to generate embedding: {e}")
+                        embedding = None
+                    
                     db_test_case = TestCase(
                         test_id=test_id,
                         title=scenario_name,
@@ -738,7 +887,9 @@ async def approve_feature_file(
                         preconditions=None,
                         test_data=None,
                         automated_script_path=None,
-                        created_at=datetime.utcnow()
+                        created_at=datetime.utcnow(),
+                        embedding=embedding,
+                        embedding_model=current_model if embedding else None
                     )
                     
                     db.add(db_test_case)
@@ -746,6 +897,14 @@ async def approve_feature_file(
                     created_count += 1
             else:
                 test_id = generate_test_id(tag, db)
+                
+                # Generate embedding for similarity search
+                embedding_text = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+                try:
+                    embedding = embedding_service.generate_embedding(embedding_text, current_model)
+                except Exception as e:
+                    print(f"Warning: Failed to generate embedding: {e}")
+                    embedding = None
                 
                 db_test_case = TestCase(
                     test_id=test_id,
@@ -764,7 +923,9 @@ async def approve_feature_file(
                     preconditions=None,
                     test_data=None,
                     automated_script_path=None,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.utcnow(),
+                    embedding=embedding,
+                    embedding_model=current_model if embedding else None
                 )
                 
                 db.add(db_test_case)

@@ -27,6 +27,7 @@ import {
   AccountTree as AccountTreeIcon,
   LocalOffer as LocalOfferIcon,
   People as PeopleIcon,
+  Settings as SettingsIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -73,6 +74,7 @@ const Layout = ({ children }) => {
 
   if (isAdmin()) {
     menuItems.push({ text: 'Users', icon: <PeopleIcon />, path: '/users' });
+    menuItems.push({ text: 'Settings', icon: <SettingsIcon />, path: '/settings' });
   }
 
   const drawer = (

@@ -1797,6 +1797,7 @@ const TestDesignStudio = () => {
         loading={publishPreviewLoading}
         error={publishPreviewError}
         onPublish={handleConfirmPublish}
+        fileId={fileToPublish?.id}
       />
     </>
   );

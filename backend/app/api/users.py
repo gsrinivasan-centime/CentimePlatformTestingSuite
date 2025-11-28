@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
-from app.models.models import User, UserRole
+from app.models.models import User, UserRole, FeatureFile
 from app.schemas.schemas import User as UserSchema, UserUpdate, UserCreate
 from app.api.auth import get_current_active_user
 from app.core.security import get_password_hash
@@ -18,6 +18,7 @@ def require_admin(current_user: User = Depends(get_current_active_user)):
         )
     return current_user
 
+@router.get("", response_model=List[UserSchema])
 @router.get("/", response_model=List[UserSchema])
 def list_users(
     skip: int = 0,
@@ -37,8 +38,9 @@ def get_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return users
 
+@router.post("", response_model=UserSchema, status_code=201)
 @router.post("/", response_model=UserSchema, status_code=201)
 def create_user(
     user: UserCreate,
@@ -114,6 +116,9 @@ def delete_user(
     # Prevent deleting yourself
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    # Delete all feature files belonging to this user (drafts + archived + published)
+    db.query(FeatureFile).filter(FeatureFile.created_by == user.id).delete()
     
     db.delete(user)
     db.commit()

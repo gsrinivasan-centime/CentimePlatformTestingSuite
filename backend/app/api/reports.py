@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from datetime import datetime
+from io import BytesIO
 from app.core.database import get_db
 from app.models.models import (
     TestExecution, TestCase, Module, Release, User, TestStatus, JiraDefect, JiraStory
@@ -83,6 +84,57 @@ def get_release_report(
     total_test_cases = db.query(TestCase).count()
     overall_pass_percentage = (total_passed / total_executed * 100) if total_executed > 0 else 0
     
+    # Get issue statistics for this release
+    from app.models.models import Issue
+    from app.schemas.schemas import IssueStats
+    
+    issues_query = db.query(Issue).filter(Issue.release_id == release_id)
+    total_issues = issues_query.count()
+    
+    issue_stats = None
+    if total_issues > 0:
+        # Count by status
+        open_count = issues_query.filter(func.lower(Issue.status) == 'open').count()
+        in_progress_count = issues_query.filter(func.lower(Issue.status) == 'in progress').count()
+        resolved_count = issues_query.filter(func.lower(Issue.status) == 'resolved').count()
+        closed_count = issues_query.filter(func.lower(Issue.status) == 'closed').count()
+        
+        # Count by priority
+        priority_counts = db.query(
+            func.lower(Issue.priority),
+            func.count(Issue.id)
+        ).filter(
+            Issue.release_id == release_id
+        ).group_by(
+            func.lower(Issue.priority)
+        ).all()
+        
+        by_priority = {priority: count for priority, count in priority_counts if priority}
+        
+        # Count by module
+        module_issue_counts = db.query(
+            Module.name,
+            func.count(Issue.id)
+        ).join(
+            Issue, Module.id == Issue.module_id
+        ).filter(
+            Issue.release_id == release_id
+        ).group_by(
+            Module.name
+        ).all()
+        
+        by_module = [{"module_name": name, "count": count} for name, count in module_issue_counts]
+        
+        issue_stats = IssueStats(
+            total_issues=total_issues,
+            open=open_count,
+            in_progress=in_progress_count,
+            resolved=resolved_count,
+            closed=closed_count,
+            by_priority=by_priority,
+            by_module=by_module
+        )
+    
     return ReleaseReport(
         release_version=release.version,
         release_name=release.name,
@@ -97,6 +149,7 @@ def get_release_report(
         skipped=total_skipped,
         pass_percentage=round(overall_pass_percentage, 2),
         module_reports=module_reports,
+        issue_stats=issue_stats,
         generated_at=datetime.utcnow()
     )
 
@@ -110,14 +163,15 @@ def generate_pdf_report(
     # Get the same data as the summary endpoint
     data = get_release_summary(release_id, None, db, current_user)
     
-    # Create reports directory if it doesn't exist
-    os.makedirs("reports", exist_ok=True)
+    # Generate PDF in memory instead of saving to disk
+    pdf_buffer = BytesIO()
     
-    filename = f"reports/release_{data['release_version']}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    # Create filename for download
+    download_filename = f"release_{data['release_version']}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     
     # Create PDF with tighter margins
     doc = SimpleDocTemplate(
-        filename, 
+        pdf_buffer, 
         pagesize=A4,
         leftMargin=0.5*inch,
         rightMargin=0.5*inch,
@@ -429,7 +483,17 @@ def generate_pdf_report(
     # Build PDF
     doc.build(elements)
     
-    return FileResponse(filename, media_type='application/pdf', filename=os.path.basename(filename))
+    # Reset buffer position to beginning for reading
+    pdf_buffer.seek(0)
+    
+    # Return as streaming response (no file saved to disk)
+    return StreamingResponse(
+        pdf_buffer,
+        media_type='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{download_filename}"'
+        }
+    )
 
 
 @router.get("/summary")
@@ -454,18 +518,22 @@ def get_release_summary(
     
     release_test_cases = query.all()
     
+    # Filter out test cases that have been deleted
+    valid_test_cases = [rtc for rtc in release_test_cases if rtc.test_case is not None]
+    
     # Calculate overall statistics
-    total_tests = len(release_test_cases)
-    passed_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.PASSED])
-    failed_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.FAILED])
-    blocked_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.BLOCKED])
-    skipped_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.SKIPPED])
-    in_progress_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.IN_PROGRESS])
-    not_started_tests = len([tc for tc in release_test_cases if tc.execution_status == ExecutionStatus.NOT_STARTED])
+    total_tests = len(valid_test_cases)
+    passed_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.PASSED])
+    failed_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.FAILED])
+    blocked_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.BLOCKED])
+    skipped_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.SKIPPED])
+    in_progress_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.IN_PROGRESS])
+    not_started_tests = len([tc for tc in valid_test_cases if tc.execution_status == ExecutionStatus.NOT_STARTED])
     
     # Group by module
     modules_data = {}
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
+            
         module_id = rtc.module_id
         if module_id not in modules_data:
             modules_data[module_id] = {
@@ -497,7 +565,13 @@ def get_release_summary(
             modules_data[module_id]['not_started'] += 1
         
         # Group by sub-module within module
-        sub_module_name = rtc.sub_module.name if rtc.sub_module else 'Uncategorized'
+        # Use sub_module from ReleaseTestCase if available, otherwise from TestCase
+        sub_module_name = 'Uncategorized'
+        if rtc.sub_module:
+            sub_module_name = rtc.sub_module.name
+        elif rtc.test_case.sub_module:
+            sub_module_name = rtc.test_case.sub_module
+        
         if sub_module_name not in modules_data[module_id]['sub_modules']:
             modules_data[module_id]['sub_modules'][sub_module_name] = {
                 'name': sub_module_name,
@@ -527,7 +601,13 @@ def get_release_summary(
             modules_data[module_id]['sub_modules'][sub_module_name]['not_started'] += 1
         
         # Group by feature within sub-module
-        feature_name = rtc.feature.name if rtc.feature else 'No Feature'
+        # Use feature from ReleaseTestCase if available, otherwise from TestCase
+        feature_name = 'No Feature'
+        if rtc.feature:
+            feature_name = rtc.feature.name
+        elif rtc.test_case.feature_section:
+            feature_name = rtc.test_case.feature_section
+        
         if feature_name not in modules_data[module_id]['sub_modules'][sub_module_name]['features']:
             modules_data[module_id]['sub_modules'][sub_module_name]['features'][feature_name] = {
                 'name': feature_name,
@@ -603,7 +683,7 @@ def get_release_summary(
     
     # Get failed test case details
     failed_test_details = []
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
         if rtc.execution_status == ExecutionStatus.FAILED:
             # Get JIRA Story information if linked
             jira_story_info = None
@@ -628,7 +708,7 @@ def get_release_summary(
     
     # Generate story-wise summary
     story_summary = {}
-    for rtc in release_test_cases:
+    for rtc in valid_test_cases:
         if rtc.test_case.jira_story_id:
             story_id = rtc.test_case.jira_story_id
             if story_id not in story_summary:
@@ -683,8 +763,8 @@ def get_release_summary(
     story_summary_list.sort(key=lambda x: x['story_id'])
     
     # Calculate UI/API breakdown
-    ui_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag in ['ui', 'hybrid']]
-    api_tests = [rtc for rtc in release_test_cases if rtc.test_case.tag == 'api']
+    ui_tests = [rtc for rtc in valid_test_cases if rtc.test_case.tag in ['ui', 'hybrid']]
+    api_tests = [rtc for rtc in valid_test_cases if rtc.test_case.tag == 'api']
     
     ui_stats = {
         'total': len(ui_tests),

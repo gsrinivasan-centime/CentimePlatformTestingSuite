@@ -396,5 +396,99 @@ class JiraService:
         
         return all_stories
 
+    def search_users(self, query: str = "") -> list:
+        """
+        Search for users in JIRA or get all users
+        
+        Args:
+            query: The search query (name, email, etc.). If empty, returns all users.
+            
+        Returns:
+            List of user details
+        """
+        if not self.is_configured:
+            raise ValueError(
+                "JIRA integration is not configured. Please set JIRA_SERVER, "
+                "JIRA_EMAIL, and JIRA_API_TOKEN in your .env file."
+            )
+        
+        try:
+            all_users = []
+            start_at = 0
+            max_results = 100
+            
+            # If query is provided, use search endpoint
+            if query:
+                api_url = f"{self.jira_server}/rest/api/3/user/search"
+                response = requests.get(
+                    api_url,
+                    auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                    headers={
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    params={
+                        'query': query,
+                        'maxResults': 50
+                    },
+                    timeout=10
+                )
+                response.raise_for_status()
+                users = response.json()
+            else:
+                # Get all users by paginating through results
+                # Use an empty string or '.' as a wildcard to get all users
+                api_url = f"{self.jira_server}/rest/api/3/users/search"
+                
+                while True:
+                    response = requests.get(
+                        api_url,
+                        auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                        headers={
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        params={
+                            'startAt': start_at,
+                            'maxResults': max_results
+                        },
+                        timeout=10
+                    )
+                    
+                    response.raise_for_status()
+                    batch = response.json()
+                    
+                    if not batch:
+                        break
+                    
+                    all_users.extend(batch)
+                    
+                    # If we got fewer results than max_results, we've reached the end
+                    if len(batch) < max_results:
+                        break
+                    
+                    start_at += max_results
+                    
+                    # Safety limit to prevent infinite loops
+                    if start_at >= 1000:
+                        break
+                
+                users = all_users
+            
+            # Filter and format users
+            return [
+                {
+                    'accountId': user.get('accountId'),
+                    'displayName': user.get('displayName'),
+                    'emailAddress': user.get('emailAddress', ''),
+                    'avatarUrl': user.get('avatarUrls', {}).get('48x48', '')
+                }
+                for user in users
+                if user.get('accountType') == 'atlassian' and user.get('active', True)
+            ]
+            
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to search users in JIRA: {e}")
+
 # Singleton instance
 jira_service = JiraService()

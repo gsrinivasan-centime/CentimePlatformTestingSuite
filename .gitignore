@@ -39,10 +39,13 @@ frontend/npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Database
+# Database - SQLite (no longer used)
 *.db
 *.sqlite
 *.sqlite3
+*.db.backup*
+
+# Database - PostgreSQL (connection details in .env)
 
 # Reports
 *.pdf
@@ -52,3 +55,5 @@ Thumbs.db
 # Selenium
 geckodriver.log
 chromedriver.log
+
+!frontend/public/index.html

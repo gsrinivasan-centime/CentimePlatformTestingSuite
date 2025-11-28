@@ -9,7 +9,8 @@ from app.models.models import TestCase, User, Module
 from app.schemas.schemas import (
     TestCase as TestCaseSchema,
     TestCaseCreate,
-    TestCaseUpdate
+    TestCaseUpdate,
+    TestCaseBulkUpdate
 )
 from app.api.auth import get_current_active_user
 from app.services.test_sync import TestCaseSync
@@ -57,6 +58,7 @@ def get_next_test_id(
     next_id = generate_test_id(tag, db)
     return {"test_id": next_id}
 
+@router.get("", response_model=List[TestCaseSchema])
 @router.get("/", response_model=List[TestCaseSchema])
 def list_test_cases(
     skip: int = 0,
@@ -82,6 +84,7 @@ def list_test_cases(
     test_cases = query.offset(skip).limit(limit).all()
     return test_cases
 
+@router.post("", response_model=TestCaseSchema, status_code=201)
 @router.post("/", response_model=TestCaseSchema, status_code=201)
 def create_test_case(
     test_case: TestCaseCreate,
@@ -605,6 +608,46 @@ def get_test_cases_by_jira_story(
         "view_type": "jira_story",
         "epics": result,
         "total_test_cases": len(test_cases)
+    }
+
+@router.put("/bulk-update", response_model=dict)
+def bulk_update_test_cases(
+    bulk_update: TestCaseBulkUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Bulk update multiple test cases at once.
+    Only non-null fields in the request will be updated.
+    """
+    if not bulk_update.test_case_ids:
+        raise HTTPException(status_code=400, detail="No test case IDs provided")
+    
+    # Get update data, excluding None values and the test_case_ids field
+    update_data = bulk_update.dict(exclude_unset=True, exclude={'test_case_ids'})
+    update_data = {k: v for k, v in update_data.items() if v is not None}
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+    
+    # Fetch all test cases that match the provided IDs
+    test_cases = db.query(TestCase).filter(TestCase.id.in_(bulk_update.test_case_ids)).all()
+    
+    if not test_cases:
+        raise HTTPException(status_code=404, detail="No matching test cases found")
+    
+    updated_count = 0
+    for test_case in test_cases:
+        for field, value in update_data.items():
+            setattr(test_case, field, value)
+        updated_count += 1
+    
+    db.commit()
+    
+    return {
+        "message": f"Successfully updated {updated_count} test cases",
+        "updated_count": updated_count,
+        "updated_ids": bulk_update.test_case_ids
     }
 
 @router.get("/{test_case_id}", response_model=TestCaseSchema)

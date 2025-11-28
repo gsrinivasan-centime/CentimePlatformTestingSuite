@@ -39,6 +39,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import api from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
+import TruncatedText from '../components/TruncatedText';
 
 const Releases = () => {
   const navigate = useNavigate();
@@ -317,14 +318,17 @@ const Releases = () => {
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography variant="body1">
-                      {release.name}
-                    </Typography>
+                    <TruncatedText 
+                      text={release.name}
+                      variant="body1"
+                    />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography variant="body2" color="textSecondary">
-                      {release.description || 'No description'}
-                    </Typography>
+                    <TruncatedText 
+                      text={release.description || 'No description'}
+                      variant="body2"
+                      color="textSecondary"
+                    />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {new Date(release.release_date).toLocaleDateString()}

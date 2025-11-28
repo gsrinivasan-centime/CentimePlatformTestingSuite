@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum, Float, func
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -58,6 +59,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_email_verified = Column(Boolean, default=False)
     email_verified_at = Column(DateTime, nullable=True)
+    is_super_admin = Column(Boolean, default=False)  # Only super admin can modify application settings
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -86,11 +88,6 @@ class SubModule(Base):
     
     # Relationships
     module = relationship("Module", back_populates="sub_modules")
-    
-    # Unique constraint: sub-module name must be unique within a module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Feature(Base):
     __tablename__ = "features"
@@ -103,11 +100,6 @@ class Feature(Base):
     
     # Relationships
     sub_module = relationship("SubModule")
-    
-    # Unique constraint: feature name must be unique within a sub-module
-    __table_args__ = (
-        {'sqlite_autoincrement': True},
-    )
 
 class Release(Base):
     __tablename__ = "releases"
@@ -169,6 +161,10 @@ class TestCase(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Similarity analysis - embedding vector stored as float array (384 dimensions)
+    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
     
     # Relationships
     module = relationship("Module", back_populates="test_cases")
@@ -287,4 +283,110 @@ class JiraStory(Base):
     
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
+
+
+class StepCatalog(Base):
+    __tablename__ = "step_catalog"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    step_type = Column(String(10), nullable=False, index=True)  # Given, When, Then, And, But
+    step_text = Column(Text, nullable=False)  # Exact step text
+    step_pattern = Column(Text, nullable=True)  # Parameterized pattern
+    description = Column(Text, nullable=True)
+    parameters = Column(Text, nullable=True)  # JSON string of parameter definitions
+    usage_count = Column(Integer, default=0)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    tags = Column(String, nullable=True)  # Comma-separated tags
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    module = relationship("Module", foreign_keys=[module_id])
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class TestCaseStory(Base):
+    __tablename__ = "test_case_stories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False)
+    story_id = Column(String(50), ForeignKey("jira_stories.story_id"), nullable=False)
+    linked_at = Column(DateTime, default=datetime.utcnow)
+    linked_by = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    test_case = relationship("TestCase", backref="story_links")
+    story = relationship("JiraStory", backref="test_case_links")
+    linker = relationship("User", foreign_keys=[linked_by])
+
+class FeatureFile(Base):
+    __tablename__ = "feature_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    content = Column(Text, nullable=False)  # Gherkin feature file content
+    description = Column(Text, nullable=True)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    status = Column(String(20), default="draft")  # draft, pending_approval, published, archived
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)  # Track when file was published for archive ordering
+    submitted_for_approval_at = Column(DateTime, nullable=True)  # When tester submitted for approval
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who approved
+    approved_at = Column(DateTime, nullable=True)  # When admin approved
+    
+    # Relationships
+    module = relationship("Module", foreign_keys=[module_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    approver = relationship("User", foreign_keys=[approved_by])
+
+
+class Issue(Base):
+    __tablename__ = "issues"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(String(50), default="Open", index=True)  # Open, In Progress, Closed, Resolved
+    priority = Column(String(20), default="Medium")  # High, Medium, Low, Critical
+    severity = Column(String(20), default="Major")  # Critical, Major, Minor, Trivial
+    
+    # New fields for refactor
+    video_url = Column(String, nullable=True)
+    screenshot_urls = Column(Text, nullable=True)  # JSON string or comma-separated
+    jira_assignee_id = Column(String(100), nullable=True)
+    jira_assignee_name = Column(String(255), nullable=True)
+    reporter_name = Column(String(100), nullable=True)
+    jira_story_id = Column(String(50), nullable=True)
+    
+    # Linkages
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    release_id = Column(Integer, ForeignKey("releases.id"), nullable=True)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=True)
+    
+    # Metadata
+    created_by = Column(Integer, ForeignKey("users.id"))
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    module = relationship("Module", backref="issues")
+    release = relationship("Release", backref="issues")
+    test_case = relationship("TestCase", backref="issues")
+    creator = relationship("User", foreign_keys=[created_by])
+    assignee = relationship("User", foreign_keys=[assigned_to])
+
+
+class ApplicationSetting(Base):
+    """Application-wide settings stored in database"""
+    __tablename__ = "application_settings"
+    
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+    description = Column(String(500), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

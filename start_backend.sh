@@ -57,13 +57,48 @@ if [ ! -f ".env" ]; then
     echo "✓ .env file created with secure SECRET_KEY"
 fi
 
-# Check if database is initialized
-if [ ! -f "test_management.db" ]; then
-    echo "🗄️  Initializing database..."
-    python init_db.py
+# Check if database needs initialization
+echo "🗄️  Checking database status..."
+
+# Check if Alembic has been run (check for alembic_version table)
+DB_INITIALIZED=$(python -c "
+from app.core.database import engine
+from sqlalchemy import inspect, text
+try:
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    if 'alembic_version' in tables and 'users' in tables:
+        print('true')
+    else:
+        print('false')
+except Exception:
+    print('false')
+" 2>/dev/null || echo "false")
+
+if [ "$DB_INITIALIZED" = "false" ]; then
+    echo "🔄 Running database migrations and initialization..."
+    
+    # Check if PostgreSQL is accessible
+    if ! python -c "from app.core.database import engine; engine.connect()" 2>/dev/null; then
+        echo "❌ Error: Cannot connect to PostgreSQL database"
+        echo ""
+        echo "Please ensure:"
+        echo "  1. PostgreSQL is running"
+        echo "  2. Database 'test_management' exists: psql -U postgres -c \"CREATE DATABASE test_management;\""
+        echo "  3. DATABASE_URL in .env is correct"
+        echo ""
+        exit 1
+    fi
+    
+    # Run Alembic migrations
+    alembic upgrade head
+    
+    # Initialize with sample data
+    python init_db_postgres.py
+    
     echo "✓ Database initialized"
 else
-    echo "✓ Database already exists"
+    echo "✓ Database already initialized"
 fi
 
 echo ""
@@ -84,5 +119,6 @@ echo "Press Ctrl+C to stop the server"
 echo "=================================================="
 echo ""
 
-# Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Start the server (without --reload to avoid reload loops from venv file access)
+# For development with auto-reload, use: uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000

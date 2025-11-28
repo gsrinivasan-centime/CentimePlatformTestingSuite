@@ -8,6 +8,7 @@ from app.api.auth import get_current_active_user
 
 router = APIRouter()
 
+@router.get("", response_model=List[ModuleSchema])
 @router.get("/", response_model=List[ModuleSchema])
 def list_modules(
     skip: int = 0,
@@ -18,6 +19,7 @@ def list_modules(
     modules = db.query(Module).offset(skip).limit(limit).all()
     return modules
 
+@router.post("", response_model=ModuleSchema, status_code=201)
 @router.post("/", response_model=ModuleSchema, status_code=201)
 def create_module(
     module: ModuleCreate,

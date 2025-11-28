@@ -1,0 +1,1116 @@
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from app.core.database import get_db
+from app.models.models import StepCatalog, FeatureFile, User, UserRole
+from app.schemas.schemas import (
+    StepCatalog as StepCatalogSchema,
+    StepCatalogCreate,
+    StepCatalogUpdate,
+    FeatureFile as FeatureFileSchema,
+    FeatureFileCreate,
+    FeatureFileUpdate
+)
+from app.api.auth import get_current_user
+from app.services.confluence_service import confluence_service
+import json
+
+router = APIRouter()
+
+# ============== Step Catalog Endpoints ==============
+
+@router.get("/steps", response_model=List[StepCatalogSchema])
+async def get_all_steps(
+    step_type: Optional[str] = Query(None, description="Filter by step type (Given, When, Then)"),
+    search: Optional[str] = Query(None, description="Search in step text"),
+    tags: Optional[str] = Query(None, description="Filter by tags (comma-separated)"),
+    module_id: Optional[int] = Query(None, description="Filter by module"),
+    sort_by: str = Query("usage_count", description="Sort by: usage_count, created_at, step_type"),
+    order: str = Query("desc", description="Sort order: asc or desc"),
+    db: Session = Depends(get_db)
+):
+    """Get all steps from catalog with optional filters"""
+    try:
+        query = db.query(StepCatalog)
+        
+        if step_type:
+            query = query.filter(StepCatalog.step_type == step_type)
+        
+        if search:
+            query = query.filter(StepCatalog.step_text.contains(search))
+        
+        if tags:
+            tag_list = tags.split(',')
+            for tag in tag_list:
+                query = query.filter(StepCatalog.tags.contains(tag.strip()))
+        
+        if module_id:
+            query = query.filter(StepCatalog.module_id == module_id)
+        
+        # Apply sorting
+        if sort_by == "usage_count":
+            query = query.order_by(StepCatalog.usage_count.desc() if order == "desc" else StepCatalog.usage_count.asc())
+        elif sort_by == "created_at":
+            query = query.order_by(StepCatalog.created_at.desc() if order == "desc" else StepCatalog.created_at.asc())
+        elif sort_by == "step_type":
+            query = query.order_by(StepCatalog.step_type.asc() if order == "asc" else StepCatalog.step_type.desc())
+        
+        steps = query.all()
+        return steps
+    except Exception as e:
+        print(f"ERROR in get_all_steps: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching steps: {str(e)}")
+
+
+@router.get("/steps/{step_id}", response_model=StepCatalogSchema)
+async def get_step(step_id: int, db: Session = Depends(get_db)):
+    """Get a specific step by ID"""
+    step = db.query(StepCatalog).filter(StepCatalog.id == step_id).first()
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return step
+
+
+@router.post("/steps", response_model=StepCatalogSchema)
+async def create_step(
+    step: StepCatalogCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new reusable step"""
+    db_step = StepCatalog(
+        **step.dict(),
+        created_by=current_user.id,
+        usage_count=0
+    )
+    db.add(db_step)
+    db.commit()
+    db.refresh(db_step)
+    return db_step
+
+
+@router.put("/steps/{step_id}", response_model=StepCatalogSchema)
+async def update_step(
+    step_id: int,
+    step: StepCatalogUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update an existing step"""
+    db_step = db.query(StepCatalog).filter(StepCatalog.id == step_id).first()
+    if not db_step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    update_data = step.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_step, field, value)
+    
+    db.commit()
+    db.refresh(db_step)
+    return db_step
+
+
+@router.delete("/steps/{step_id}")
+async def delete_step(
+    step_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a step from catalog"""
+    db_step = db.query(StepCatalog).filter(StepCatalog.id == step_id).first()
+    if not db_step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    db.delete(db_step)
+    db.commit()
+    return {"message": "Step deleted successfully"}
+
+
+@router.post("/steps/{step_id}/increment-usage")
+async def increment_step_usage(step_id: int, db: Session = Depends(get_db)):
+    """Increment usage count when step is used in a test case"""
+    db_step = db.query(StepCatalog).filter(StepCatalog.id == step_id).first()
+    if not db_step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    db_step.usage_count += 1
+    db.commit()
+    db.refresh(db_step)
+    return {"message": "Usage count incremented", "new_count": db_step.usage_count}
+
+
+@router.get("/steps/stats/summary")
+async def get_steps_stats(db: Session = Depends(get_db)):
+    """Get statistics about steps in catalog"""
+    total_steps = db.query(StepCatalog).count()
+    given_steps = db.query(StepCatalog).filter(StepCatalog.step_type == "Given").count()
+    when_steps = db.query(StepCatalog).filter(StepCatalog.step_type == "When").count()
+    then_steps = db.query(StepCatalog).filter(StepCatalog.step_type == "Then").count()
+    
+    most_used = db.query(StepCatalog).order_by(StepCatalog.usage_count.desc()).limit(10).all()
+    
+    return {
+        "total_steps": total_steps,
+        "by_type": {
+            "given": given_steps,
+            "when": when_steps,
+            "then": then_steps
+        },
+        "most_used": [
+            {
+                "id": step.id,
+                "step_text": step.step_text,
+                "step_type": step.step_type,
+                "usage_count": step.usage_count
+            }
+            for step in most_used
+        ]
+    }
+
+
+@router.get("/steps/search/suggestions")
+async def search_step_suggestions(
+    query: str = Query(..., min_length=1, description="Search query"),
+    step_type: Optional[str] = Query(None, description="Filter by step type"),
+    limit: int = Query(10, le=50, description="Max number of suggestions"),
+    db: Session = Depends(get_db)
+):
+    """Search for step suggestions (for autocomplete)"""
+    search_query = db.query(StepCatalog).filter(
+        StepCatalog.step_text.contains(query)
+    )
+    
+    if step_type:
+        search_query = search_query.filter(StepCatalog.step_type == step_type)
+    
+    results = search_query.order_by(
+        StepCatalog.usage_count.desc()
+    ).limit(limit).all()
+    
+    return [
+        {
+            "id": step.id,
+            "step_type": step.step_type,
+            "step_text": step.step_text,
+            "step_pattern": step.step_pattern,
+            "usage_count": step.usage_count,
+            "description": step.description,
+            "parameters": json.loads(step.parameters) if step.parameters else None
+        }
+        for step in results
+    ]
+
+
+# ============== Feature File Endpoints ==============
+
+# Constants for feature file limits
+MAX_DRAFT_FILES = 5
+MAX_ARCHIVED_FILES = 100
+
+@router.get("/feature-files", response_model=List[FeatureFileSchema])
+async def get_all_feature_files(
+    status: Optional[str] = Query(None, description="Filter by status (draft, published, archived)"),
+    module_id: Optional[int] = Query(None, description="Filter by module"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all feature files for the current user only"""
+    # Filter by current user - each user sees only their own files
+    query = db.query(FeatureFile).filter(FeatureFile.created_by == current_user.id)
+    
+    if status:
+        query = query.filter(FeatureFile.status == status)
+    
+    if module_id:
+        query = query.filter(FeatureFile.module_id == module_id)
+    
+    files = query.order_by(FeatureFile.updated_at.desc()).all()
+    return files
+
+
+@router.get("/feature-files/pending-approval/list")
+async def get_pending_approval_files(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get files pending approval
+    
+    - Admins: See all pending files from all users
+    - Testers: See only their own pending files
+    """
+    if current_user.role == UserRole.ADMIN:
+        # Admins see all pending approval files
+        files = db.query(FeatureFile).filter(
+            FeatureFile.status == "pending_approval"
+        ).order_by(FeatureFile.submitted_for_approval_at.desc()).all()
+        
+        # Enrich with creator info
+        result = []
+        for file in files:
+            creator = db.query(User).filter(User.id == file.created_by).first()
+            result.append({
+                "id": file.id,
+                "name": file.name,
+                "description": file.description,
+                "content": file.content,  # Include content for viewing
+                "module_id": file.module_id,
+                "status": file.status,
+                "created_by": file.created_by,
+                "creator_name": creator.full_name if creator else "Unknown",
+                "creator_email": creator.email if creator else "Unknown",
+                "created_at": file.created_at,
+                "submitted_for_approval_at": file.submitted_for_approval_at
+            })
+        return result
+    else:
+        # Testers see only their own pending files
+        files = db.query(FeatureFile).filter(
+            FeatureFile.created_by == current_user.id,
+            FeatureFile.status == "pending_approval"
+        ).order_by(FeatureFile.submitted_for_approval_at.desc()).all()
+        return files
+
+
+@router.get("/feature-files/{file_id}", response_model=FeatureFileSchema)
+async def get_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific feature file
+    
+    - Admins can view any file
+    - Testers can only view their own files
+    """
+    if current_user.role == UserRole.ADMIN:
+        # Admins can view any file
+        file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    else:
+        # Testers can only view their own files
+        file = db.query(FeatureFile).filter(
+            FeatureFile.id == file_id,
+            FeatureFile.created_by == current_user.id
+        ).first()
+    
+    if not file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    return file
+
+
+@router.post("/feature-files", response_model=FeatureFileSchema)
+async def create_feature_file(
+    file: FeatureFileCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new feature file and upload to Confluence
+    
+    Limits:
+    - Maximum 5 draft files per user
+    """
+    # Check draft limit (max 5)
+    draft_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "draft"
+    ).count()
+    
+    if draft_count >= MAX_DRAFT_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_DRAFT_FILES} draft files allowed. Please publish or delete existing drafts."
+        )
+    
+    # Create database entry
+    db_file = FeatureFile(
+        **file.dict(),
+        created_by=current_user.id
+    )
+    db.add(db_file)
+    db.commit()
+    db.refresh(db_file)
+    
+    # Upload to Confluence if content is provided
+    if db_file.content:
+        try:
+            confluence_result = confluence_service.upload_feature_file(
+                filename=db_file.name,
+                content=db_file.content
+            )
+            
+            # Update database record with Confluence metadata
+            db_file.confluence_url = confluence_result.get('download_link')
+            db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
+            db_file.confluence_page_id = confluence_result.get('confluence_page_id')
+            db.commit()
+            db.refresh(db_file)
+            
+            print(f"✓ Feature file '{db_file.name}' uploaded to Confluence")
+        except Exception as e:
+            print(f"⚠️ Failed to upload feature file to Confluence: {e}")
+            # Continue even if Confluence upload fails
+    
+    return db_file
+
+
+@router.put("/feature-files/{file_id}", response_model=FeatureFileSchema)
+async def update_feature_file(
+    file_id: int,
+    file: FeatureFileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update an existing feature file and sync to Confluence (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    update_data = file.dict(exclude_unset=True)
+    
+    # Check if content is being updated
+    content_updated = 'content' in update_data and update_data['content']
+    
+    for field, value in update_data.items():
+        setattr(db_file, field, value)
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    # Upload to Confluence if content was updated
+    if content_updated and db_file.content:
+        try:
+            confluence_result = confluence_service.upload_feature_file(
+                filename=db_file.name,
+                content=db_file.content
+            )
+            
+            # Update database record with Confluence metadata
+            db_file.confluence_url = confluence_result.get('download_link')
+            db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
+            db_file.confluence_page_id = confluence_result.get('confluence_page_id')
+            db.commit()
+            db.refresh(db_file)
+            
+            print(f"✓ Feature file '{db_file.name}' updated in Confluence")
+        except Exception as e:
+            print(f"⚠️ Failed to upload updated feature file to Confluence: {e}")
+            # Continue even if Confluence upload fails
+    
+    return db_file
+
+
+@router.get("/feature-files/{file_id}/preview-scenarios")
+async def preview_scenarios(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Preview scenarios in a feature file before publishing - returns list of scenarios that will become test cases"""
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if not db_file.content:
+        raise HTTPException(status_code=400, detail="Feature file has no content")
+    
+    # Parse the feature file content
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    feature_name = feature.get('name', db_file.name)
+    scenarios = []
+    
+    # Process each scenario
+    for idx, child in enumerate(feature.get('children', [])):
+        # Check if child is a Scenario or ScenarioOutline (direct children, not nested)
+        child_type = child.get('type', '')
+        if child_type not in ['Scenario', 'ScenarioOutline']:
+            # Also check for 'scenario' key (older gherkin versions)
+            if 'scenario' in child:
+                child = child['scenario']
+                child_type = child.get('type', 'Scenario')
+            else:
+                continue
+            
+        scenario_name = child.get('name', 'Unnamed Scenario')
+        scenario_keyword = child.get('keyword', 'Scenario').strip()
+        
+        # Collect steps
+        steps_list = []
+        for step in child.get('steps', []):
+            keyword = step.get('keyword', '').strip()
+            text = step.get('text', '').strip()
+            steps_list.append(f"{keyword} {text}")
+        
+        # Check for examples (Scenario Outline)
+        examples = child.get('examples', [])
+        has_examples = len(examples) > 0
+        
+        scenarios.append({
+            "index": idx,
+            "name": scenario_name,
+            "keyword": scenario_keyword,
+            "steps": steps_list,
+            "has_examples": has_examples,
+            "suggested_type": "api"  # Default suggestion
+        })
+    
+    return {
+        "file_id": file_id,
+        "file_name": db_file.name,
+        "feature_name": feature_name,
+        "scenario_count": len(scenarios),
+        "scenarios": scenarios
+    }
+
+
+@router.post("/feature-files/{file_id}/check-similarity")
+async def check_similarity(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Check similarity of scenarios in a feature file against existing test cases.
+    
+    Returns similarity scores for each scenario to help identify potential duplicates.
+    
+    Body (optional):
+        threshold: int (0-100) - Override the default similarity threshold
+    """
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from app.services.embedding_service import get_embedding_service, DEFAULT_MODEL
+    from app.models.models import ApplicationSetting
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if not db_file.content:
+        raise HTTPException(status_code=400, detail="Feature file has no content")
+    
+    # Get settings
+    threshold_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "similarity_threshold").first()
+    threshold = int(threshold_setting.value) if threshold_setting else 75
+    
+    model_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "embedding_model").first()
+    current_model = model_setting.value if model_setting else DEFAULT_MODEL
+    
+    # Allow threshold override from request
+    if body and "threshold" in body:
+        threshold = body["threshold"]
+    
+    # Parse the feature file content
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    embedding_service = get_embedding_service()
+    model_status = embedding_service.get_model_status()
+    
+    results = []
+    
+    # Process each scenario
+    for idx, child in enumerate(feature.get('children', [])):
+        child_type = child.get('type', '')
+        if child_type not in ['Scenario', 'ScenarioOutline']:
+            if 'scenario' in child:
+                child = child['scenario']
+            else:
+                continue
+        
+        scenario_name = child.get('name', 'Unnamed Scenario')
+        
+        # Collect steps as text
+        steps_list = []
+        for step in child.get('steps', []):
+            keyword = step.get('keyword', '').strip()
+            text = step.get('text', '').strip()
+            steps_list.append(f"{keyword} {text}")
+        steps_text = " ".join(steps_list)
+        
+        # Prepare text for embedding
+        text_for_embedding = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+        
+        # Generate embedding for this scenario
+        try:
+            embedding = embedding_service.generate_embedding(text_for_embedding, current_model)
+            
+            # Find similar test cases
+            similar = embedding_service.find_similar_test_cases(
+                embedding=embedding,
+                db=db,
+                threshold=threshold,
+                limit=1  # Get only the most similar
+            )
+            
+            if similar:
+                top_match = similar[0]
+                results.append({
+                    "index": idx,
+                    "scenario_name": scenario_name,
+                    "similarity_percent": top_match["similarity_percent"],
+                    "similar_test_case_id": top_match["test_id"],
+                    "similar_test_case_db_id": top_match["test_case_id"],
+                    "similar_test_case_title": top_match["title"],
+                    "is_potential_duplicate": top_match["similarity_percent"] >= threshold
+                })
+            else:
+                results.append({
+                    "index": idx,
+                    "scenario_name": scenario_name,
+                    "similarity_percent": 0,
+                    "similar_test_case_id": None,
+                    "similar_test_case_db_id": None,
+                    "similar_test_case_title": None,
+                    "is_potential_duplicate": False
+                })
+        except Exception as e:
+            print(f"Error processing scenario '{scenario_name}': {e}")
+            results.append({
+                "index": idx,
+                "scenario_name": scenario_name,
+                "similarity_percent": 0,
+                "similar_test_case_id": None,
+                "similar_test_case_db_id": None,
+                "similar_test_case_title": None,
+                "is_potential_duplicate": False,
+                "error": str(e)
+            })
+    
+    return {
+        "file_id": file_id,
+        "threshold": threshold,
+        "model_used": current_model,
+        "model_status": model_status.get(current_model, {}).get("status", "unknown"),
+        "results": results
+    }
+
+
+@router.delete("/feature-files/{file_id}")
+async def delete_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a feature file (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    db.delete(db_file)
+    db.commit()
+    return {"message": "Feature file deleted successfully"}
+
+
+@router.post("/feature-files/{file_id}/publish")
+async def publish_feature_file(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Submit a feature file for approval (testers) or to review queue (admins)
+    
+    - Testers: File goes to 'pending_approval' status, awaiting admin approval
+    - Admins: File goes to 'pending_approval' status, admin can self-approve from Review section
+    
+    body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
+    If not provided, defaults to "api" for all scenarios
+    """
+    from datetime import datetime
+    
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    # Check if already published or pending
+    if db_file.status == "published":
+        return {
+            "message": "File is already published",
+            "file": db_file,
+            "requires_approval": False
+        }
+    
+    if db_file.status == "pending_approval":
+        return {
+            "message": "File is already pending approval",
+            "file": db_file,
+            "requires_approval": True
+        }
+    
+    # Validate gherkin content before submitting
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+        feature = gherkin_document.get('feature')
+        if not feature:
+            raise HTTPException(status_code=400, detail="No feature found in file")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    # Store scenario_types in the file for later use during approval
+    if body and body.get('scenario_types'):
+        db_file.description = db_file.description or ""
+        # Store scenario types as JSON in a special format
+        import json
+        scenario_data = json.dumps({"scenario_types": body.get('scenario_types')})
+        # We'll store it temporarily - could use a separate field in future
+    
+    # Set status to pending_approval for both testers and admins
+    db_file.status = "pending_approval"
+    db_file.submitted_for_approval_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    is_admin = current_user.role == UserRole.ADMIN
+    
+    return {
+        "message": "File submitted for approval" if not is_admin else "File added to review queue. Please approve from the Review Test Cases section.",
+        "file": db_file,
+        "requires_approval": True,
+        "is_admin": is_admin
+    }
+
+
+@router.post("/feature-files/{file_id}/approve")
+async def approve_feature_file(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Approve a pending feature file and create test cases (Admin only)
+    
+    body: Optional dict with scenario_types: [{"index": 0, "type": "ui"}, {"index": 1, "type": "api"}]
+    """
+    # Only admins can approve
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can approve feature files")
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="File is not pending approval")
+    
+    # Extract scenario_types from body if provided
+    scenario_types = body.get('scenario_types') if body else None
+    
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from app.models.models import TestCase, Module, ApplicationSetting
+    from app.services.embedding_service import get_embedding_service, DEFAULT_MODEL
+    from datetime import datetime
+    
+    # Get embedding settings
+    embedding_service = get_embedding_service()
+    model_setting = db.query(ApplicationSetting).filter(ApplicationSetting.key == "embedding_model").first()
+    current_model = model_setting.value if model_setting else DEFAULT_MODEL
+    
+    # Build type map from scenario_types
+    type_map = {}
+    if scenario_types:
+        for st in scenario_types:
+            type_map[st.get('index', -1)] = st.get('type', 'api')
+    
+    # Get module info if available
+    module = None
+    if db_file.module_id:
+        module = db.query(Module).filter(Module.id == db_file.module_id).first()
+    
+    # Parse the feature file content
+    try:
+        parser = Parser()
+        token_scanner = TokenScanner(db_file.content)
+        gherkin_document = parser.parse(token_scanner)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse Gherkin content: {str(e)}"
+        )
+    
+    feature = gherkin_document.get('feature')
+    if not feature:
+        raise HTTPException(status_code=400, detail="No feature found in file")
+    
+    feature_name = feature.get('name', db_file.name)
+    created_count = 0
+    errors = []
+    
+    # Helper function to generate test ID
+    def generate_test_id(tag: str, db: Session) -> str:
+        prefix_map = {
+            'ui': 'UI',
+            'api': 'API',
+            'hybrid': 'HYB',
+            'integration': 'INT'
+        }
+        prefix = prefix_map.get(tag.lower(), 'TC')
+        
+        last_test = db.query(TestCase).filter(
+            TestCase.test_id.like(f"{prefix}%")
+        ).order_by(TestCase.id.desc()).first()
+        
+        if last_test:
+            try:
+                last_number = int(last_test.test_id.replace(prefix, ''))
+                new_number = last_number + 1
+            except ValueError:
+                new_number = 1
+        else:
+            new_number = 1
+        
+        return f"{prefix}{new_number:04d}"
+    
+    # Process each scenario
+    scenario_index = 0
+    for child in feature.get('children', []):
+        try:
+            # Check if child is a Scenario or ScenarioOutline
+            child_type = child.get('type', '')
+            if child_type not in ['Scenario', 'ScenarioOutline']:
+                if 'scenario' in child:
+                    scenario = child['scenario']
+                else:
+                    continue
+            else:
+                scenario = child
+            
+            # Get type for this scenario from the type_map, default to 'api'
+            tag = type_map.get(scenario_index, 'api')
+            test_type = "manual"
+            
+            scenario_name = scenario.get('name', 'Unnamed Scenario')
+            scenario_keyword = scenario.get('keyword', 'Scenario').strip()
+            
+            # Collect steps
+            steps_list = []
+            for step in scenario.get('steps', []):
+                keyword = step.get('keyword', '').strip()
+                text = step.get('text', '').strip()
+                steps_list.append(f"{keyword} {text}")
+            
+            steps_text = '\n'.join(steps_list)
+            
+            # Check for examples (Scenario Outline)
+            examples = scenario.get('examples', [])
+            
+            if examples and len(examples) > 0:
+                for example_set in examples:
+                    table_header = example_set.get('tableHeader')
+                    table_body = example_set.get('tableBody', [])
+                    
+                    if not table_header or not table_body:
+                        continue
+                    
+                    columns = [cell.get('value', '') for cell in table_header.get('cells', [])]
+                    rows = []
+                    for table_row in table_body:
+                        row_values = [cell.get('value', '') for cell in table_row.get('cells', [])]
+                        rows.append(row_values)
+                    
+                    scenario_examples_json = {
+                        "columns": columns,
+                        "rows": rows
+                    }
+                    
+                    test_id = generate_test_id(tag, db)
+                    
+                    # Generate embedding for similarity search
+                    embedding_text = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+                    try:
+                        embedding = embedding_service.generate_embedding(embedding_text, current_model)
+                    except Exception as e:
+                        print(f"Warning: Failed to generate embedding: {e}")
+                        embedding = None
+                    
+                    db_test_case = TestCase(
+                        test_id=test_id,
+                        title=scenario_name,
+                        description=f"Feature: {feature_name}\n\nScenario Outline: {scenario_name}",
+                        test_type=test_type,
+                        tag=tag,
+                        tags="regression",
+                        module_id=db_file.module_id,
+                        sub_module=None,
+                        feature_section=feature_name,
+                        automation_status='working' if test_type == 'automated' else None,
+                        scenario_examples=json.dumps(scenario_examples_json),
+                        steps_to_reproduce=steps_text,
+                        expected_result=None,
+                        preconditions=None,
+                        test_data=None,
+                        automated_script_path=None,
+                        created_at=datetime.utcnow(),
+                        embedding=embedding,
+                        embedding_model=current_model if embedding else None
+                    )
+                    
+                    db.add(db_test_case)
+                    db.commit()
+                    created_count += 1
+            else:
+                test_id = generate_test_id(tag, db)
+                
+                # Generate embedding for similarity search
+                embedding_text = embedding_service.prepare_text_for_embedding(scenario_name, steps_text)
+                try:
+                    embedding = embedding_service.generate_embedding(embedding_text, current_model)
+                except Exception as e:
+                    print(f"Warning: Failed to generate embedding: {e}")
+                    embedding = None
+                
+                db_test_case = TestCase(
+                    test_id=test_id,
+                    title=scenario_name,
+                    description=f"Feature: {feature_name}\n\n{scenario_keyword}: {scenario_name}",
+                    test_type=test_type,
+                    tag=tag,
+                    tags="regression",
+                    module_id=db_file.module_id,
+                    sub_module=None,
+                    feature_section=feature_name,
+                    automation_status='working' if test_type == 'automated' else None,
+                    scenario_examples=None,
+                    steps_to_reproduce=steps_text,
+                    expected_result=None,
+                    preconditions=None,
+                    test_data=None,
+                    automated_script_path=None,
+                    created_at=datetime.utcnow(),
+                    embedding=embedding,
+                    embedding_model=current_model if embedding else None
+                )
+                
+                db.add(db_test_case)
+                db.commit()
+                created_count += 1
+            
+            scenario_index += 1
+                
+        except Exception as e:
+            errors.append(f"Scenario '{scenario.get('name', 'Unknown')}': {str(e)}")
+            db.rollback()
+            scenario_index += 1
+            continue
+    
+    # Update file status to published
+    db_file.status = "published"
+    db_file.published_at = datetime.utcnow()
+    db_file.approved_by = current_user.id
+    db_file.approved_at = datetime.utcnow()
+    
+    # Upload to Confluence
+    confluence_url = None
+    try:
+        confluence_result = confluence_service.upload_feature_file(
+            filename=db_file.name,
+            content=db_file.content
+        )
+        db_file.confluence_url = confluence_result.get('download_link')
+        db_file.confluence_attachment_id = confluence_result.get('confluence_attachment_id')
+        db_file.confluence_page_id = confluence_result.get('confluence_page_id')
+        confluence_url = confluence_result.get('view_link')
+    except Exception as e:
+        print(f"⚠️ Failed to upload to Confluence: {e}")
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    # Get creator info
+    creator = db.query(User).filter(User.id == db_file.created_by).first()
+    
+    return {
+        "message": f"File approved and published successfully. Created {created_count} test case(s).",
+        "file": db_file,
+        "test_cases_created": created_count,
+        "confluence_url": confluence_url,
+        "creator_name": creator.full_name if creator else "Unknown",
+        "errors": errors if errors else None
+    }
+
+
+@router.post("/feature-files/{file_id}/reject")
+async def reject_feature_file(
+    file_id: int,
+    body: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reject a pending feature file and return to draft (Admin only)"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can reject feature files")
+    
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="File is not pending approval")
+    
+    reason = body.get('reason', '') if body else ''
+    
+    # Return to draft status
+    db_file.status = "draft"
+    db_file.submitted_for_approval_at = None
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    return {
+        "message": f"File rejected and returned to draft. Reason: {reason}" if reason else "File rejected and returned to draft.",
+        "file": db_file
+    }
+
+
+@router.post("/feature-files/{file_id}/restore")
+async def restore_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Restore a published feature file back to draft status (only if owned by current user)"""
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Only published files can be restored to draft"
+        )
+    
+    # Check draft limit before restoring
+    draft_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "draft"
+    ).count()
+    
+    if draft_count >= MAX_DRAFT_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_DRAFT_FILES} draft files allowed. Please publish or delete existing drafts before restoring."
+        )
+    
+    # Change status back to draft
+    db_file.status = "draft"
+    db.commit()
+    db.refresh(db_file)
+    
+    return {
+        "message": "File restored to draft successfully",
+        "file": db_file
+    }
+
+
+@router.post("/feature-files/{file_id}/archive")
+async def archive_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Archive a published feature file
+    
+    Limits:
+    - Maximum 100 archived files per user
+    - When 101st file is archived, the oldest archived file (by published_at) is deleted
+    """
+    from datetime import datetime
+    
+    db_file = db.query(FeatureFile).filter(
+        FeatureFile.id == file_id,
+        FeatureFile.created_by == current_user.id
+    ).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    if db_file.status != "published":
+        raise HTTPException(
+            status_code=400,
+            detail="Only published files can be archived"
+        )
+    
+    # Check current archived count
+    archived_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status == "archived"
+    ).count()
+    
+    deleted_file_name = None
+    
+    # If already at max, delete the oldest archived file (by published_at)
+    if archived_count >= MAX_ARCHIVED_FILES:
+        oldest_archived = db.query(FeatureFile).filter(
+            FeatureFile.created_by == current_user.id,
+            FeatureFile.status == "archived"
+        ).order_by(FeatureFile.published_at.asc().nullsfirst()).first()
+        
+        if oldest_archived:
+            deleted_file_name = oldest_archived.name
+            db.delete(oldest_archived)
+            db.commit()
+    
+    # Archive the current file
+    db_file.status = "archived"
+    db.commit()
+    db.refresh(db_file)
+    
+    response = {
+        "message": "File archived successfully",
+        "file": db_file
+    }
+    
+    if deleted_file_name:
+        response["oldest_deleted"] = deleted_file_name
+        response["message"] = f"File archived successfully. Oldest archived file '{deleted_file_name}' was deleted due to {MAX_ARCHIVED_FILES} file limit."
+    
+    return response

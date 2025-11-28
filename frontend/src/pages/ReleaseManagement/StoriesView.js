@@ -33,10 +33,14 @@ import {
 } from '@mui/material';
 import {
   Sync as SyncIcon,
-  ExpandMore as ExpandMoreIcon
+  ExpandMore as ExpandMoreIcon,
+  BugReport as BugReportIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import ResizableTableCell from '../../components/ResizableTableCell';
+import StoryIssuesList from '../../components/StoryIssuesList';
+import IssueDetail from '../../components/IssueDetail';
+import TruncatedText from '../../components/TruncatedText';
 
 const StoriesView = ({ releaseId }) => {
   const [stories, setStories] = useState([]);
@@ -45,8 +49,14 @@ const StoriesView = ({ releaseId }) => {
   const [expandedStories, setExpandedStories] = useState({});
   const [storyTestCases, setStoryTestCases] = useState({});
   const [loadingTestCases, setLoadingTestCases] = useState({});
+  const [expandedIssues, setExpandedIssues] = useState({});
   const [syncing, setSyncing] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Issue dialog state
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState(null);
+  const [issueRefreshTrigger, setIssueRefreshTrigger] = useState(0);
   
   // Test case details accordion state
   const [expandedTestCase, setExpandedTestCase] = useState(null);
@@ -176,6 +186,18 @@ const StoriesView = ({ releaseId }) => {
     }
   };
 
+  const handleEditIssue = (issue) => {
+    setSelectedIssue(issue);
+    setIssueDialogOpen(true);
+  };
+
+  const handleSaveIssue = async () => {
+    setIssueDialogOpen(false);
+    setSelectedIssue(null);
+    setIssueRefreshTrigger(prev => prev + 1);
+    await fetchStories(); // Refresh to update issue stats
+  };
+
 
 
   const handleExecutionStatusChange = async (testCaseId, newStatus, storyId) => {
@@ -300,6 +322,7 @@ const StoriesView = ({ releaseId }) => {
               <ResizableTableCell minWidth={100} initialWidth={120} isHeader={true}>Status</ResizableTableCell>
               <ResizableTableCell minWidth={80} initialWidth={100} isHeader={true}>Priority</ResizableTableCell>
               <ResizableTableCell minWidth={120} initialWidth={150} isHeader={true}>Assignee</ResizableTableCell>
+              <ResizableTableCell minWidth={80} initialWidth={100} isHeader={true}>Issues</ResizableTableCell>
               <ResizableTableCell minWidth={150} initialWidth={200} isHeader={true}>Test Progress</ResizableTableCell>
             </TableRow>
             <TableRow>
@@ -368,6 +391,7 @@ const StoriesView = ({ releaseId }) => {
                 />
               </TableCell>
               <TableCell />
+              <TableCell />
             </TableRow>
           </TableHead>
           <TableBody>
@@ -398,7 +422,7 @@ const StoriesView = ({ releaseId }) => {
                     />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {story.title}
+                    <TruncatedText text={story.title} />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {story.epic_id ? (
@@ -420,7 +444,37 @@ const StoriesView = ({ releaseId }) => {
                     />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {story.assignee || '-'}
+                    <TruncatedText text={story.assignee || '-'} />
+                  </TableCell>
+                  <TableCell 
+                    align="center" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (story.issue_stats?.total > 0) {
+                        setExpandedIssues(prev => ({
+                          ...prev,
+                          [story.story_id]: !prev[story.story_id]
+                        }));
+                      }
+                    }}
+                    sx={{ 
+                      cursor: story.issue_stats?.total > 0 ? 'pointer' : 'default',
+                      '&:hover': story.issue_stats?.total > 0 ? { 
+                        backgroundColor: 'action.hover' 
+                      } : {}
+                    }}
+                  >
+                    {story.issue_stats && story.issue_stats.total > 0 ? (
+                      <Chip 
+                        label={story.issue_stats.total} 
+                        size="small" 
+                        color="error"
+                        variant="outlined"
+                        icon={<BugReportIcon />}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">-</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     {story.test_stats && story.test_stats.total > 0 ? (
@@ -478,7 +532,7 @@ const StoriesView = ({ releaseId }) => {
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell colSpan={7} sx={{ p: 0 }}>
+                  <TableCell colSpan={8} sx={{ p: 0 }}>
                     <Collapse in={expandedStories[story.story_id]}>
                       <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
                         <Typography variant="subtitle2" gutterBottom>
@@ -522,7 +576,7 @@ const StoriesView = ({ releaseId }) => {
                                     sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300, cursor: 'pointer' }}
                                     onClick={() => setExpandedTestCase(expandedTestCase === tc.id ? null : tc.id)}
                                   >
-                                    {tc.title}
+                                    <TruncatedText text={tc.title} />
                                   </TableCell>
                                   <TableCell 
                                     sx={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
@@ -717,6 +771,75 @@ const StoriesView = ({ releaseId }) => {
                         ) : (
                           <Typography variant="body2" color="text.secondary">
                             No test cases linked to this story
+                          </Typography>
+                        )}
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+                
+                {/* Issues Accordion */}
+                <TableRow>
+                  <TableCell colSpan={8} sx={{ p: 0 }}>
+                    <Collapse in={expandedIssues[story.story_id]}>
+                      <Box sx={{ p: 2, bgcolor: 'grey.100' }}>
+                        <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                          <BugReportIcon fontSize="small" color="error" />
+                          Linked Issues
+                        </Typography>
+                        {story.issue_stats && story.issue_stats.total > 0 ? (
+                          <Box>
+                            <Grid container spacing={2} sx={{ mb: 3 }}>
+                              <Grid item xs={12} sm={6} md={2.4}>
+                                <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                    <Typography variant="caption" color="text.secondary">Total Issues</Typography>
+                                    <Typography variant="h5" fontWeight="bold">{story.issue_stats.total}</Typography>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={2.4}>
+                                <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                    <Typography variant="caption" color="text.secondary">Open</Typography>
+                                    <Typography variant="h5" fontWeight="bold" color="error.main">{story.issue_stats.open}</Typography>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={2.4}>
+                                <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                    <Typography variant="caption" color="text.secondary">In Progress</Typography>
+                                    <Typography variant="h5" fontWeight="bold" color="info.main">{story.issue_stats.in_progress}</Typography>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={2.4}>
+                                <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                    <Typography variant="caption" color="text.secondary">Resolved</Typography>
+                                    <Typography variant="h5" fontWeight="bold" color="success.main">{story.issue_stats.resolved}</Typography>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={2.4}>
+                                <Card variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                                  <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                    <Typography variant="caption" color="text.secondary">Closed</Typography>
+                                    <Typography variant="h5" fontWeight="bold" color="text.secondary">{story.issue_stats.closed}</Typography>
+                                  </CardContent>
+                                </Card>
+                              </Grid>
+                            </Grid>
+                            <StoryIssuesList 
+                              storyId={story.story_id}
+                              onEdit={handleEditIssue}
+                              refreshTrigger={issueRefreshTrigger}
+                            />
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            No issues linked to this story
                           </Typography>
                         )}
                       </Box>
@@ -1065,6 +1188,17 @@ const StoriesView = ({ releaseId }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Issue Detail Dialog */}
+      <IssueDetail
+        open={issueDialogOpen}
+        onClose={() => {
+          setIssueDialogOpen(false);
+          setSelectedIssue(null);
+        }}
+        onSave={handleSaveIssue}
+        issue={selectedIssue}
+      />
     </Box>
   );
 };

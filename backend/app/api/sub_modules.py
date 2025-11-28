@@ -18,6 +18,7 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
         )
     return current_user
 
+@router.get("", response_model=List[SubModule])
 @router.get("/", response_model=List[SubModule])
 def get_sub_modules(
     module_id: int = None,
@@ -34,6 +35,7 @@ def get_sub_modules(
     
     return query.order_by(SubModuleModel.name).all()
 
+@router.post("", response_model=SubModule)
 @router.post("/", response_model=SubModule)
 def create_sub_module(
     sub_module: SubModuleCreate,

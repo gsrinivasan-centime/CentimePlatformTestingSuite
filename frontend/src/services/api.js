@@ -16,6 +16,15 @@ export const setErrorHandler = (handler) => {
   errorHandler = handler;
 };
 
+// Global loading handler functions
+let loadingStartHandler = null;
+let loadingStopHandler = null;
+
+export const setLoadingHandlers = (startHandler, stopHandler) => {
+  loadingStartHandler = startHandler;
+  loadingStopHandler = stopHandler;
+};
+
 // Flag to prevent multiple refresh attempts
 let isRefreshing = false;
 let failedQueue = [];
@@ -32,24 +41,42 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
-// Add token to requests
+// Add token to requests and trigger loading state
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Start loading indicator for all API calls
+    if (loadingStartHandler) {
+      loadingStartHandler();
+    }
     return config;
   },
   (error) => {
+    // Stop loading on request error
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
     return Promise.reject(error);
   }
 );
 
 // Handle response errors with global error handler
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Stop loading on successful response
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
+    return response;
+  },
   async (error) => {
+    // Stop loading on error response
+    if (loadingStopHandler) {
+      loadingStopHandler();
+    }
     // Handle network errors
     if (!error.response) {
       if (errorHandler) {
@@ -355,6 +382,15 @@ export const testCasesAPI = {
     const response = await api.get('/test-cases/by-jira-story', { params });
     return response.data;
   },
+
+  // NEW: Bulk update test cases
+  bulkUpdate: async (testCaseIds, updateData) => {
+    const response = await api.put('/test-cases/bulk-update', {
+      test_case_ids: testCaseIds,
+      ...updateData
+    });
+    return response.data;
+  },
 };
 
 // Releases API
@@ -482,6 +518,134 @@ export const jiraStoriesAPI = {
   
   syncAllStories: async () => {
     const response = await api.post('/jira-stories/sync-all-stories');
+    return response.data;
+  },
+};
+
+// Step Catalog API
+export const stepCatalogAPI = {
+  // Get all steps with optional filters
+  getAll: async (params = {}) => {
+    const response = await api.get('/step-catalog/steps', { params });
+    return response.data;
+  },
+  
+  // Get step by ID
+  getById: async (id) => {
+    const response = await api.get(`/step-catalog/steps/${id}`);
+    return response.data;
+  },
+  
+  // Create new step
+  create: async (data) => {
+    const response = await api.post('/step-catalog/steps', data);
+    return response.data;
+  },
+  
+  // Update step
+  update: async (id, data) => {
+    const response = await api.put(`/step-catalog/steps/${id}`, data);
+    return response.data;
+  },
+  
+  // Delete step
+  delete: async (id) => {
+    const response = await api.delete(`/step-catalog/steps/${id}`);
+    return response.data;
+  },
+  
+  // Increment usage count
+  incrementUsage: async (id) => {
+    const response = await api.post(`/step-catalog/steps/${id}/increment-usage`);
+    return response.data;
+  },
+  
+  // Get statistics
+  getStats: async () => {
+    const response = await api.get('/step-catalog/steps/stats/summary');
+    return response.data;
+  },
+  
+  // Search for suggestions (autocomplete)
+  searchSuggestions: async (query, stepType = null, limit = 10) => {
+    const params = { query, limit };
+    if (stepType) params.step_type = stepType;
+    const response = await api.get('/step-catalog/steps/search/suggestions', { params });
+    return response.data;
+  },
+};
+
+// Feature Files API
+export const featureFilesAPI = {
+  // Get all feature files
+  getAll: async (params = {}) => {
+    const response = await api.get('/step-catalog/feature-files', { params });
+    return response.data;
+  },
+  
+  // Get feature file by ID
+  getById: async (id) => {
+    const response = await api.get(`/step-catalog/feature-files/${id}`);
+    return response.data;
+  },
+  
+  // Create new feature file
+  create: async (data) => {
+    const response = await api.post('/step-catalog/feature-files', data);
+    return response.data;
+  },
+  
+  // Update feature file
+  update: async (id, data) => {
+    const response = await api.put(`/step-catalog/feature-files/${id}`, data);
+    return response.data;
+  },
+  
+  // Delete feature file
+  delete: async (id) => {
+    const response = await api.delete(`/step-catalog/feature-files/${id}`);
+    return response.data;
+  },
+  
+  // Preview scenarios before publishing
+  previewScenarios: async (id) => {
+    const response = await api.get(`/step-catalog/feature-files/${id}/preview-scenarios`);
+    return response.data;
+  },
+  
+  // Publish feature file with scenario types (submits for approval)
+  publish: async (id, scenarioTypes = null) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/publish`, {
+      scenario_types: scenarioTypes
+    });
+    return response.data;
+  },
+  
+  // Restore feature file (unpublish)
+  restore: async (id) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/restore`);
+    return response.data;
+  },
+  
+  // Get pending approval files (for testers: own files, for admins: all files)
+  getPendingApproval: async () => {
+    const response = await api.get('/step-catalog/feature-files/pending-approval/list');
+    return response.data;
+  },
+  
+  // Approve feature file (admin only)
+  approve: async (id, scenarioTypes = null) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/approve`, {
+      scenario_types: scenarioTypes
+    });
+    return response.data;
+  },
+  
+  // Reject feature file (admin only)
+  reject: async (id, reason = '') => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/reject`, {
+      reason
+    });
     return response.data;
   },
 };

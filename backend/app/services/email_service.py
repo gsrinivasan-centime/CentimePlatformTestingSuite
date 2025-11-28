@@ -42,14 +42,18 @@ class EmailService:
             return False
     
     @staticmethod
-    def send_verification_email(email: str, frontend_url: str = "http://localhost:3000", is_admin_created: bool = False) -> bool:
+    def send_verification_email(email: str, frontend_url: str = None, is_admin_created: bool = False) -> bool:
         """
         Send email verification link to user
         Args:
             email: User's email address
-            frontend_url: Frontend URL for verification link
+            frontend_url: Frontend URL for verification link (defaults to settings.FRONTEND_URL)
             is_admin_created: True if user was created by admin, False if self-registered
         """
+        # Use configured frontend URL if not provided
+        if frontend_url is None:
+            frontend_url = settings.FRONTEND_URL
+        
         # Create verification token (valid for 24 hours)
         verification_token = create_access_token(
             data={"sub": email, "type": "email_verification"},

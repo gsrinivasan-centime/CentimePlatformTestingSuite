@@ -162,7 +162,7 @@ class TestCaseBase(BaseModel):
     title: str
     description: Optional[str] = None
     test_type: TestType
-    module_id: int
+    module_id: Optional[int] = None
     sub_module: Optional[str] = None  # NEW: e.g., "Suppliers", "Invoices"
     feature_section: Optional[str] = None  # NEW: e.g., "Supplier Profile", "List View"
     tag: TestTag  # NEW: ui/api/hybrid - used for auto-generating test_id
@@ -201,6 +201,17 @@ class TestCaseUpdate(BaseModel):
     preconditions: Optional[str] = None
     test_data: Optional[str] = None
     automated_script_path: Optional[str] = None
+
+# NEW: Bulk update schema
+class TestCaseBulkUpdate(BaseModel):
+    test_case_ids: List[int]
+    module_id: Optional[int] = None
+    sub_module: Optional[str] = None
+    feature_section: Optional[str] = None
+    test_type: Optional[TestType] = None
+    tag: Optional[TestTag] = None
+    tags: Optional[str] = None
+    automation_status: Optional[AutomationStatus] = None
 
 class TestCase(TestCaseBase):
     id: int
@@ -262,6 +273,15 @@ class ModuleTestReport(BaseModel):
     skipped: int
     pass_percentage: float
 
+class IssueStats(BaseModel):
+    total_issues: int
+    open: int
+    in_progress: int
+    resolved: int
+    closed: int
+    by_priority: dict  # {high: int, medium: int, low: int, critical: int}
+    by_module: List[dict]  # [{module_name: str, count: int}]
+
 class ReleaseReport(BaseModel):
     release_version: str
     release_name: Optional[str]
@@ -276,6 +296,7 @@ class ReleaseReport(BaseModel):
     skipped: int
     pass_percentage: float
     module_reports: List[ModuleTestReport]
+    issue_stats: Optional[IssueStats]
     generated_at: datetime
 
 # Release Test Case Schemas
@@ -389,6 +410,7 @@ class ReleaseDashboard(BaseModel):
     pass_rate: float
     module_stats: List[ModuleStats]
     critical_issues: List[str]
+    issue_stats: Optional[IssueStats]
     last_updated: datetime
 
 # Tree View Schemas
@@ -461,3 +483,116 @@ class ReleaseTreeView(BaseModel):
     release_id: int
     release_version: str
     modules: List[TreeModule]
+
+# Step Catalog Schemas
+class StepCatalogBase(BaseModel):
+    step_type: str
+    step_text: str
+    step_pattern: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+    module_id: Optional[int] = None
+    tags: Optional[str] = None
+
+class StepCatalogCreate(StepCatalogBase):
+    pass
+
+class StepCatalogUpdate(BaseModel):
+    step_type: Optional[str] = None
+    step_text: Optional[str] = None
+    step_pattern: Optional[str] = None
+    description: Optional[str] = None
+    parameters: Optional[str] = None
+    module_id: Optional[int] = None
+    tags: Optional[str] = None
+    usage_count: Optional[int] = None
+
+class StepCatalog(StepCatalogBase):
+    id: int
+    usage_count: Optional[int] = 0
+    created_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+# Feature File Schemas
+class FeatureFileBase(BaseModel):
+    name: str
+    content: str
+    description: Optional[str] = None
+    module_id: Optional[int] = None
+    status: Optional[str] = "draft"
+
+class FeatureFileCreate(FeatureFileBase):
+    pass
+
+class FeatureFileUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    description: Optional[str] = None
+    module_id: Optional[int] = None
+    status: Optional[str] = None
+
+class FeatureFile(FeatureFileBase):
+    id: int
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# Issue Schemas
+class IssueBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    status: Optional[str] = "Open"
+    priority: Optional[str] = "Medium"
+    severity: Optional[str] = "Major"
+    module_id: Optional[int] = None
+    release_id: Optional[int] = None
+    test_case_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    
+    # New fields
+    video_url: Optional[str] = None
+    screenshot_urls: Optional[str] = None
+    jira_assignee_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+    jira_story_id: Optional[str] = None
+
+class IssueCreate(IssueBase):
+    pass
+
+class IssueUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    severity: Optional[str] = None
+    module_id: Optional[int] = None
+    release_id: Optional[int] = None
+    test_case_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    jira_assignee_id: Optional[str] = None
+    jira_assignee_name: Optional[str] = None
+    jira_story_id: Optional[str] = None
+    closed_at: Optional[datetime] = None
+
+class Issue(IssueBase):
+    id: int
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+    closed_at: Optional[datetime] = None
+    
+    # Nested models for display
+    module: Optional[Module] = None
+    assignee: Optional[User] = None
+    creator: Optional[User] = None
+    
+    class Config:
+        from_attributes = True

@@ -27,6 +27,7 @@ import {
   AccountTree as AccountTreeIcon,
   LocalOffer as LocalOfferIcon,
   People as PeopleIcon,
+  Settings as SettingsIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -62,6 +63,7 @@ const Layout = ({ children }) => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+    { text: 'Test Design Studio', icon: <PlayArrowIcon />, path: '/test-design-studio' },
     { text: 'Test Cases', icon: <AssignmentIcon />, path: '/test-cases' },
     { text: 'Stories', icon: <AssignmentIcon />, path: '/stories' },
     { text: 'Modules', icon: <AccountTreeIcon />, path: '/modules' },
@@ -72,12 +74,13 @@ const Layout = ({ children }) => {
 
   if (isAdmin()) {
     menuItems.push({ text: 'Users', icon: <PeopleIcon />, path: '/users' });
+    menuItems.push({ text: 'Settings', icon: <SettingsIcon />, path: '/settings' });
   }
 
   const drawer = (
     <div>
-      <Toolbar 
-        sx={{ 
+      <Toolbar
+        sx={{
           cursor: 'pointer',
           bgcolor: 'primary.main',
           display: 'flex',
@@ -86,7 +89,7 @@ const Layout = ({ children }) => {
           '&:hover': {
             bgcolor: 'primary.dark',
           }
-        }} 
+        }}
         onClick={() => navigate('/dashboard')}
       >
         <Box

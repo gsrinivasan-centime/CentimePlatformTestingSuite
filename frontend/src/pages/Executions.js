@@ -39,6 +39,7 @@ import {
 } from '@mui/icons-material';
 import api from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
+import TruncatedText from '../components/TruncatedText';
 
 const Executions = () => {
   const [executions, setExecutions] = useState([]);
@@ -278,7 +279,9 @@ const Executions = () => {
                     }}
                   >
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.id}</TableCell>
-                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.test_case?.title || 'N/A'}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <TruncatedText text={execution.test_case?.title || 'N/A'} />
+                    </TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{execution.release?.version || 'N/A'}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <Chip

@@ -34,6 +34,10 @@ import {
   Divider,
   Card,
   CardContent,
+  Tooltip,
+  Checkbox,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -44,10 +48,12 @@ import {
   ViewList as ViewListIcon,
   AccountTree as TreeViewIcon,
   ExpandMore as ExpandMoreIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { testCasesAPI, modulesAPI } from '../services/api';
 import ResizableTableCell from '../components/ResizableTableCell';
 import ScenarioExamplesTable from '../components/ScenarioExamplesTable';
+import TruncatedText from '../components/TruncatedText';
 import { useToast } from '../context/ToastContext';
 
 const TestCases = () => {
@@ -129,6 +135,26 @@ const TestCases = () => {
   // Inline editing state
   const [editingCell, setEditingCell] = useState(null); // { testCaseId, field }
   const [editValue, setEditValue] = useState('');
+  
+  // Inline editing dropdown options for hierarchy fields
+  const [inlineSubModules, setInlineSubModules] = useState([]);
+  const [inlineFeatures, setInlineFeatures] = useState([]);
+
+  // Bulk selection and update state
+  const [selectedTestCases, setSelectedTestCases] = useState(new Set());
+  const [bulkUpdateLoading, setBulkUpdateLoading] = useState(false);
+  const [bulkUpdateData, setBulkUpdateData] = useState({
+    module_id: '',
+    sub_module: '',
+    feature_section: '',
+    test_type: '',
+    tag: '',
+    tags: '',
+    automation_status: '',
+  });
+  // Options for bulk update dropdowns
+  const [bulkSubModules, setBulkSubModules] = useState([]);
+  const [bulkFeatures, setBulkFeatures] = useState([]);
 
   useEffect(() => {
     loadData();
@@ -654,10 +680,40 @@ const TestCases = () => {
   };
 
   // Tag options for dropdown
-  const tagOptions = ['smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
+  const tagOptions = ['prod', 'smoke', 'regression', 'sanity', 'integration', 'e2e', 'performance'];
+
+  // Load inline editing options for hierarchy fields
+  const loadInlineSubModules = async (moduleId) => {
+    if (!moduleId) {
+      setInlineSubModules([]);
+      setInlineFeatures([]);
+      return;
+    }
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId);
+      setInlineSubModules(options);
+    } catch (err) {
+      console.error('Failed to load inline sub-modules:', err);
+      setInlineSubModules([]);
+    }
+  };
+
+  const loadInlineFeatures = async (moduleId, subModule) => {
+    if (!moduleId || !subModule) {
+      setInlineFeatures([]);
+      return;
+    }
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId, subModule);
+      setInlineFeatures(options);
+    } catch (err) {
+      console.error('Failed to load inline features:', err);
+      setInlineFeatures([]);
+    }
+  };
 
   // Inline editing handlers
-  const handleCellClick = (testCase, field, e) => {
+  const handleCellClick = async (testCase, field, e) => {
     e.stopPropagation(); // Prevent row click
     setEditingCell({ testCaseId: testCase.id, field });
     
@@ -666,6 +722,19 @@ const TestCases = () => {
       // Convert comma-separated string to array for Autocomplete
       const tagsArray = testCase.tags ? testCase.tags.split(',').map(t => t.trim()) : [];
       setEditValue(tagsArray);
+    } else if (field === 'module_id') {
+      setEditValue(testCase.module_id || '');
+    } else if (field === 'sub_module') {
+      setEditValue(testCase.sub_module || '');
+      // Load sub-modules for this test case's module
+      await loadInlineSubModules(testCase.module_id);
+    } else if (field === 'feature_section') {
+      setEditValue(testCase.feature_section || '');
+      // Load features for this test case's module and sub-module
+      await loadInlineFeatures(testCase.module_id, testCase.sub_module);
+    } else if (field === 'automation_status') {
+      // Default to 'working' if not set
+      setEditValue(testCase.automation_status || 'working');
     } else {
       setEditValue(testCase[field] || '');
     }
@@ -674,7 +743,12 @@ const TestCases = () => {
   const handleInlineEditChange = async (testCase, field, newValue) => {
     // For Select dropdowns (test_type, tag, automation_status), save immediately on change
     // Check if value actually changed
-    let oldValue = testCase[field] || '';
+    let oldValue = testCase[field];
+    
+    // Handle null/undefined for automation_status - treat as 'working'
+    if (field === 'automation_status' && !oldValue) {
+      oldValue = 'working';
+    }
     
     if (oldValue === newValue) {
       // No change, just close the editor
@@ -690,12 +764,12 @@ const TestCases = () => {
       };
 
       await testCasesAPI.update(testCase.id, updateData);
-      showSuccess(`${field} updated successfully`);
+      showSuccess(`${field.replace('_', ' ')} updated successfully`);
       reloadData();
       setEditingCell(null);
       setEditValue('');
     } catch (err) {
-      showError(`Failed to update ${field}`);
+      showError(`Failed to update ${field.replace('_', ' ')}`);
     }
   };
 
@@ -742,6 +816,128 @@ const TestCases = () => {
   const handleInlineEditCancel = () => {
     setEditingCell(null);
     setEditValue('');
+  };
+
+  // Bulk selection handlers
+  const handleSelectAll = (event) => {
+    if (event.target.checked) {
+      // Select all test cases currently displayed (filtered or all)
+      const allIds = new Set(testCases.map(tc => tc.id));
+      setSelectedTestCases(allIds);
+    } else {
+      setSelectedTestCases(new Set());
+    }
+  };
+
+  const handleSelectTestCase = (id) => {
+    const newSelected = new Set(selectedTestCases);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedTestCases(newSelected);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTestCases(new Set());
+    setBulkUpdateData({
+      module_id: '',
+      sub_module: '',
+      feature_section: '',
+      test_type: '',
+      tag: '',
+      tags: '',
+      automation_status: '',
+    });
+    setBulkSubModules([]);
+    setBulkFeatures([]);
+  };
+
+  const handleBulkUpdateFieldChange = async (field, value) => {
+    setBulkUpdateData(prev => ({ ...prev, [field]: value }));
+    
+    // Handle cascading dropdowns for hierarchy
+    if (field === 'module_id') {
+      // Reset sub_module and feature when module changes
+      setBulkUpdateData(prev => ({ 
+        ...prev, 
+        module_id: value,
+        sub_module: '', 
+        feature_section: '' 
+      }));
+      setBulkFeatures([]);
+      
+      if (value) {
+        try {
+          const options = await testCasesAPI.getHierarchyOptions(value);
+          setBulkSubModules(options.sub_modules || []);
+        } catch (err) {
+          console.error('Error loading bulk sub-modules:', err);
+          setBulkSubModules([]);
+        }
+      } else {
+        setBulkSubModules([]);
+      }
+    } else if (field === 'sub_module') {
+      // Reset feature when sub_module changes
+      setBulkUpdateData(prev => ({ 
+        ...prev, 
+        sub_module: value,
+        feature_section: '' 
+      }));
+      
+      if (value && bulkUpdateData.module_id) {
+        try {
+          const options = await testCasesAPI.getHierarchyOptions(bulkUpdateData.module_id, value);
+          setBulkFeatures(options.features || []);
+        } catch (err) {
+          console.error('Error loading bulk features:', err);
+          setBulkFeatures([]);
+        }
+      } else {
+        setBulkFeatures([]);
+      }
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedTestCases.size === 0) {
+      showError('No test cases selected');
+      return;
+    }
+
+    // Build update data with only non-empty values
+    const updatePayload = {};
+    Object.entries(bulkUpdateData).forEach(([key, value]) => {
+      if (value !== '' && value !== null && value !== undefined) {
+        if (key === 'module_id') {
+          updatePayload[key] = parseInt(value, 10);
+        } else {
+          updatePayload[key] = value;
+        }
+      }
+    });
+
+    if (Object.keys(updatePayload).length === 0) {
+      showError('Please select at least one field to update');
+      return;
+    }
+
+    setBulkUpdateLoading(true);
+    try {
+      const result = await testCasesAPI.bulkUpdate(
+        Array.from(selectedTestCases),
+        updatePayload
+      );
+      showSuccess(result.message || `Successfully updated ${selectedTestCases.size} test cases`);
+      handleClearSelection();
+      reloadData();
+    } catch (err) {
+      showError(err.response?.data?.detail || 'Failed to update test cases');
+    } finally {
+      setBulkUpdateLoading(false);
+    }
   };
 
   if (loading) {
@@ -832,13 +1028,208 @@ const TestCases = () => {
         </ToggleButtonGroup>
       </Box>
 
+      {/* Bulk Action Bar - Shows when items are selected */}
+      {selectedTestCases.size > 0 && (
+        <Paper 
+          elevation={3} 
+          sx={{ 
+            mb: 2, 
+            p: 2, 
+            backgroundColor: 'primary.light',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2
+          }}
+        >
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Box display="flex" alignItems="center" gap={2}>
+              <Typography variant="subtitle1" fontWeight="bold" color="primary.contrastText">
+                {selectedTestCases.size} test case{selectedTestCases.size > 1 ? 's' : ''} selected
+              </Typography>
+              <IconButton 
+                size="small" 
+                onClick={handleClearSelection}
+                sx={{ color: 'primary.contrastText' }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={handleBulkUpdate}
+              disabled={bulkUpdateLoading}
+              startIcon={bulkUpdateLoading ? <CircularProgress size={16} color="inherit" /> : null}
+            >
+              {bulkUpdateLoading ? 'Updating...' : 'Apply Changes'}
+            </Button>
+          </Box>
+          
+          <Box display="flex" flexWrap="wrap" gap={2}>
+            {/* Module */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Module</InputLabel>
+              <Select
+                value={bulkUpdateData.module_id}
+                label="Module"
+                onChange={(e) => handleBulkUpdateFieldChange('module_id', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {modules.map((module) => (
+                  <MenuItem key={module.id} value={module.id}>
+                    {module.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Sub-Module */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Sub-Module</InputLabel>
+              <Select
+                value={bulkUpdateData.sub_module}
+                label="Sub-Module"
+                onChange={(e) => handleBulkUpdateFieldChange('sub_module', e.target.value)}
+                disabled={!bulkUpdateData.module_id}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {bulkSubModules.map((sm) => (
+                  <MenuItem key={sm.name} value={sm.name}>
+                    {sm.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Feature */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>Feature</InputLabel>
+              <Select
+                value={bulkUpdateData.feature_section}
+                label="Feature"
+                onChange={(e) => handleBulkUpdateFieldChange('feature_section', e.target.value)}
+                disabled={!bulkUpdateData.module_id || !bulkUpdateData.sub_module}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                {bulkFeatures.map((f) => (
+                  <MenuItem key={f.name} value={f.name}>
+                    {f.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Type */}
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={bulkUpdateData.test_type}
+                label="Type"
+                onChange={(e) => handleBulkUpdateFieldChange('test_type', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="manual">Manual</MenuItem>
+                <MenuItem value="automated">Automated</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Tag (ui/api/hybrid) */}
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Tag</InputLabel>
+              <Select
+                value={bulkUpdateData.tag}
+                label="Tag"
+                onChange={(e) => handleBulkUpdateFieldChange('tag', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="ui">UI</MenuItem>
+                <MenuItem value="api">API</MenuItem>
+                <MenuItem value="hybrid">Hybrid</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Tags (smoke, regression, etc.) */}
+            <Autocomplete
+              multiple
+              size="small"
+              options={tagOptions}
+              value={bulkUpdateData.tags ? bulkUpdateData.tags.split(',').filter(t => t) : []}
+              onChange={(e, newValue) => handleBulkUpdateFieldChange('tags', newValue.join(','))}
+              renderInput={(params) => (
+                <TextField {...params} label="Tags" placeholder="Select tags" />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip
+                    {...getTagProps({ index })}
+                    key={option}
+                    label={option}
+                    size="small"
+                    color={
+                      option === 'smoke' ? 'primary' :
+                      option === 'regression' ? 'error' :
+                      option === 'sanity' ? 'success' :
+                      option === 'prod' ? 'secondary' :
+                      'default'
+                    }
+                  />
+                ))
+              }
+              sx={{ minWidth: 200, backgroundColor: 'white', borderRadius: 1 }}
+            />
+
+            {/* Status */}
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={bulkUpdateData.automation_status}
+                label="Status"
+                onChange={(e) => handleBulkUpdateFieldChange('automation_status', e.target.value)}
+                sx={{ backgroundColor: 'white' }}
+              >
+                <MenuItem value="">
+                  <em>No change</em>
+                </MenuItem>
+                <MenuItem value="working">Working</MenuItem>
+                <MenuItem value="not_working">Not Working</MenuItem>
+                <MenuItem value="intermittent">Intermittent</MenuItem>
+                <MenuItem value="maintenance">Maintenance</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </Paper>
+      )}
+
       {viewType === 'list' ? (
         /* List View */
         <Paper>
           <TableContainer sx={{ overflowX: 'auto' }}>
-            <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+            <Table size="small" sx={{ minWidth: 1550, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 50 }}>
+                  <Checkbox
+                    indeterminate={selectedTestCases.size > 0 && selectedTestCases.size < testCases.length}
+                    checked={testCases.length > 0 && selectedTestCases.size === testCases.length}
+                    onChange={handleSelectAll}
+                    color="primary"
+                  />
+                </TableCell>
                 <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
                 <ResizableTableCell minWidth={200} initialWidth={250} isHeader>Title</ResizableTableCell>
                 <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Module</ResizableTableCell>
@@ -852,6 +1243,7 @@ const TestCases = () => {
               </TableRow>
               {/* Filter Row */}
               <TableRow>
+                <TableCell padding="checkbox" />
                 <TableCell>
                   <TextField
                     size="small"
@@ -1027,12 +1419,27 @@ const TestCases = () => {
                   <React.Fragment key={testCase.id}>
                   <TableRow 
                     hover
+                    selected={selectedTestCases.has(testCase.id)}
                     sx={{ 
                       '&:hover': {
                         backgroundColor: 'action.hover',
+                      },
+                      '&.Mui-selected': {
+                        backgroundColor: 'primary.lighter',
+                      },
+                      '&.Mui-selected:hover': {
+                        backgroundColor: 'primary.light',
                       }
                     }}
                   >
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedTestCases.has(testCase.id)}
+                        onChange={() => handleSelectTestCase(testCase.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        color="primary"
+                      />
+                    </TableCell>
                     <TableCell 
                       sx={{ 
                         whiteSpace: 'nowrap', 
@@ -1061,7 +1468,7 @@ const TestCases = () => {
                       }}
                       onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
                     >
-                      {testCase.title}
+                      <TruncatedText text={testCase.title} />
                     </TableCell>
                     <TableCell 
                       sx={{ 
@@ -1070,14 +1477,41 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'module_id', e)}
                     >
-                      <Chip
-                        label={getModuleName(testCase.module_id)}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                      />
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'module_id' ? (
+                        <Select
+                          open={true}
+                          value={editValue}
+                          onChange={(e) => {
+                            const newValue = e.target.value;
+                            setEditValue(newValue);
+                            handleInlineEditChange(testCase, 'module_id', newValue);
+                          }}
+                          onClose={() => {
+                            setTimeout(() => handleInlineEditCancel(), 0);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                          }}
+                          size="small"
+                          autoFocus
+                          sx={{ minWidth: 130 }}
+                        >
+                          {modules.map((module) => (
+                            <MenuItem key={module.id} value={module.id}>
+                              {module.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Chip
+                          label={getModuleName(testCase.module_id)}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      )}
                     </TableCell>
                     <TableCell 
                       sx={{ 
@@ -1086,9 +1520,44 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'sub_module', e)}
                     >
-                      {testCase.sub_module ? (
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'sub_module' ? (
+                        <Autocomplete
+                          open
+                          freeSolo
+                          value={editValue}
+                          options={inlineSubModules.map(sm => sm.name)}
+                          onChange={(event, newValue) => {
+                            setEditValue(newValue || '');
+                            if (newValue) {
+                              handleInlineEditChange(testCase, 'sub_module', newValue);
+                            }
+                          }}
+                          onInputChange={(event, newValue) => {
+                            setEditValue(newValue);
+                          }}
+                          onClose={() => {
+                            // Save on close if value changed
+                            if (editValue !== (testCase.sub_module || '')) {
+                              handleInlineEditChange(testCase, 'sub_module', editValue);
+                            } else {
+                              handleInlineEditCancel();
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                            if (e.key === 'Enter') {
+                              handleInlineEditChange(testCase, 'sub_module', editValue);
+                            }
+                          }}
+                          size="small"
+                          sx={{ minWidth: 150 }}
+                          renderInput={(params) => (
+                            <TextField {...params} autoFocus placeholder="Sub-module" size="small" />
+                          )}
+                        />
+                      ) : testCase.sub_module ? (
                         <Chip
                           label={testCase.sub_module}
                           size="small"
@@ -1106,9 +1575,44 @@ const TestCases = () => {
                         textOverflow: 'ellipsis',
                         cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                      onClick={(e) => handleCellClick(testCase, 'feature_section', e)}
                     >
-                      {testCase.feature_section ? (
+                      {editingCell?.testCaseId === testCase.id && editingCell?.field === 'feature_section' ? (
+                        <Autocomplete
+                          open
+                          freeSolo
+                          value={editValue}
+                          options={inlineFeatures.map(f => f.name)}
+                          onChange={(event, newValue) => {
+                            setEditValue(newValue || '');
+                            if (newValue) {
+                              handleInlineEditChange(testCase, 'feature_section', newValue);
+                            }
+                          }}
+                          onInputChange={(event, newValue) => {
+                            setEditValue(newValue);
+                          }}
+                          onClose={() => {
+                            // Save on close if value changed
+                            if (editValue !== (testCase.feature_section || '')) {
+                              handleInlineEditChange(testCase, 'feature_section', editValue);
+                            } else {
+                              handleInlineEditCancel();
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') handleInlineEditCancel();
+                            if (e.key === 'Enter') {
+                              handleInlineEditChange(testCase, 'feature_section', editValue);
+                            }
+                          }}
+                          size="small"
+                          sx={{ minWidth: 150 }}
+                          renderInput={(params) => (
+                            <TextField {...params} autoFocus placeholder="Feature" size="small" />
+                          )}
+                        />
+                      ) : testCase.feature_section ? (
                         <Chip
                           label={testCase.feature_section}
                           size="small"
@@ -1249,6 +1753,7 @@ const TestCases = () => {
                               label={tag.trim()}
                               size="small"
                               color={
+                                tag.trim() === 'prod' ? 'secondary' :
                                 tag.trim() === 'smoke' ? 'error' :
                                 tag.trim() === 'regression' ? 'primary' :
                                 tag.trim() === 'sanity' ? 'success' :
@@ -1264,8 +1769,17 @@ const TestCases = () => {
                       )}
                     </TableCell>
                     <TableCell 
-                      sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                      onClick={(e) => testCase.test_type === 'automated' && handleCellClick(testCase, 'automation_status', e)}
+                      sx={{ 
+                        whiteSpace: 'nowrap', 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis',
+                        cursor: testCase.test_type === 'automated' ? 'pointer' : 'default'
+                      }}
+                      onClick={(e) => {
+                        if (testCase.test_type === 'automated') {
+                          handleCellClick(testCase, 'automation_status', e);
+                        }
+                      }}
                     >
                       {testCase.test_type === 'automated' ? (
                         editingCell?.testCaseId === testCase.id && editingCell?.field === 'automation_status' ? (
@@ -1300,7 +1814,9 @@ const TestCases = () => {
                           />
                         )
                       ) : (
-                        <Typography variant="body2" color="text.secondary">-</Typography>
+                        <Tooltip title="Status is only applicable for Automated test cases" arrow>
+                          <Typography variant="body2" color="text.secondary" sx={{ cursor: 'help' }}>-</Typography>
+                        </Tooltip>
                       )}
                     </TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1348,7 +1864,7 @@ const TestCases = () => {
                   {/* Accordion Row for Details */}
                   {expandedTestCase === testCase.id && (
                     <TableRow>
-                      <TableCell colSpan={10} sx={{ py: 0, px: 0, border: 0 }}>
+                      <TableCell colSpan={11} sx={{ py: 0, px: 0, border: 0 }}>
                         <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
                           {/* Preconditions */}
                           {testCase.preconditions && (
@@ -1588,9 +2104,31 @@ const TestCases = () => {
                           </AccordionSummary>
                           <AccordionDetails>
                             <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-                              <Table size="small" sx={{ minWidth: 1500, tableLayout: 'fixed' }}>
+                              <Table size="small" sx={{ minWidth: 1550, tableLayout: 'fixed' }}>
                                 <TableHead>
                                   <TableRow>
+                                    <TableCell padding="checkbox" sx={{ width: 50 }}>
+                                      <Checkbox
+                                        indeterminate={
+                                          feature.testCases.some(tc => selectedTestCases.has(tc.id)) &&
+                                          !feature.testCases.every(tc => selectedTestCases.has(tc.id))
+                                        }
+                                        checked={
+                                          feature.testCases.length > 0 &&
+                                          feature.testCases.every(tc => selectedTestCases.has(tc.id))
+                                        }
+                                        onChange={(e) => {
+                                          const newSelected = new Set(selectedTestCases);
+                                          if (e.target.checked) {
+                                            feature.testCases.forEach(tc => newSelected.add(tc.id));
+                                          } else {
+                                            feature.testCases.forEach(tc => newSelected.delete(tc.id));
+                                          }
+                                          setSelectedTestCases(newSelected);
+                                        }}
+                                        color="primary"
+                                      />
+                                    </TableCell>
                                     <ResizableTableCell minWidth={120} initialWidth={120} isHeader>Test ID</ResizableTableCell>
                                     <ResizableTableCell minWidth={200} initialWidth={300} isHeader>Title</ResizableTableCell>
                                     <ResizableTableCell minWidth={150} initialWidth={150} isHeader>Module</ResizableTableCell>
@@ -1645,12 +2183,27 @@ const TestCases = () => {
                                     <React.Fragment key={testCase.id}>
                                     <TableRow 
                                       hover
+                                      selected={selectedTestCases.has(testCase.id)}
                                       sx={{ 
                                         '&:hover': {
                                           backgroundColor: 'action.hover',
+                                        },
+                                        '&.Mui-selected': {
+                                          backgroundColor: 'primary.lighter',
+                                        },
+                                        '&.Mui-selected:hover': {
+                                          backgroundColor: 'primary.light',
                                         }
                                       }}
                                     >
+                                      <TableCell padding="checkbox">
+                                        <Checkbox
+                                          checked={selectedTestCases.has(testCase.id)}
+                                          onChange={() => handleSelectTestCase(testCase.id)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          color="primary"
+                                        />
+                                      </TableCell>
                                       <TableCell 
                                         sx={{ 
                                           whiteSpace: 'nowrap', 
@@ -1679,7 +2232,7 @@ const TestCases = () => {
                                         }}
                                         onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
                                       >
-                                        {testCase.title}
+                                        <TruncatedText text={testCase.title} />
                                       </TableCell>
                                       <TableCell 
                                         sx={{ 
@@ -1688,14 +2241,41 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'module_id', e)}
                                       >
-                                        <Chip
-                                          label={getModuleName(testCase.module_id)}
-                                          size="small"
-                                          color="primary"
-                                          variant="outlined"
-                                        />
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'module_id' ? (
+                                          <Select
+                                            open={true}
+                                            value={editValue}
+                                            onChange={(e) => {
+                                              const newValue = e.target.value;
+                                              setEditValue(newValue);
+                                              handleInlineEditChange(testCase, 'module_id', newValue);
+                                            }}
+                                            onClose={() => {
+                                              setTimeout(() => handleInlineEditCancel(), 0);
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                            }}
+                                            size="small"
+                                            autoFocus
+                                            sx={{ minWidth: 130 }}
+                                          >
+                                            {modules.map((module) => (
+                                              <MenuItem key={module.id} value={module.id}>
+                                                {module.name}
+                                              </MenuItem>
+                                            ))}
+                                          </Select>
+                                        ) : (
+                                          <Chip
+                                            label={getModuleName(testCase.module_id)}
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                          />
+                                        )}
                                       </TableCell>
                                       <TableCell 
                                         sx={{ 
@@ -1704,9 +2284,43 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'sub_module', e)}
                                       >
-                                        {testCase.sub_module ? (
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'sub_module' ? (
+                                          <Autocomplete
+                                            open
+                                            freeSolo
+                                            value={editValue}
+                                            options={inlineSubModules.map(sm => sm.name)}
+                                            onChange={(event, newValue) => {
+                                              setEditValue(newValue || '');
+                                              if (newValue) {
+                                                handleInlineEditChange(testCase, 'sub_module', newValue);
+                                              }
+                                            }}
+                                            onInputChange={(event, newValue) => {
+                                              setEditValue(newValue);
+                                            }}
+                                            onClose={() => {
+                                              if (editValue !== (testCase.sub_module || '')) {
+                                                handleInlineEditChange(testCase, 'sub_module', editValue);
+                                              } else {
+                                                handleInlineEditCancel();
+                                              }
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                              if (e.key === 'Enter') {
+                                                handleInlineEditChange(testCase, 'sub_module', editValue);
+                                              }
+                                            }}
+                                            size="small"
+                                            sx={{ minWidth: 150 }}
+                                            renderInput={(params) => (
+                                              <TextField {...params} autoFocus placeholder="Sub-module" size="small" />
+                                            )}
+                                          />
+                                        ) : testCase.sub_module ? (
                                           <Chip
                                             label={testCase.sub_module}
                                             size="small"
@@ -1724,9 +2338,43 @@ const TestCases = () => {
                                           textOverflow: 'ellipsis',
                                           cursor: 'pointer'
                                         }}
-                                        onClick={() => setExpandedTestCase(expandedTestCase === testCase.id ? null : testCase.id)}
+                                        onClick={(e) => handleCellClick(testCase, 'feature_section', e)}
                                       >
-                                        {testCase.feature_section ? (
+                                        {editingCell?.testCaseId === testCase.id && editingCell?.field === 'feature_section' ? (
+                                          <Autocomplete
+                                            open
+                                            freeSolo
+                                            value={editValue}
+                                            options={inlineFeatures.map(f => f.name)}
+                                            onChange={(event, newValue) => {
+                                              setEditValue(newValue || '');
+                                              if (newValue) {
+                                                handleInlineEditChange(testCase, 'feature_section', newValue);
+                                              }
+                                            }}
+                                            onInputChange={(event, newValue) => {
+                                              setEditValue(newValue);
+                                            }}
+                                            onClose={() => {
+                                              if (editValue !== (testCase.feature_section || '')) {
+                                                handleInlineEditChange(testCase, 'feature_section', editValue);
+                                              } else {
+                                                handleInlineEditCancel();
+                                              }
+                                            }}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Escape') handleInlineEditCancel();
+                                              if (e.key === 'Enter') {
+                                                handleInlineEditChange(testCase, 'feature_section', editValue);
+                                              }
+                                            }}
+                                            size="small"
+                                            sx={{ minWidth: 150 }}
+                                            renderInput={(params) => (
+                                              <TextField {...params} autoFocus placeholder="Feature" size="small" />
+                                            )}
+                                          />
+                                        ) : testCase.feature_section ? (
                                           <Chip
                                             label={testCase.feature_section}
                                             size="small"
@@ -1874,6 +2522,7 @@ const TestCases = () => {
                                                 label={tag.trim()}
                                                 size="small"
                                                 color={
+                                                  tag.trim() === 'prod' ? 'secondary' :
                                                   tag.trim() === 'smoke' ? 'error' :
                                                   tag.trim() === 'regression' ? 'primary' :
                                                   tag.trim() === 'sanity' ? 'success' :
@@ -1930,7 +2579,9 @@ const TestCases = () => {
                                             />
                                           )
                                         ) : (
-                                          <Typography variant="body2" color="text.secondary">-</Typography>
+                                          <Tooltip title="Status is only applicable for Automated test cases" arrow>
+                                            <Typography variant="body2" color="text.secondary" sx={{ cursor: 'help' }}>-</Typography>
+                                          </Tooltip>
                                         )}
                                       </TableCell>
                                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
@@ -1980,7 +2631,7 @@ const TestCases = () => {
                                     {/* Accordion Row for Details */}
                                     {expandedTestCase === testCase.id && (
                                       <TableRow>
-                                        <TableCell colSpan={10} sx={{ py: 0, px: 0, border: 0 }}>
+                                        <TableCell colSpan={11} sx={{ py: 0, px: 0, border: 0 }}>
                                           <Box sx={{ bgcolor: 'grey.50', p: 3 }}>
                                             {/* Preconditions */}
                                             {testCase.preconditions && (
@@ -2524,6 +3175,7 @@ const TestCases = () => {
                               label={tag.trim()}
                               size="small"
                               color={
+                                tag.trim() === 'prod' ? 'secondary' :
                                 tag.trim() === 'smoke' ? 'error' :
                                 tag.trim() === 'regression' ? 'primary' :
                                 tag.trim() === 'sanity' ? 'success' :

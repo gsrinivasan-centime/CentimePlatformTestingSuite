@@ -35,6 +35,7 @@ import {
   Person as UserIcon
 } from '@mui/icons-material';
 import ResizableTableCell from '../components/ResizableTableCell';
+import TruncatedText from '../components/TruncatedText';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
 
@@ -313,14 +314,10 @@ const Users = () => {
                 >
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.id}</TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography variant="body1" fontWeight="medium">
-                      {user.full_name || user.name || '-'}
-                    </Typography>
+                    <TruncatedText text={user.full_name || user.name || '-'} fontWeight="medium" />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <Typography variant="body2">
-                      {user.email}
-                    </Typography>
+                    <TruncatedText text={user.email} />
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <Chip

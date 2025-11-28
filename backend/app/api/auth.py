@@ -13,7 +13,7 @@ from app.core.security import (
     validate_email_domain
 )
 from app.core.config import settings
-from app.models.models import User
+from app.models.models import User, UserRole
 from app.schemas.schemas import UserCreate, User as UserSchema, Token, RefreshTokenRequest
 from app.services.email_service import EmailService
 
@@ -59,13 +59,14 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             detail="Email already registered"
         )
     
-    # Create new user (unverified)
+    # Create new user (unverified) - Always assign TESTER role for security
+    # Admin role can only be assigned by existing super admin via user management
     hashed_password = get_password_hash(user.password)
     db_user = User(
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name,
-        role=user.role,
+        role=UserRole.TESTER,  # Force TESTER role - ignore any role provided in request
         is_email_verified=False
     )
     db.add(db_user)

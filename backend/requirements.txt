@@ -44,3 +44,8 @@ httpx==0.27.2
 google-api-python-client==2.151.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
+
+# Similarity Analysis / Vector Embeddings
+sentence-transformers==3.3.1
+pgvector==0.3.6
+numpy==2.1.3

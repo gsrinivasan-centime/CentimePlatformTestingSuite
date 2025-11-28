@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
-from app.models.models import User, UserRole
+from app.models.models import User, UserRole, FeatureFile
 from app.schemas.schemas import User as UserSchema, UserUpdate, UserCreate
 from app.api.auth import get_current_active_user
 from app.core.security import get_password_hash
@@ -116,6 +116,9 @@ def delete_user(
     # Prevent deleting yourself
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    # Delete all feature files belonging to this user (drafts + archived + published)
+    db.query(FeatureFile).filter(FeatureFile.created_by == user.id).delete()
     
     db.delete(user)
     db.commit()

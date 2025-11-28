@@ -11,7 +11,6 @@ import {
   Link,
   InputAdornment,
   IconButton,
-  MenuItem,
 } from '@mui/material';
 import { Visibility, VisibilityOff, PersonAdd } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
@@ -23,7 +22,6 @@ const Register = () => {
     password: '',
     confirmPassword: '',
     full_name: '',
-    role: 'tester',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -155,19 +153,6 @@ const Register = () => {
               placeholder={`user@${emailDomain}`}
               helperText={`Must be a @${emailDomain} email address`}
             />
-            <TextField
-              fullWidth
-              select
-              label="Role"
-              name="role"
-              value={formData.role}
-              onChange={handleChange}
-              margin="normal"
-              required
-            >
-              <MenuItem value="tester">Tester</MenuItem>
-              <MenuItem value="admin">Admin</MenuItem>
-            </TextField>
             <TextField
               fullWidth
               label="Password"

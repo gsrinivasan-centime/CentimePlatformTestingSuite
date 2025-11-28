@@ -162,7 +162,7 @@ class TestCaseBase(BaseModel):
     title: str
     description: Optional[str] = None
     test_type: TestType
-    module_id: int
+    module_id: Optional[int] = None
     sub_module: Optional[str] = None  # NEW: e.g., "Suppliers", "Invoices"
     feature_section: Optional[str] = None  # NEW: e.g., "Supplier Profile", "List View"
     tag: TestTag  # NEW: ui/api/hybrid - used for auto-generating test_id
@@ -201,6 +201,17 @@ class TestCaseUpdate(BaseModel):
     preconditions: Optional[str] = None
     test_data: Optional[str] = None
     automated_script_path: Optional[str] = None
+
+# NEW: Bulk update schema
+class TestCaseBulkUpdate(BaseModel):
+    test_case_ids: List[int]
+    module_id: Optional[int] = None
+    sub_module: Optional[str] = None
+    feature_section: Optional[str] = None
+    test_type: Optional[TestType] = None
+    tag: Optional[TestTag] = None
+    tags: Optional[str] = None
+    automation_status: Optional[AutomationStatus] = None
 
 class TestCase(TestCaseBase):
     id: int

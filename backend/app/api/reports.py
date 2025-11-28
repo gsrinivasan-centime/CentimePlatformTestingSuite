@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from datetime import datetime
+from io import BytesIO
 from app.core.database import get_db
 from app.models.models import (
     TestExecution, TestCase, Module, Release, User, TestStatus, JiraDefect, JiraStory
@@ -162,14 +163,15 @@ def generate_pdf_report(
     # Get the same data as the summary endpoint
     data = get_release_summary(release_id, None, db, current_user)
     
-    # Create reports directory if it doesn't exist
-    os.makedirs("reports", exist_ok=True)
+    # Generate PDF in memory instead of saving to disk
+    pdf_buffer = BytesIO()
     
-    filename = f"reports/release_{data['release_version']}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    # Create filename for download
+    download_filename = f"release_{data['release_version']}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     
     # Create PDF with tighter margins
     doc = SimpleDocTemplate(
-        filename, 
+        pdf_buffer, 
         pagesize=A4,
         leftMargin=0.5*inch,
         rightMargin=0.5*inch,
@@ -481,7 +483,17 @@ def generate_pdf_report(
     # Build PDF
     doc.build(elements)
     
-    return FileResponse(filename, media_type='application/pdf', filename=os.path.basename(filename))
+    # Reset buffer position to beginning for reading
+    pdf_buffer.seek(0)
+    
+    # Return as streaming response (no file saved to disk)
+    return StreamingResponse(
+        pdf_buffer,
+        media_type='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{download_filename}"'
+        }
+    )
 
 
 @router.get("/summary")

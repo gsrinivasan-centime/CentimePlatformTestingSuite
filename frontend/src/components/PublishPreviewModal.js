@@ -21,13 +21,18 @@ import {
     CircularProgress,
     Alert,
     IconButton,
-    Tooltip
+    Tooltip,
+    LinearProgress
 } from '@mui/material';
 import {
     Publish as PublishIcon,
     Close as CloseIcon,
-    SelectAll as SelectAllIcon
+    SelectAll as SelectAllIcon,
+    Download as DownloadIcon,
+    Warning as WarningIcon,
+    CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
+import api from '../services/api';
 
 const TEST_TYPES = [
     { value: 'ui', label: 'UI', color: 'primary' },
@@ -42,10 +47,14 @@ const PublishPreviewModal = ({
     previewData, 
     loading, 
     error,
-    onPublish 
+    onPublish,
+    fileId
 }) => {
     const [scenarioTypes, setScenarioTypes] = useState([]);
     const [publishing, setPublishing] = useState(false);
+    const [similarityData, setSimilarityData] = useState(null);
+    const [loadingSimilarity, setLoadingSimilarity] = useState(false);
+    const [similarityError, setSimilarityError] = useState(null);
 
     // Initialize scenario types when preview data changes
     useEffect(() => {
@@ -58,6 +67,32 @@ const PublishPreviewModal = ({
             setScenarioTypes(initialTypes);
         }
     }, [previewData]);
+
+    // Fetch similarity data when modal opens and we have a fileId
+    useEffect(() => {
+        const fetchSimilarity = async () => {
+            try {
+                setLoadingSimilarity(true);
+                setSimilarityError(null);
+                const response = await api.post(`/step-catalog/feature-files/${fileId}/check-similarity`);
+                setSimilarityData(response.data);
+            } catch (err) {
+                console.error('Failed to fetch similarity data:', err);
+                setSimilarityError('Failed to check similarity. Publishing will continue without similarity info.');
+            } finally {
+                setLoadingSimilarity(false);
+            }
+        };
+
+        if (open && fileId && previewData?.scenarios?.length > 0) {
+            fetchSimilarity();
+        }
+    }, [open, fileId, previewData]);
+
+    const getSimilarityForScenario = (scenarioIndex) => {
+        if (!similarityData?.results) return null;
+        return similarityData.results.find(r => r.index === scenarioIndex);
+    };
 
     const handleTypeChange = (index, newType) => {
         setScenarioTypes(prev => 
@@ -91,6 +126,71 @@ const PublishPreviewModal = ({
                 size="small" 
             />
         );
+    };
+
+    const getSimilarityChip = (similarity) => {
+        if (!similarity) return null;
+        
+        const percent = similarity.similarity_percent;
+        let color = 'success';
+        let icon = <CheckCircleIcon sx={{ fontSize: 14 }} />;
+        
+        if (percent >= (similarityData?.threshold || 75)) {
+            color = 'warning';
+            icon = <WarningIcon sx={{ fontSize: 14 }} />;
+        }
+        
+        return (
+            <Tooltip title={
+                similarity.similar_test_case_id 
+                    ? `Similar to: ${similarity.similar_test_case_id} - ${similarity.similar_test_case_title}`
+                    : 'No similar test cases found'
+            }>
+                <Chip
+                    icon={icon}
+                    label={`${percent}%`}
+                    color={color}
+                    size="small"
+                    variant={percent >= (similarityData?.threshold || 75) ? 'filled' : 'outlined'}
+                />
+            </Tooltip>
+        );
+    };
+
+    const handleExportCSV = () => {
+        if (!previewData?.scenarios) return;
+        
+        // Build CSV content
+        const headers = ['#', 'Scenario Name', 'Keyword', 'Steps', 'Test Type', 'Similarity %', 'Similar To'];
+        const rows = previewData.scenarios.map((scenario, idx) => {
+            const similarity = getSimilarityForScenario(scenario.index);
+            const scenarioType = scenarioTypes.find(st => st.index === scenario.index)?.type || 'api';
+            
+            return [
+                idx + 1,
+                `"${scenario.name.replace(/"/g, '""')}"`,
+                scenario.keyword,
+                scenario.steps.length,
+                scenarioType.toUpperCase(),
+                similarity?.similarity_percent || 0,
+                similarity?.similar_test_case_id || 'N/A'
+            ];
+        });
+        
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+        
+        // Create and download file
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const fileName = `${previewData.file_name?.replace('.feature', '') || 'scenarios'}_preview.csv`;
+        
+        link.href = URL.createObjectURL(blob);
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(link.href);
     };
 
     return (
@@ -141,6 +241,46 @@ const PublishPreviewModal = ({
                             />
                         </Box>
 
+                        {/* Similarity Loading/Error */}
+                        {loadingSimilarity && (
+                            <Box sx={{ mb: 2 }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                    Checking for similar test cases...
+                                </Typography>
+                                <LinearProgress />
+                            </Box>
+                        )}
+                        
+                        {similarityError && (
+                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                {similarityError}
+                            </Alert>
+                        )}
+
+                        {/* Similarity Info */}
+                        {similarityData && !loadingSimilarity && (
+                            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                <Chip 
+                                    label={`Threshold: ${similarityData.threshold}%`}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                                <Chip 
+                                    label={`Model: ${similarityData.model_used}`}
+                                    size="small"
+                                    variant="outlined"
+                                />
+                                {similarityData.results?.some(r => r.is_potential_duplicate) && (
+                                    <Chip 
+                                        icon={<WarningIcon />}
+                                        label={`${similarityData.results.filter(r => r.is_potential_duplicate).length} potential duplicate(s)`}
+                                        color="warning"
+                                        size="small"
+                                    />
+                                )}
+                            </Box>
+                        )}
+
                         {/* Set All Buttons */}
                         <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                             <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
@@ -159,6 +299,18 @@ const PublishPreviewModal = ({
                                     {type.label}
                                 </Button>
                             ))}
+                            
+                            {/* Export CSV Button */}
+                            <Box sx={{ flexGrow: 1 }} />
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<DownloadIcon />}
+                                onClick={handleExportCSV}
+                                sx={{ textTransform: 'none' }}
+                            >
+                                Export CSV
+                            </Button>
                         </Box>
 
                         {/* Scenarios Table */}
@@ -168,53 +320,91 @@ const PublishPreviewModal = ({
                                     <TableHead>
                                         <TableRow sx={{ backgroundColor: 'grey.100' }}>
                                             <TableCell width="5%">#</TableCell>
-                                            <TableCell width="65%">Scenario Name</TableCell>
-                                            <TableCell width="30%">Test Type</TableCell>
+                                            <TableCell width="40%">Scenario Name</TableCell>
+                                            <TableCell width="20%">Test Type</TableCell>
+                                            <TableCell width="15%">Similarity</TableCell>
+                                            <TableCell width="20%">Similar To</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {previewData.scenarios.map((scenario, idx) => (
-                                            <TableRow key={scenario.index} hover>
-                                                <TableCell>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        {idx + 1}
-                                                    </Typography>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Tooltip title={scenario.steps.join('\n')} placement="top-start">
-                                                        <Box>
-                                                            <Typography variant="body2" fontWeight="medium">
-                                                                {scenario.name}
+                                        {previewData.scenarios.map((scenario, idx) => {
+                                            const similarity = getSimilarityForScenario(scenario.index);
+                                            return (
+                                                <TableRow 
+                                                    key={scenario.index} 
+                                                    hover
+                                                    sx={similarity?.is_potential_duplicate ? { 
+                                                        backgroundColor: 'warning.lighter',
+                                                        '&:hover': { backgroundColor: 'warning.light' }
+                                                    } : {}}
+                                                >
+                                                    <TableCell>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            {idx + 1}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Tooltip title={scenario.steps.join('\n')} placement="top-start">
+                                                            <Box>
+                                                                <Typography variant="body2" fontWeight="medium">
+                                                                    {scenario.name}
+                                                                </Typography>
+                                                                <Typography variant="caption" color="text.secondary">
+                                                                    {scenario.keyword} • {scenario.steps.length} steps
+                                                                    {scenario.has_examples && ' • Has Examples'}
+                                                                </Typography>
+                                                            </Box>
+                                                        </Tooltip>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <FormControl size="small" fullWidth>
+                                                            <Select
+                                                                value={scenarioTypes.find(st => st.index === scenario.index)?.type || 'api'}
+                                                                onChange={(e) => handleTypeChange(scenario.index, e.target.value)}
+                                                                sx={{ 
+                                                                    minWidth: 100,
+                                                                    '& .MuiSelect-select': { py: 1 }
+                                                                }}
+                                                            >
+                                                                {TEST_TYPES.map(type => (
+                                                                    <MenuItem key={type.value} value={type.value}>
+                                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                            {getTypeChip(type.value)}
+                                                                        </Box>
+                                                                    </MenuItem>
+                                                                ))}
+                                                            </Select>
+                                                        </FormControl>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {loadingSimilarity ? (
+                                                            <CircularProgress size={16} />
+                                                        ) : (
+                                                            getSimilarityChip(similarity)
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {similarity?.similar_test_case_id ? (
+                                                            <Tooltip title={similarity.similar_test_case_title}>
+                                                                <Typography 
+                                                                    variant="body2" 
+                                                                    sx={{ 
+                                                                        color: similarity.is_potential_duplicate ? 'warning.dark' : 'text.secondary',
+                                                                        fontWeight: similarity.is_potential_duplicate ? 'medium' : 'normal'
+                                                                    }}
+                                                                >
+                                                                    {similarity.similar_test_case_id}
+                                                                </Typography>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            <Typography variant="body2" color="text.disabled">
+                                                                —
                                                             </Typography>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                {scenario.keyword} • {scenario.steps.length} steps
-                                                                {scenario.has_examples && ' • Has Examples'}
-                                                            </Typography>
-                                                        </Box>
-                                                    </Tooltip>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <FormControl size="small" fullWidth>
-                                                        <Select
-                                                            value={scenarioTypes.find(st => st.index === scenario.index)?.type || 'api'}
-                                                            onChange={(e) => handleTypeChange(scenario.index, e.target.value)}
-                                                            sx={{ 
-                                                                minWidth: 120,
-                                                                '& .MuiSelect-select': { py: 1 }
-                                                            }}
-                                                        >
-                                                            {TEST_TYPES.map(type => (
-                                                                <MenuItem key={type.value} value={type.value}>
-                                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                        {getTypeChip(type.value)}
-                                                                    </Box>
-                                                                </MenuItem>
-                                                            ))}
-                                                        </Select>
-                                                    </FormControl>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
                                     </TableBody>
                                 </Table>
                             </TableContainer>

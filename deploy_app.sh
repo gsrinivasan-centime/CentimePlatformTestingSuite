@@ -48,7 +48,7 @@ BACKEND_DIR="$SCRIPT_DIR/backend"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
 
 # EC2 Configuration
-EC2_HOST="18.217.46.229"
+EC2_HOST="18.191.180.118"
 EC2_USER="ubuntu"
 EC2_KEY="$HOME/.ssh/centime-qa-portal-ec2-key.pem"
 EC2_BACKEND_PATH="/home/ubuntu/CentimePlatformTestingSuite/backend"

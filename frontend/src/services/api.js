@@ -382,6 +382,15 @@ export const testCasesAPI = {
     const response = await api.get('/test-cases/by-jira-story', { params });
     return response.data;
   },
+
+  // NEW: Bulk update test cases
+  bulkUpdate: async (testCaseIds, updateData) => {
+    const response = await api.put('/test-cases/bulk-update', {
+      test_case_ids: testCaseIds,
+      ...updateData
+    });
+    return response.data;
+  },
 };
 
 // Releases API
@@ -604,7 +613,7 @@ export const featureFilesAPI = {
     return response.data;
   },
   
-  // Publish feature file with scenario types
+  // Publish feature file with scenario types (submits for approval)
   publish: async (id, scenarioTypes = null) => {
     const response = await api.post(`/step-catalog/feature-files/${id}/publish`, {
       scenario_types: scenarioTypes
@@ -615,6 +624,28 @@ export const featureFilesAPI = {
   // Restore feature file (unpublish)
   restore: async (id) => {
     const response = await api.post(`/step-catalog/feature-files/${id}/restore`);
+    return response.data;
+  },
+  
+  // Get pending approval files (for testers: own files, for admins: all files)
+  getPendingApproval: async () => {
+    const response = await api.get('/step-catalog/feature-files/pending-approval/list');
+    return response.data;
+  },
+  
+  // Approve feature file (admin only)
+  approve: async (id, scenarioTypes = null) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/approve`, {
+      scenario_types: scenarioTypes
+    });
+    return response.data;
+  },
+  
+  // Reject feature file (admin only)
+  reject: async (id, reason = '') => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/reject`, {
+      reason
+    });
     return response.data;
   },
 };

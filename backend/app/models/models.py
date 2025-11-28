@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum, Float, func
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
@@ -58,6 +59,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_email_verified = Column(Boolean, default=False)
     email_verified_at = Column(DateTime, nullable=True)
+    is_super_admin = Column(Boolean, default=False)  # Only super admin can modify application settings
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -159,6 +161,10 @@ class TestCase(Base):
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Similarity analysis - embedding vector stored as float array (384 dimensions)
+    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
     
     # Relationships
     module = relationship("Module", back_populates="test_cases")
@@ -322,14 +328,19 @@ class FeatureFile(Base):
     content = Column(Text, nullable=False)  # Gherkin feature file content
     description = Column(Text, nullable=True)
     module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
-    status = Column(String(20), default="draft")  # draft, published, archived
+    status = Column(String(20), default="draft")  # draft, pending_approval, published, archived
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    published_at = Column(DateTime, nullable=True)  # Track when file was published for archive ordering
+    submitted_for_approval_at = Column(DateTime, nullable=True)  # When tester submitted for approval
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Admin who approved
+    approved_at = Column(DateTime, nullable=True)  # When admin approved
     
     # Relationships
     module = relationship("Module", foreign_keys=[module_id])
     creator = relationship("User", foreign_keys=[created_by])
+    approver = relationship("User", foreign_keys=[approved_by])
 
 
 class Issue(Base):
@@ -368,4 +379,14 @@ class Issue(Base):
     test_case = relationship("TestCase", backref="issues")
     creator = relationship("User", foreign_keys=[created_by])
     assignee = relationship("User", foreign_keys=[assigned_to])
+
+
+class ApplicationSetting(Base):
+    """Application-wide settings stored in database"""
+    __tablename__ = "application_settings"
+    
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+    description = Column(String(500), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

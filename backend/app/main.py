@@ -61,7 +61,7 @@ async def startup_event():
         print(f"   ⚠️  Warning: {backend.capitalize()} is not properly configured")
         print("   File uploads to issues may not work.")
     
-    # Preload embedding models in background (optional - comment out if not needed)
+    # Preload embedding model in background for faster similarity checks
     print("\n🧠 Embedding Models: Starting background preload...")
     try:
         from app.services.embedding_service import get_embedding_service

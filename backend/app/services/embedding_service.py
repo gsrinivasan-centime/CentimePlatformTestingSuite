@@ -153,6 +153,66 @@ class EmbeddingService:
         
         return " | ".join(text_parts)
     
+    def prepare_issue_text_for_embedding(
+        self,
+        title: str,
+        description: str = None,
+        module_name: str = None,
+        status: str = None,
+        priority: str = None,
+        severity: str = None,
+        reporter_name: str = None,
+        assignee_name: str = None,
+        jira_story_id: str = None
+    ) -> str:
+        """
+        Prepare issue text for embedding generation.
+        
+        Optimized for queries like:
+        - "Show all issues related to payments"
+        - "Show issues reported by John"
+        - "Show issues assigned to me"
+        - "Show critical issues in AP module"
+        """
+        text_parts = []
+        
+        # Add module (very important for semantic matching)
+        if module_name:
+            text_parts.append(f"Module: {module_name.strip()}")
+        
+        # Add status and priority/severity
+        if status:
+            text_parts.append(f"Status: {status.strip()}")
+        
+        if priority:
+            text_parts.append(f"Priority: {priority.strip()}")
+            
+        if severity:
+            text_parts.append(f"Severity: {severity.strip()}")
+        
+        # Add title (main searchable content)
+        if title:
+            text_parts.append(f"Title: {title.strip()}")
+        
+        # Add description if present
+        if description:
+            # Truncate very long descriptions to keep embedding focused
+            desc = description.strip()[:500]
+            text_parts.append(f"Description: {desc}")
+        
+        # Add people info for "reported by" / "assigned to" queries
+        if reporter_name:
+            text_parts.append(f"Reporter: {reporter_name.strip()}")
+            
+        if assignee_name:
+            text_parts.append(f"Assignee: {assignee_name.strip()}")
+        
+        # Add JIRA reference
+        if jira_story_id:
+            text_parts.append(f"Story: {jira_story_id.strip()}")
+        
+        return " | ".join(text_parts)
+    
     def generate_embeddings_batch(self, texts: List[str], model_name: str = DEFAULT_MODEL) -> List[List[float]]:
         """Generate embeddings for multiple texts efficiently"""
         if not texts:

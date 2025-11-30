@@ -211,7 +211,9 @@ const Layout = ({ children }) => {
       let path = normalizePath(aiResult.navigate_to);
       if (aiResult.query_params && Object.keys(aiResult.query_params).length > 0) {
         const params = new URLSearchParams(aiResult.query_params);
-        path += `?${params.toString()}`;
+        // Check if path already has query params
+        const separator = path.includes('?') ? '&' : '?';
+        path += `${separator}${params.toString()}`;
       }
       handleSearchClose();
       setTimeout(() => navigate(path), 50);

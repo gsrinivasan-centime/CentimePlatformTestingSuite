@@ -13,7 +13,7 @@ from typing import Dict, Optional, List
 from datetime import datetime
 
 from app.core.database import get_db
-from app.models.models import ApplicationSetting, TestCase, User, UserRole
+from app.models.models import ApplicationSetting, TestCase, Issue, User, UserRole, Module
 from app.api.auth import get_current_user
 from app.services.embedding_service import get_embedding_service, SUPPORTED_MODELS, DEFAULT_MODEL
 
@@ -273,4 +273,155 @@ async def populate_embeddings(
         "errors": errors,
         "used_model": current_model,
         "message": f"Successfully generated embeddings for {processed} test cases using {current_model}"
+    }
+
+
+class IssueEmbeddingStatsResponse(BaseModel):
+    total_issues: int
+    with_embeddings: int
+    without_embeddings: int
+    by_model: Dict[str, int]
+    mismatched_count: int
+
+
+def get_issue_embedding_stats(db: Session, current_model: str) -> Dict:
+    """Get statistics about issue embeddings"""
+    total = db.query(func.count(Issue.id)).scalar() or 0
+    with_embeddings = db.query(func.count(Issue.id)).filter(
+        Issue.embedding.isnot(None)
+    ).scalar() or 0
+    without_embeddings = total - with_embeddings
+    
+    # Count by model
+    model_counts = db.query(
+        Issue.embedding_model,
+        func.count(Issue.id)
+    ).filter(
+        Issue.embedding.isnot(None)
+    ).group_by(Issue.embedding_model).all()
+    
+    by_model = {model: count for model, count in model_counts if model}
+    
+    # Count mismatched (embeddings from different model than current)
+    mismatched = db.query(func.count(Issue.id)).filter(
+        Issue.embedding.isnot(None),
+        Issue.embedding_model != current_model
+    ).scalar() or 0
+    
+    return {
+        "total_issues": total,
+        "with_embeddings": with_embeddings,
+        "without_embeddings": without_embeddings,
+        "by_model": by_model,
+        "mismatched_count": mismatched
+    }
+
+
+@router.get("/issue-embedding-stats", response_model=IssueEmbeddingStatsResponse)
+async def get_issue_embedding_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed issue embedding statistics"""
+    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
+    stats = get_issue_embedding_stats(db, current_model)
+    return stats
+
+
+@router.post("/populate-issue-embeddings", response_model=PopulateEmbeddingsResponse)
+async def populate_issue_embeddings(
+    request: PopulateEmbeddingsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate embeddings for issues (admin only).
+    
+    If regenerate_all=True, regenerates all embeddings.
+    If regenerate_all=False (default), only generates for issues without embeddings
+    or with embeddings from a different model.
+    """
+    if not current_user.is_super_admin:
+        raise HTTPException(status_code=403, detail="Only super admin can populate embeddings")
+    
+    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
+    embedding_service = get_embedding_service()
+    
+    # Determine which issues to process
+    if request.regenerate_all:
+        issues = db.query(Issue).all()
+    else:
+        # Only missing or mismatched
+        issues = db.query(Issue).filter(
+            (Issue.embedding.is_(None)) | 
+            (Issue.embedding_model != current_model)
+        ).all()
+    
+    total = len(issues)
+    processed = 0
+    errors = 0
+    
+    # Build module ID to name mapping
+    modules = {m.id: m.name for m in db.query(Module).all()}
+    
+    # Build user ID to name mapping for reporter/assignee
+    users = {u.id: u.full_name or u.email for u in db.query(User).all()}
+    
+    # Process in batches for efficiency
+    batch_size = 50
+    for i in range(0, total, batch_size):
+        batch = issues[i:i + batch_size]
+        texts = []
+        valid_indices = []
+        
+        for idx, issue in enumerate(batch):
+            module_name = modules.get(issue.module_id) if issue.module_id else None
+            
+            # Get reporter name
+            reporter_name = issue.reporter_name
+            if not reporter_name and issue.created_by:
+                reporter_name = users.get(issue.created_by)
+            
+            # Get assignee name
+            assignee_name = issue.jira_assignee_name
+            if not assignee_name and issue.assigned_to:
+                assignee_name = users.get(issue.assigned_to)
+            
+            text = embedding_service.prepare_issue_text_for_embedding(
+                title=issue.title,
+                description=issue.description,
+                module_name=module_name,
+                status=issue.status,
+                priority=issue.priority,
+                severity=issue.severity,
+                reporter_name=reporter_name,
+                assignee_name=assignee_name,
+                jira_story_id=issue.jira_story_id
+            )
+            if text:
+                texts.append(text)
+                valid_indices.append(idx)
+        
+        if texts:
+            try:
+                embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
+                
+                for j, embedding in enumerate(embeddings):
+                    issue = batch[valid_indices[j]]
+                    issue.embedding = embedding
+                    issue.embedding_model = current_model
+                    processed += 1
+                
+                db.commit()
+            except Exception as e:
+                print(f"Error processing issue batch: {e}")
+                errors += len(texts)
+                db.rollback()
+    
+    return {
+        "processed": processed,
+        "total": total,
+        "errors": errors,
+        "used_model": current_model,
+        "message": f"Successfully generated embeddings for {processed} issues using {current_model}"
     }

@@ -86,9 +86,76 @@ def compute_issue_embedding(issue_id: int):
     """
     Background task to compute/update embedding for an issue.
     
-    Note: Currently a placeholder. Issue model needs an embedding column to store vectors.
+    This function runs in a background thread and creates its own database session.
+    Optimized for semantic search queries like:
+    - "Show issues in payments module"
+    - "Show issues reported by John"
+    - "Show critical issues assigned to me"
     """
-    logger.info(f"[Embedding Task] Issue embedding not yet implemented (Issue model needs embedding column). Issue ID: {issue_id}")
+    db = SessionLocal()
+    try:
+        from app.models.models import Issue, Module, User
+        
+        issue = db.query(Issue).filter(Issue.id == issue_id).first()
+        if not issue:
+            logger.warning(f"[Embedding Task] Issue {issue_id} not found")
+            return
+        
+        # Get module name for embedding
+        module_name = None
+        if issue.module_id:
+            module = db.query(Module).filter(Module.id == issue.module_id).first()
+            if module:
+                module_name = module.name
+        
+        # Get reporter name
+        reporter_name = issue.reporter_name
+        if not reporter_name and issue.created_by:
+            creator = db.query(User).filter(User.id == issue.created_by).first()
+            if creator:
+                reporter_name = creator.full_name or creator.email
+        
+        # Get assignee name
+        assignee_name = issue.jira_assignee_name
+        if not assignee_name and issue.assigned_to:
+            assignee = db.query(User).filter(User.id == issue.assigned_to).first()
+            if assignee:
+                assignee_name = assignee.full_name or assignee.email
+        
+        # Prepare text for embedding
+        embedding_service = get_embedding_service()
+        text = embedding_service.prepare_issue_text_for_embedding(
+            title=issue.title,
+            description=issue.description,
+            module_name=module_name,
+            status=issue.status,
+            priority=issue.priority,
+            severity=issue.severity,
+            reporter_name=reporter_name,
+            assignee_name=assignee_name,
+            jira_story_id=issue.jira_story_id
+        )
+        
+        if text:
+            # Generate embedding
+            embedding = embedding_service.generate_embedding(text, DEFAULT_MODEL)
+            
+            if embedding:
+                # Store embedding in database
+                issue.embedding = embedding
+                issue.embedding_model = DEFAULT_MODEL
+                db.commit()
+                logger.info(f"[Embedding Task] ✅ Generated embedding for issue {issue_id}: '{issue.title[:50]}...'")
+            else:
+                logger.warning(f"[Embedding Task] Failed to generate embedding for issue {issue_id}")
+        else:
+            logger.warning(f"[Embedding Task] No text content for issue {issue_id}")
+            
+    except Exception as e:
+        logger.error(f"[Embedding Task] Error computing embedding for issue {issue_id}: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def compute_jira_story_embedding(story_id: int):

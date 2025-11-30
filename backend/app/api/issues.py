@@ -10,8 +10,7 @@ from app.schemas.schemas import Issue as IssueSchema, IssueCreate, IssueUpdate, 
 from app.api.auth import get_current_active_user
 from app.services.file_storage import file_storage
 from app.services.jira_service import jira_service
-# Note: Issue model doesn't have embedding column yet - embeddings disabled
-# from app.services.background_tasks import compute_issue_embedding
+from app.services.background_tasks import compute_issue_embedding
 from fastapi import UploadFile, File, Form
 import json
 import requests
@@ -48,6 +47,7 @@ def list_issues(
 @router.post("/", response_model=IssueSchema, status_code=status.HTTP_201_CREATED)
 def create_issue(
     issue: IssueCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -56,8 +56,8 @@ def create_issue(
     db.commit()
     db.refresh(db_issue)
     
-    # TODO: Add embedding generation when Issue model has embedding column
-    # background_tasks.add_task(compute_issue_embedding, db_issue.id)
+    # Generate embedding in background for semantic search
+    background_tasks.add_task(compute_issue_embedding, db_issue.id)
     
     return db_issue
 
@@ -125,6 +125,7 @@ def get_issue(
 def update_issue(
     issue_id: int,
     issue_update: IssueUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -147,10 +148,10 @@ def update_issue(
     db.commit()
     db.refresh(db_issue)
     
-    # TODO: Add embedding re-generation when Issue model has embedding column
-    # embedding_fields = {'title', 'description', 'steps_to_reproduce', 'severity', 'status', 'module_id'}
-    # if any(field in update_data for field in embedding_fields):
-    #     background_tasks.add_task(compute_issue_embedding, db_issue.id)
+    # Re-generate embedding if relevant fields changed
+    embedding_fields = {'title', 'description', 'status', 'priority', 'severity', 'module_id', 'assigned_to', 'jira_assignee_name', 'reporter_name'}
+    if any(field in update_data for field in embedding_fields):
+        background_tasks.add_task(compute_issue_embedding, db_issue.id)
     
     return db_issue
 

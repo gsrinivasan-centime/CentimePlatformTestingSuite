@@ -18,7 +18,7 @@ from sqlalchemy import or_, func, text
 from app.core.config import settings
 from app.models.models import (
     User, TestCase, Issue, JiraStory, Module, Release,
-    SmartSearchLog
+    SmartSearchLog, LLMResponseCache
 )
 from app.schemas.smart_search import (
     SmartSearchRequest, SmartSearchResponse, LLMClassificationResult,
@@ -30,7 +30,7 @@ from app.services.embedding_service import EmbeddingService
 logger = logging.getLogger(__name__)
 
 # Configuration - Default values (can be overridden by database settings)
-GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None) or "AIzaSyA-Rd4mfopLyFp5_MwKvBn9CrLPfMs5-Mg"
+GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None) or "AIzaSyCagZrCG5WhTA2EaK-4Mt8Nlz4JsX0nSlo"
 GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_MIN_CONFIDENCE_THRESHOLD = 0.5
 DEFAULT_MIN_SIMILARITY_THRESHOLD = 0.5  # Minimum 50% similarity for semantic search results
@@ -122,27 +122,114 @@ class SmartSearchService:
     
     def _get_cache_key(self, query: str, user_id: int) -> str:
         """Generate cache key for LLM response"""
-        return hashlib.md5(f"{query}:{user_id}".encode()).hexdigest()
+        # Normalize query: lowercase, strip, remove extra spaces
+        normalized_query = " ".join(query.lower().strip().split())
+        return hashlib.md5(f"{normalized_query}:{user_id}".encode()).hexdigest()
     
-    def _get_from_llm_cache(self, key: str, cache_ttl: int) -> Optional[LLMClassificationResult]:
-        """Get LLM response from cache if valid"""
-        if key in self._llm_cache:
-            result, timestamp = self._llm_cache[key]
-            if time.time() - timestamp < cache_ttl:
+    def _get_from_llm_cache(self, db: Session, key: str, cache_ttl: int) -> Optional[LLMClassificationResult]:
+        """Get LLM response from persistent database cache"""
+        try:
+            # First check in-memory cache (fastest)
+            if key in self._llm_cache:
+                result, timestamp = self._llm_cache[key]
+                if time.time() - timestamp < cache_ttl:
+                    return result
+                else:
+                    del self._llm_cache[key]
+            
+            # Then check database cache
+            cache_entry = db.query(LLMResponseCache).filter(
+                LLMResponseCache.cache_key == key,
+                LLMResponseCache.expires_at > datetime.utcnow()
+            ).first()
+            
+            if cache_entry:
+                # Update hit count and last accessed
+                cache_entry.hit_count += 1
+                cache_entry.last_accessed_at = datetime.utcnow()
+                db.commit()
+                
+                # Reconstruct the result from cached JSON
+                result = LLMClassificationResult(
+                    intent=cache_entry.response_json.get("intent", "unknown"),
+                    target_page=cache_entry.response_json.get("target_page", "/dashboard"),
+                    filters=cache_entry.response_json.get("filters", {}),
+                    requires_semantic_search=cache_entry.response_json.get("requires_semantic_search", False),
+                    semantic_query=cache_entry.response_json.get("semantic_query"),
+                    confidence=cache_entry.response_json.get("confidence", 0.5)
+                )
+                
+                # Also store in memory cache for faster subsequent access
+                self._llm_cache[key] = (result, time.time())
+                
+                logger.info(f"[Smart Search] DB cache hit (hits: {cache_entry.hit_count})")
                 return result
-            else:
-                del self._llm_cache[key]
+                
+        except Exception as e:
+            logger.warning(f"[Smart Search] Cache lookup failed: {e}")
+            try:
+                db.rollback()
+            except:
+                pass
+        
         return None
     
-    def _set_llm_cache(self, key: str, result: LLMClassificationResult, cache_ttl: int):
-        """Cache LLM response"""
+    def _set_llm_cache(self, db: Session, key: str, query: str, result: LLMClassificationResult, 
+                       cache_ttl: int, input_tokens: int = 0, output_tokens: int = 0):
+        """Cache LLM response in both memory and database"""
+        # Store in memory cache
         self._llm_cache[key] = (result, time.time())
-        # Clean old entries
+        
+        # Clean old memory entries
         current_time = time.time()
         self._llm_cache = {
             k: v for k, v in self._llm_cache.items()
             if current_time - v[1] < cache_ttl
         }
+        
+        # Store in database cache
+        try:
+            response_json = {
+                "intent": result.intent,
+                "target_page": result.target_page,
+                "filters": result.filters,
+                "requires_semantic_search": result.requires_semantic_search,
+                "semantic_query": result.semantic_query,
+                "confidence": result.confidence
+            }
+            
+            expires_at = datetime.utcnow() + timedelta(seconds=cache_ttl)
+            
+            # Check if entry exists
+            existing = db.query(LLMResponseCache).filter(
+                LLMResponseCache.cache_key == key
+            ).first()
+            
+            if existing:
+                existing.response_json = response_json
+                existing.expires_at = expires_at
+                existing.input_tokens = input_tokens
+                existing.output_tokens = output_tokens
+            else:
+                cache_entry = LLMResponseCache(
+                    cache_key=key,
+                    query=query,
+                    response_json=response_json,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    expires_at=expires_at
+                )
+                db.add(cache_entry)
+            
+            db.commit()
+            logger.info(f"[Smart Search] Cached LLM response (TTL: {cache_ttl}s)")
+            
+        except Exception as e:
+            logger.warning(f"[Smart Search] Failed to cache in database: {e}")
+            try:
+                db.rollback()
+            except:
+                pass
     
     def _build_llm_prompt(self, query: str, context) -> str:
         """Build the prompt for LLM classification"""
@@ -200,14 +287,21 @@ class SmartSearchService:
 AVAILABLE PAGES:
 - Test Cases (/test-cases) - List and search test cases, filter by module_id, tag, test_type
 - Test Design Studio (/test-design-studio) - Create new test cases with BDD/Gherkin format, design tests
-- Issues (/issues) - List and search issues/bugs, filter by module_id, severity, status, assigned_to
 - Stories (/stories) - List JIRA stories, filter by status, assignee
 - Releases (/releases) - List all releases
 - Release Dashboard (/releases/ID) - View release progress, testing status, metrics for a specific release
+- Release Issues (/releases/ID?tab=issues) - View issues within a specific release
+- Release Stories (/releases/ID?tab=stories) - View stories within a specific release
 - Dashboard (/dashboard) - Main overview dashboard
 - Modules (/modules) - List application modules
 - Reports (/reports) - View test execution reports
 - Execute Tests (/executions) - Run test executions, execute test cases
+
+IMPORTANT - ISSUES ARE ALWAYS WITHIN A RELEASE:
+- There is NO standalone /issues page. Issues are ONLY accessible within a release context.
+- For ANY issue-related query, the path must be /releases/ID?tab=issues
+- If user asks about issues without specifying a release, use the CURRENT RELEASE: {current_release.id if current_release else 'N/A'}
+- If no current release exists, set confidence LOW and ask user to specify release
 
 CONTEXT:
 - Current User: {context.current_user.full_name} ({context.current_user.email}, ID:{context.current_user.id})
@@ -218,33 +312,44 @@ CONTEXT:
 - Available Releases: {releases_desc}
 
 FILTER VALUES - Use these EXACT values in filters:
-- module_id: Use the numeric ID from Available Modules above (e.g., 1 for Account Payables)
-- tag: "ui", "api", "hybrid" ONLY (lowercase) - these describe how the test is executed
-- test_type: "manual", "automated"
-- status: "open", "in_progress", "resolved", "closed"
-- severity: "critical", "major", "minor", "trivial"
-- priority: "p0", "p1", "p2", "p3"
+- module_id: Use the numeric ID from Available Modules above
+- tag: "ui", "api", "hybrid" ONLY (lowercase) - for test cases
+- test_type: "manual", "automated" - for test cases
+- status: "open", "in_progress", "resolved", "closed" - for issues
+- severity: "critical", "major", "minor", "trivial" - for issues
+- priority: "p0", "p1", "p2", "p3" or "high", "medium", "low" - for issues
+- assigned_to: Use user ID (numeric) - for issues assigned to a user
+- created_by: Use user ID (numeric) - for issues reported/created by a user
 
 NOTE: "smoke", "regression", "sanity", "functional" are NOT valid tags. Use semantic search for these test category keywords.
 
 SPECIAL TOKENS TO RESOLVE:
-- "me", "my", "assigned to me" → Use user ID {context.current_user.id}
+- "me", "my", "assigned to me", "reported by me", "created by me" → Use user ID {context.current_user.id}
 - "current release", "this release", "active release" → Use current release ID {current_release.id if current_release else 'N/A'}
 - "previous release", "last release", "prior release" → Use previous release ID {previous_release_id if previous_release_id else 'N/A'}
 - "progress", "status", "overview", "metrics" for a release → Navigate to Release Dashboard
 - Module abbreviations: AP=Account Payable, AR=Account Receivables, etc.
 
-RELEASE-SPECIFIC VIEWS - IMPORTANT:
-- "stories of release X", "stories in release X", "release X stories" → Use intent "view_release_stories" with target_page "/releases/ID?tab=stories"
-- "issues of release X", "issues in release X", "release X issues" → Use intent "view_release_issues" with target_page "/releases/ID?tab=issues"
-- Replace ID with the actual release ID number
+ISSUE-SPECIFIC RULES (CRITICAL):
+- ALL issue queries MUST navigate to /releases/ID?tab=issues (never /issues)
+- "issues assigned to me" → intent: view_release_issues, target_page: "/releases/{current_release.id if current_release else '1'}?tab=issues", filters: {{"assigned_to": {context.current_user.id}}}
+- "issues reported by me", "my issues" → intent: view_release_issues, target_page: "/releases/{current_release.id if current_release else '1'}?tab=issues", filters: {{"created_by": {context.current_user.id}}}
+- "open issues", "closed issues" → intent: view_release_issues, target_page: "/releases/{current_release.id if current_release else '1'}?tab=issues", filters: {{"status": "open"}}
+- "critical issues" → intent: view_release_issues, target_page: "/releases/{current_release.id if current_release else '1'}?tab=issues", filters: {{"severity": "critical"}}
+- "issues in release 2.1" → Find release ID for version 2.1 from Available Releases, use that ID
+- For semantic issue search (e.g., "issues related to payments"), use requires_semantic_search=true with target_page="/releases/ID?tab=issues"
+
+RELEASE-SPECIFIC VIEWS:
+- "stories of release X", "stories in release X" → intent: view_release_stories, target_page: "/releases/ID?tab=stories"
+- "issues of release X", "issues in release X", "show issues" → intent: view_release_issues, target_page: "/releases/ID?tab=issues"
+- If release not specified, default to current release ID: {current_release.id if current_release else 'N/A'}
 
 USER QUERY: "{query}"
 
 Analyze the query and respond with ONLY valid JSON (no markdown, no explanation):
 {{
-  "intent": "view_test_cases|view_test_design_studio|view_issues|view_stories|view_release|view_release_dashboard|view_release_stories|view_release_issues|view_modules|view_dashboard|view_executions|unknown",
-  "target_page": "/test-cases or /test-design-studio or /issues or /stories or /releases or /releases/ID or /dashboard or /modules or /reports or /executions",
+  "intent": "view_test_cases|view_test_design_studio|view_stories|view_release|view_release_dashboard|view_release_stories|view_release_issues|view_modules|view_dashboard|view_executions|unknown",
+  "target_page": "/test-cases or /test-design-studio or /stories or /releases or /releases/ID or /releases/ID?tab=issues or /releases/ID?tab=stories or /dashboard or /modules or /reports or /executions",
   "filters": {{"field_name": "value"}},
   "requires_semantic_search": true|false,
   "semantic_query": "keywords for vector search or null",
@@ -252,21 +357,29 @@ Analyze the query and respond with ONLY valid JSON (no markdown, no explanation)
 }}
 
 CRITICAL RULES:
-1. Use EXACTLY these paths with hyphens: /test-cases, /test-design-studio, /issues, /stories, /releases, /dashboard, /modules, /reports, /executions
-2. For release dashboard/progress/status queries, use "/releases/{current_release.id if current_release else '1'}" with intent "view_release_dashboard"
-3. For "assigned to me", set filters.assigned_to = {context.current_user.id}
-4. For "current release", use the current release ID: {current_release.id if current_release else 'null'}
-5. For "create test", "design test", "new test case", "write test", "BDD", "Gherkin" → Navigate to Test Design Studio (/test-design-studio)
-6. For "run tests", "execute tests", "test execution" → Navigate to Executions (/executions)
+1. NEVER use /issues path - issues are ONLY at /releases/ID?tab=issues
+2. For ANY issue query, use intent "view_release_issues" with target_page "/releases/{current_release.id if current_release else '1'}?tab=issues"
+3. For release dashboard/progress/status queries, use "/releases/{current_release.id if current_release else '1'}" with intent "view_release_dashboard"
+4. For "assigned to me" issues, set filters.assigned_to = {context.current_user.id} AND use /releases/ID?tab=issues
+5. For "reported by me" issues, set filters.created_by = {context.current_user.id} AND use /releases/ID?tab=issues
+6. For "current release", use the current release ID: {current_release.id if current_release else 'null'}
+7. For "create test", "design test", "new test case", "BDD", "Gherkin" → Navigate to Test Design Studio (/test-design-studio)
+8. For "run tests", "execute tests" → Navigate to Executions (/executions)
 
-FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
-7. "UI", "API", "smoke", "regression" test cases → These are TAG FILTERS, use filters.tag="ui"|"api"|"smoke"|"regression"
-8. "manual" or "automated" test cases → These are TYPE FILTERS, use filters.test_type="manual"|"automated"
-9. Only use requires_semantic_search=true for specific content search by title/description keywords (e.g., "tests about invoice processing", "login validation")
-10. When user says "UI related" or "API tests", set tag filter, NOT semantic search
+FILTER vs SEMANTIC SEARCH:
+9. "UI", "API" test cases → filters.tag="ui"|"api"
+10. "manual" or "automated" test cases → filters.test_type="manual"|"automated"
+11. Only use requires_semantic_search=true for specific content keywords (e.g., "tests about invoice processing")
 
-11. confidence should be HIGH (0.8-1.0) when the intent is clear
-12. Always use module_id with the NUMERIC ID, not the module name
+SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
+12. When setting semantic_query, include relevant context words for better matching
+    - BAD: semantic_query="ACH" (too short, poor embedding match)
+    - GOOD: semantic_query="ACH payments issues" (includes context)
+    - For "issues related to X", use semantic_query="X issues" or "X related problems"
+    - For "tests about Y", use semantic_query="Y test cases" or "Y testing"
+
+12. confidence should be HIGH (0.8-1.0) when intent is clear
+13. Always use module_id with the NUMERIC ID, not the module name
 """
         return prompt
     
@@ -280,9 +393,9 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
         # Get cache TTL from settings
         cache_ttl = self._get_cache_ttl(db)
         
-        # Check cache first
+        # Check cache first (using persistent database cache)
         cache_key = self._get_cache_key(query, user.id)
-        cached_result = self._get_from_llm_cache(cache_key, cache_ttl)
+        cached_result = self._get_from_llm_cache(db, cache_key, cache_ttl)
         if cached_result:
             logger.info(f"[Smart Search] Cache hit for query: {query[:50]}...")
             return cached_result, TokenUsage(input_tokens=0, output_tokens=0, total_tokens=0)
@@ -336,8 +449,9 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                 confidence=result_dict.get("confidence", 0.5)
             )
             
-            # Cache the result
-            self._set_llm_cache(cache_key, result, cache_ttl)
+            # Cache the result in database
+            self._set_llm_cache(db, cache_key, query, result, cache_ttl, 
+                               token_usage.input_tokens, token_usage.output_tokens)
             
             logger.info(f"[Smart Search] Classified: intent={result.intent}, confidence={result.confidence}")
             return result, token_usage
@@ -375,9 +489,10 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                 confidence=0.6
             )
         elif any(w in query_lower for w in ['issue', 'issues', 'bug', 'bugs', 'defect']):
+            # Issues are always within a release context - use placeholder that will be fixed in step 2.5
             return LLMClassificationResult(
-                intent="view_issues",
-                target_page="/issues",
+                intent="view_release_issues",
+                target_page="/releases/1?tab=issues",  # Placeholder - will be updated with current release ID in step 2.5
                 filters={},
                 requires_semantic_search=True,
                 semantic_query=query,
@@ -474,8 +589,13 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                 query = query.filter(Issue.release_id == filters["release_id"])
             if filters.get("assigned_to"):
                 query = query.filter(Issue.assigned_to == filters["assigned_to"])
+            if filters.get("created_by") or filters.get("reported_by"):
+                reporter_id = filters.get("created_by") or filters.get("reported_by")
+                query = query.filter(Issue.created_by == reporter_id)
             if filters.get("status"):
-                query = query.filter(Issue.status == filters["status"])
+                status_val = filters["status"]
+                # Handle case-insensitive status matching
+                query = query.filter(func.lower(Issue.status) == status_val.lower() if isinstance(status_val, str) else Issue.status == status_val)
             if filters.get("severity"):
                 query = query.filter(Issue.severity == filters["severity"])
             if filters.get("priority"):
@@ -571,6 +691,20 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
         min_similarity: float = DEFAULT_MIN_SIMILARITY_THRESHOLD
     ) -> List[int]:
         """Execute hybrid search combining structured and semantic"""
+        # Adjust similarity threshold based on query length
+        # Short queries (1-2 words) get a lower threshold since embeddings work better with longer text
+        if semantic_query:
+            word_count = len(semantic_query.split())
+            if word_count <= 2:
+                # Short query - lower threshold to 0.2
+                adjusted_threshold = min(min_similarity, 0.2)
+                logger.info(f"[Smart Search] Short query ({word_count} words), adjusting threshold from {min_similarity} to {adjusted_threshold}")
+                min_similarity = adjusted_threshold
+            elif word_count <= 4:
+                # Medium query - lower threshold slightly
+                adjusted_threshold = min(min_similarity, 0.3)
+                min_similarity = adjusted_threshold
+        
         # Check if there are actual filters (not just empty dict)
         has_filters = bool(filters) and any(v is not None for v in filters.values())
         
@@ -589,6 +723,11 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                 )
                 if semantic_results:
                     return [r[0] for r in semantic_results]
+                else:
+                    # Semantic search found no matches above threshold
+                    # Don't fall back to all filtered results - return empty
+                    logger.info(f"[Smart Search] No results met similarity threshold {min_similarity} for semantic query")
+                    return []
             
             return filtered_ids[:limit]
         else:
@@ -606,15 +745,28 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
     def _build_query_params(
         self,
         classification: LLMClassificationResult,
-        entity_ids: List[int]
+        entity_ids: List[int],
+        exclude_keys: List[str] = None,
+        rename_keys: Dict[str, str] = None
     ) -> Dict[str, str]:
-        """Build URL query parameters from classification result"""
-        params = {}
+        """Build URL query parameters from classification result
         
-        # Add filters
+        Args:
+            classification: The LLM classification result
+            entity_ids: List of entity IDs from search
+            exclude_keys: Keys to exclude from params (e.g., if already in URL path)
+            rename_keys: Dictionary to rename filter keys for frontend compatibility
+        """
+        params = {}
+        exclude_set = set(exclude_keys or [])
+        key_mapping = rename_keys or {}
+        
+        # Add filters (excluding specified keys, with optional renaming)
         for key, value in classification.filters.items():
-            if value is not None:
-                params[key] = str(value)
+            if value is not None and key not in exclude_set:
+                # Use renamed key if specified, otherwise use original
+                param_key = key_mapping.get(key, key)
+                params[param_key] = str(value)
         
         # Add search query if semantic
         if classification.semantic_query:
@@ -637,17 +789,12 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
         }
         return mapping.get(intent)
     
-    def _build_suggestions(self, query: str) -> List[NavigationSuggestion]:
+    def _build_suggestions(self, query: str, current_release_id: int = None) -> List[NavigationSuggestion]:
         """Build navigation suggestions for low-confidence results"""
-        return [
+        suggestions = [
             NavigationSuggestion(
                 label="Search in Test Cases",
                 path="/test-cases",
-                query=query
-            ),
-            NavigationSuggestion(
-                label="Search in Issues",
-                path="/issues",
                 query=query
             ),
             NavigationSuggestion(
@@ -660,6 +807,16 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                 path="/dashboard"
             )
         ]
+        
+        # Add issues suggestion only if we have a current release
+        if current_release_id:
+            suggestions.insert(1, NavigationSuggestion(
+                label="Search in Issues (Current Release)",
+                path=f"/releases/{current_release_id}?tab=issues",
+                query=query
+            ))
+        
+        return suggestions
     
     async def search(
         self,
@@ -674,6 +831,10 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
         min_confidence = self._get_min_confidence_threshold(db)
         min_similarity = self._get_min_similarity_threshold(db)
         max_results = self._get_max_results(db)
+        
+        # Get current release ID for issue queries
+        current_release_info = navigation_registry_service.get_current_release(db)
+        current_release_id = current_release_info.id if current_release_info else None
         
         try:
             # Step 1: Classify the query
@@ -692,7 +853,7 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                     message=f"I'm not sure what you're looking for. Did you mean one of these?",
                     intent=classification.intent,
                     confidence=classification.confidence,
-                    suggestions=self._build_suggestions(request.query),
+                    suggestions=self._build_suggestions(request.query, current_release_id),
                     token_usage=token_usage,
                     cached=cached,
                     response_time_ms=response_time_ms
@@ -701,22 +862,58 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
                                token_usage, 0, start_time, cached=cached)
                 return response
             
+            # Step 2.5: Fix /issues path to use current release
+            # This handles both standalone /issues and fallback /releases/1?tab=issues
+            if classification.target_page == "/issues" or \
+               classification.intent == "view_issues" or \
+               (classification.intent == "view_release_issues" and "/releases/1" in classification.target_page):
+                if current_release_id:
+                    classification.target_page = f"/releases/{current_release_id}?tab=issues"
+                    classification.intent = "view_release_issues"
+                else:
+                    # No current release - return with suggestions
+                    response_time_ms = int((time.time() - start_time) * 1000)
+                    return SmartSearchResponse(
+                        success=False,
+                        message="Please specify a release to view issues. No active release is set.",
+                        intent=classification.intent,
+                        confidence=0.3,
+                        suggestions=self._build_suggestions(request.query, current_release_id),
+                        token_usage=token_usage,
+                        cached=cached,
+                        response_time_ms=response_time_ms
+                    )
+            
             # Step 3: Execute search based on entity type
             entity_type = self._get_entity_type(classification.intent)
             entity_ids = []
             
             if entity_type and (classification.filters or classification.requires_semantic_search):
+                # For issues, always add current release_id filter if not already set
+                search_filters = dict(classification.filters) if classification.filters else {}
+                if entity_type == "issue" and current_release_id:
+                    if not search_filters.get("release_id"):
+                        search_filters["release_id"] = current_release_id
+                        logger.info(f"[Smart Search] Auto-added release_id={current_release_id} filter for issue search")
+                
                 entity_ids = self._hybrid_search(
                     db=db,
                     entity_type=entity_type,
-                    filters=classification.filters,
+                    filters=search_filters,
                     semantic_query=classification.semantic_query if classification.requires_semantic_search else None,
                     limit=max_results,
                     min_similarity=min_similarity
                 )
             
             # Step 4: Build response
-            query_params = self._build_query_params(classification, entity_ids)
+            # Determine which keys to exclude and rename for query params
+            exclude_keys = []
+            rename_keys = {}
+            if entity_type == "issue":
+                exclude_keys.append("release_id")  # release_id is in the URL path /releases/{id}
+                rename_keys["assigned_to"] = "assignee"  # Frontend expects 'assignee' not 'assigned_to'
+            
+            query_params = self._build_query_params(classification, entity_ids, exclude_keys, rename_keys)
             
             # Build message
             result_count = len(entity_ids)
@@ -762,7 +959,7 @@ FILTER vs SEMANTIC SEARCH - VERY IMPORTANT:
             return SmartSearchResponse(
                 success=False,
                 message=f"Search failed: {str(e)}",
-                suggestions=self._build_suggestions(request.query),
+                suggestions=self._build_suggestions(request.query, current_release_id),
                 token_usage=TokenUsage(),
                 cached=False,
                 response_time_ms=response_time_ms

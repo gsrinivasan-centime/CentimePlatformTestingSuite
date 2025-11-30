@@ -374,6 +374,10 @@ class Issue(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
     
+    # Similarity analysis - embedding vector stored as float array (384 dimensions)
+    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
+    
     # Relationships
     module = relationship("Module", backref="issues")
     release = relationship("Release", backref="issues")
@@ -414,6 +418,22 @@ class SmartSearchLog(Base):
     
     # Relationships
     user = relationship("User", backref="smart_search_logs")
+
+
+class LLMResponseCache(Base):
+    """Persistent cache for LLM responses to reduce API calls and costs"""
+    __tablename__ = "llm_response_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String(64), unique=True, index=True, nullable=False)  # MD5 hash of query+context
+    query = Column(Text, nullable=False)  # Original query for reference
+    response_json = Column(postgresql.JSONB, nullable=False)  # Cached LLM response
+    input_tokens = Column(Integer, default=0)  # Token usage when originally generated
+    output_tokens = Column(Integer, default=0)
+    hit_count = Column(Integer, default=0)  # How many times this cache entry was used
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, index=True)  # When this cache entry expires
+    last_accessed_at = Column(DateTime, default=datetime.utcnow)
 
 
 class NavigationRegistry(Base):

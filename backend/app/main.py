@@ -4,7 +4,7 @@ import asyncio
 from app.core.config import settings
 from app.core.database import engine
 from app.models import models
-from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories, step_catalog, issues, settings as app_settings
+from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories, step_catalog, issues, settings as app_settings, smart_search
 from app.services.file_storage import file_storage
 
 # Create database tables
@@ -42,6 +42,7 @@ app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(step_catalog.router, prefix="/api/step-catalog", tags=["Step Catalog & Design Studio"])
 app.include_router(issues.router, prefix="/api/issues", tags=["Issues"])
 app.include_router(app_settings.router, prefix="/api/settings", tags=["Application Settings"])
+app.include_router(smart_search.router, prefix="/api/search", tags=["Smart Search"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -61,12 +62,20 @@ async def startup_event():
         print(f"   ⚠️  Warning: {backend.capitalize()} is not properly configured")
         print("   File uploads to issues may not work.")
     
-    # Preload embedding model in background for faster similarity checks
-    print("\n🧠 Embedding Models: Starting background preload...")
+    # Preload only the configured embedding model (to save memory)
+    print("\n🧠 Embedding Model: Starting background preload...")
     try:
         from app.services.embedding_service import get_embedding_service
+        from app.core.database import SessionLocal
         embedding_service = get_embedding_service()
-        asyncio.create_task(embedding_service.preload_models())
+        # Get a db session to check which model is configured
+        db = SessionLocal()
+        try:
+            # Get configured model synchronously, then pass to async preload
+            configured_model = embedding_service.get_configured_model(db)
+        finally:
+            db.close()
+        asyncio.create_task(embedding_service.preload_models(configured_model=configured_model))
     except Exception as e:
         print(f"   ⚠️  Warning: Could not start model preload: {e}")
     

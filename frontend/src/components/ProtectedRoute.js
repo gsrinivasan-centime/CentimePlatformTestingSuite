@@ -48,3 +48,31 @@ export const AdminRoute = ({ children }) => {
 
   return children;
 };
+
+/**
+ * Route wrapper for pages visible to all authenticated users
+ * but with different access levels (read-only vs editable).
+ * The page component should handle the access level internally.
+ */
+export const ViewableRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        minHeight="100vh"
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};

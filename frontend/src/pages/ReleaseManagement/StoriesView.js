@@ -42,7 +42,7 @@ import StoryIssuesList from '../../components/StoryIssuesList';
 import IssueDetail from '../../components/IssueDetail';
 import TruncatedText from '../../components/TruncatedText';
 
-const StoriesView = ({ releaseId }) => {
+const StoriesView = ({ releaseId, urlFilters = {} }) => {
   const [stories, setStories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -69,15 +69,26 @@ const StoriesView = ({ releaseId }) => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   
-  // Filter state
+  // Filter state - initialize from URL filters if provided
   const [filters, setFilters] = useState({
     storyId: '',
     title: '',
     epicId: '',
-    status: '',
+    status: urlFilters.status || '',
     priority: '',
-    assignee: ''
+    assignee: urlFilters.assignee || ''
   });
+  
+  // Apply URL filters when they change
+  useEffect(() => {
+    if (urlFilters.status || urlFilters.assignee) {
+      setFilters(prev => ({
+        ...prev,
+        status: urlFilters.status || prev.status,
+        assignee: urlFilters.assignee || prev.assignee
+      }));
+    }
+  }, [urlFilters.status, urlFilters.assignee]);
 
   useEffect(() => {
     fetchStories();

@@ -1,23 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Box,
     Button,
     Typography,
     CircularProgress,
-    Alert
+    Alert,
+    Chip
 } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
+import { Add as AddIcon, FilterList as FilterIcon } from '@mui/icons-material';
 import { issueService } from '../../services/issueService';
 import IssueList from '../../components/IssueList';
 import IssueDetail from '../../components/IssueDetail';
 
-const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
+const ReleaseIssuesView = ({ releaseId, releaseVersion, urlFilters = {} }) => {
     const [issues, setIssues] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [openDetail, setOpenDetail] = useState(false);
     const [selectedIssue, setSelectedIssue] = useState(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    
+    // Track if we have active URL filters (from Smart Search)
+    const hasUrlFilters = useMemo(() => {
+        return !!(urlFilters.status || urlFilters.assignee || urlFilters.search || urlFilters.ids?.length);
+    }, [urlFilters]);
 
     useEffect(() => {
         fetchIssues();
@@ -27,11 +33,30 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
     const fetchIssues = async () => {
         setLoading(true);
         try {
-            // Fetch issues linked to this release
-            // We might need to update list_issues API to filter by release_id if not already supported
-            // The current API supports release_id filter
-            const data = await issueService.getAll({ release_id: releaseId });
-            setIssues(data);
+            // Build filter params including URL filters
+            const filterParams = { release_id: releaseId };
+            if (urlFilters.status) {
+                filterParams.status = urlFilters.status;
+            }
+            if (urlFilters.assignee) {
+                filterParams.assigned_to = urlFilters.assignee;
+            }
+            
+            const data = await issueService.getAll(filterParams);
+            
+            // If specific IDs are provided, filter and sort by those IDs
+            let filteredData = data;
+            if (urlFilters.ids?.length) {
+                const idSet = new Set(urlFilters.ids);
+                // First show matching IDs in order, then the rest
+                const matchingIssues = urlFilters.ids
+                    .map(id => data.find(issue => issue.id === id))
+                    .filter(Boolean);
+                const otherIssues = data.filter(issue => !idSet.has(issue.id));
+                filteredData = [...matchingIssues, ...otherIssues];
+            }
+            
+            setIssues(filteredData);
             setError('');
         } catch (err) {
             console.error('Error fetching issues:', err);
@@ -40,6 +65,14 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
             setLoading(false);
         }
     };
+    
+    // Re-fetch when URL filters change
+    useEffect(() => {
+        if (hasUrlFilters) {
+            fetchIssues();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [urlFilters.status, urlFilters.assignee, urlFilters.ids?.join(',')]);
 
     const handleCreateIssue = () => {
         setSelectedIssue(null);
@@ -98,7 +131,18 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
     return (
         <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6">Issues for Release {releaseVersion}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="h6">Issues for Release {releaseVersion}</Typography>
+                    {hasUrlFilters && (
+                        <Chip 
+                            icon={<FilterIcon />}
+                            label={`Filtered${urlFilters.status ? `: ${urlFilters.status}` : ''}${urlFilters.ids?.length ? ` (${urlFilters.ids.length} highlighted)` : ''}`}
+                            color="primary"
+                            size="small"
+                            variant="outlined"
+                        />
+                    )}
+                </Box>
                 <Button
                     variant="contained"
                     startIcon={<AddIcon />}
@@ -120,6 +164,7 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion }) => {
                     onEdit={handleEditIssue}
                     loading={loading}
                     showModuleColumn={true}
+                    highlightIds={urlFilters.ids}
                 />
             )}
 

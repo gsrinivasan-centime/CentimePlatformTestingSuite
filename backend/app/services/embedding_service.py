@@ -104,19 +104,114 @@ class EmbeddingService:
         embedding = model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
     
-    def prepare_text_for_embedding(self, title: str, steps: str = None) -> str:
-        """Prepare test case text for embedding generation"""
+    def prepare_text_for_embedding(
+        self, 
+        title: str, 
+        steps: str = None,
+        tag: str = None,
+        test_type: str = None,
+        module_name: str = None,
+        sub_module: str = None,
+        expected_result: str = None
+    ) -> str:
+        """
+        Prepare test case text for embedding generation.
+        
+        Includes all relevant metadata fields to enable semantic search on:
+        - Title and description/steps
+        - Tag (UI, API, etc.)
+        - Test type (Functional, Regression, etc.)
+        - Module and sub-module names
+        - Expected results
+        """
         text_parts = []
         
+        # Add metadata fields with labels to help semantic understanding
+        if tag:
+            text_parts.append(f"Tag: {tag.strip()}")
+        
+        if test_type:
+            text_parts.append(f"Type: {test_type.strip()}")
+        
+        if module_name:
+            text_parts.append(f"Module: {module_name.strip()}")
+        
+        if sub_module:
+            text_parts.append(f"SubModule: {sub_module.strip()}")
+        
+        # Add main content
         if title:
-            text_parts.append(title.strip())
+            text_parts.append(f"Title: {title.strip()}")
         
         if steps:
             # Clean up steps text
             cleaned_steps = steps.strip()
-            text_parts.append(cleaned_steps)
+            text_parts.append(f"Steps: {cleaned_steps}")
         
-        return " ".join(text_parts)
+        if expected_result:
+            text_parts.append(f"Expected: {expected_result.strip()}")
+        
+        return " | ".join(text_parts)
+    
+    def prepare_issue_text_for_embedding(
+        self,
+        title: str,
+        description: str = None,
+        module_name: str = None,
+        status: str = None,
+        priority: str = None,
+        severity: str = None,
+        reporter_name: str = None,
+        assignee_name: str = None,
+        jira_story_id: str = None
+    ) -> str:
+        """
+        Prepare issue text for embedding generation.
+        
+        Optimized for queries like:
+        - "Show all issues related to payments"
+        - "Show issues reported by John"
+        - "Show issues assigned to me"
+        - "Show critical issues in AP module"
+        """
+        text_parts = []
+        
+        # Add module (very important for semantic matching)
+        if module_name:
+            text_parts.append(f"Module: {module_name.strip()}")
+        
+        # Add status and priority/severity
+        if status:
+            text_parts.append(f"Status: {status.strip()}")
+        
+        if priority:
+            text_parts.append(f"Priority: {priority.strip()}")
+            
+        if severity:
+            text_parts.append(f"Severity: {severity.strip()}")
+        
+        # Add title (main searchable content)
+        if title:
+            text_parts.append(f"Title: {title.strip()}")
+        
+        # Add description if present
+        if description:
+            # Truncate very long descriptions to keep embedding focused
+            desc = description.strip()[:500]
+            text_parts.append(f"Description: {desc}")
+        
+        # Add people info for "reported by" / "assigned to" queries
+        if reporter_name:
+            text_parts.append(f"Reporter: {reporter_name.strip()}")
+            
+        if assignee_name:
+            text_parts.append(f"Assignee: {assignee_name.strip()}")
+        
+        # Add JIRA reference
+        if jira_story_id:
+            text_parts.append(f"Story: {jira_story_id.strip()}")
+        
+        return " | ".join(text_parts)
     
     def generate_embeddings_batch(self, texts: List[str], model_name: str = DEFAULT_MODEL) -> List[List[float]]:
         """Generate embeddings for multiple texts efficiently"""
@@ -191,19 +286,139 @@ class EmbeddingService:
         results.sort(key=lambda x: x["similarity_percent"], reverse=True)
         return results[:limit]
     
-    async def preload_models(self):
-        """Background task to preload both models at startup"""
-        print("🚀 Starting background model preload...")
+    def similarity_search(
+        self,
+        db: Session,
+        query_embedding: List[float],
+        top_k: int = 50,
+        filter_ids: List[int] = None,
+        model_name: str = DEFAULT_MODEL,
+        min_similarity: float = 0.3
+    ) -> List[Tuple[int, float]]:
+        """
+        Search for similar test cases using pgvector cosine distance.
         
-        for model_name in SUPPORTED_MODELS.keys():
+        Args:
+            db: Database session
+            query_embedding: Query vector
+            top_k: Maximum results to return
+            filter_ids: Optional list of IDs to filter results
+            model_name: Embedding model name for filtering
+            min_similarity: Minimum similarity threshold (0.0-1.0) to include in results
+            
+        Returns:
+            List of (test_case_id, similarity_score) tuples
+        """
+        from app.models.models import TestCase
+        
+        if query_embedding is None:
+            return []
+        
+        try:
+            # Format embedding as postgres vector literal
+            embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+            
+            # Build SQL query with pgvector cosine distance
+            # Note: embedding column is stored as double precision[], needs to be cast to vector
+            filter_clause = ""
+            params = {"limit": top_k, "min_similarity": min_similarity}
+            
+            if filter_ids:
+                filter_clause = "AND id = ANY(:filter_ids)"
+                params["filter_ids"] = filter_ids
+            
+            # Use string formatting for the vector literal (it's safe since it's generated from floats)
+            # Cast embedding array to vector type for pgvector operator
+            sql = text(f"""
+                SELECT id, 1 - (embedding::vector <=> '{embedding_str}'::vector) as similarity
+                FROM test_cases
+                WHERE embedding IS NOT NULL
+                {filter_clause}
+                AND (1 - (embedding::vector <=> '{embedding_str}'::vector)) >= :min_similarity
+                ORDER BY embedding::vector <=> '{embedding_str}'::vector
+                LIMIT :limit
+            """)
+            
+            result = db.execute(sql, params)
+            return [(row[0], row[1]) for row in result.fetchall()]
+            
+        except Exception as e:
+            print(f"[EmbeddingService] Vector search failed: {e}")
+            # Rollback the failed transaction before fallback
             try:
-                # Run in executor to not block
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._get_model, model_name)
-            except Exception as e:
-                print(f"⚠️ Failed to preload {model_name}: {e}")
+                db.rollback()
+            except Exception:
+                pass
+            # Fallback to Python-based similarity
+            return self._python_similarity_search(
+                db, query_embedding, top_k, filter_ids, min_similarity
+            )
+    
+    def _python_similarity_search(
+        self,
+        db: Session,
+        query_embedding: List[float],
+        top_k: int = 50,
+        filter_ids: List[int] = None,
+        min_similarity: float = 0.3
+    ) -> List[Tuple[int, float]]:
+        """Fallback Python-based similarity search"""
+        from app.models.models import TestCase
         
-        print("✅ Model preload complete")
+        query = db.query(TestCase).filter(TestCase.embedding.isnot(None))
+        if filter_ids:
+            query = query.filter(TestCase.id.in_(filter_ids))
+        
+        test_cases = query.all()
+        
+        results = []
+        for tc in test_cases:
+            if tc.embedding:
+                similarity = self.cosine_similarity(query_embedding, tc.embedding)
+                # Only include results that meet minimum similarity threshold
+                if similarity >= min_similarity:
+                    results.append((tc.id, similarity))
+        
+        # Sort by similarity descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
+    
+    def get_configured_model(self, db: Session) -> str:
+        """Get the currently configured embedding model from database settings"""
+        try:
+            from app.models.models import ApplicationSetting
+            setting = db.query(ApplicationSetting).filter(
+                ApplicationSetting.key == "embedding_model"
+            ).first()
+            if setting and setting.value in SUPPORTED_MODELS:
+                return setting.value
+        except Exception as e:
+            print(f"⚠️ Could not get configured model: {e}")
+        return DEFAULT_MODEL
+    
+    async def preload_models(self, configured_model: str = None):
+        """Background task to preload only the configured model at startup.
+        
+        To save memory, only the currently selected model is loaded.
+        Other models are loaded on-demand when user switches to them.
+        
+        Args:
+            configured_model: The model name to preload (from application settings).
+                             Falls back to DEFAULT_MODEL if not specified.
+        """
+        # Determine which model to preload
+        model_to_load = configured_model if configured_model else DEFAULT_MODEL
+        
+        print(f"🚀 Preloading configured embedding model: {model_to_load}")
+        print(f"   (Other models will be loaded on-demand to save memory)")
+        
+        try:
+            # Run in executor to not block
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._get_model, model_to_load)
+            print(f"✅ Model preload complete: {model_to_load}")
+        except Exception as e:
+            print(f"⚠️ Failed to preload {model_to_load}: {e}")
 
 
 # Singleton instance

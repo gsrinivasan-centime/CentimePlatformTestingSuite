@@ -8,6 +8,7 @@ import enum
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     TESTER = "tester"
+    DEVELOPER = "developer"
 
 class TestType(str, enum.Enum):
     MANUAL = "manual"
@@ -373,6 +374,10 @@ class Issue(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
     
+    # Similarity analysis - embedding vector stored as float array (384 dimensions)
+    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
+    
     # Relationships
     module = relationship("Module", backref="issues")
     release = relationship("Release", backref="issues")
@@ -390,3 +395,60 @@ class ApplicationSetting(Base):
     description = Column(String(500), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class SmartSearchLog(Base):
+    """Logs for smart search queries - tracks usage and token consumption"""
+    __tablename__ = "smart_search_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    query = Column(Text, nullable=False)
+    intent = Column(String(50), nullable=True)
+    target_page = Column(String(100), nullable=True)
+    filters = Column(postgresql.JSONB, nullable=True)  # Extracted filters as JSON
+    semantic_query = Column(Text, nullable=True)  # Semantic search portion
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    results_count = Column(Integer, default=0)
+    confidence = Column(Float, nullable=True)
+    cached = Column(Boolean, default=False)
+    response_time_ms = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", backref="smart_search_logs")
+
+
+class LLMResponseCache(Base):
+    """Persistent cache for LLM responses to reduce API calls and costs"""
+    __tablename__ = "llm_response_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String(64), unique=True, index=True, nullable=False)  # MD5 hash of query+context
+    query = Column(Text, nullable=False)  # Original query for reference
+    response_json = Column(postgresql.JSONB, nullable=False)  # Cached LLM response
+    input_tokens = Column(Integer, default=0)  # Token usage when originally generated
+    output_tokens = Column(Integer, default=0)
+    hit_count = Column(Integer, default=0)  # How many times this cache entry was used
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, index=True)  # When this cache entry expires
+    last_accessed_at = Column(DateTime, default=datetime.utcnow)
+
+
+class NavigationRegistry(Base):
+    """Registry of available pages/navigation targets for smart search"""
+    __tablename__ = "navigation_registry"
+    
+    page_key = Column(String(50), primary_key=True)
+    display_name = Column(String(100), nullable=False)
+    path = Column(String(100), nullable=False)
+    entity_type = Column(String(50), nullable=True)  # test_case, issue, story, release, etc.
+    filters = Column(postgresql.JSONB, nullable=True)  # Available filter fields
+    searchable_fields = Column(postgresql.JSONB, nullable=True)  # Fields that support semantic search
+    capabilities = Column(postgresql.JSONB, nullable=True)  # What this page can do
+    example_queries = Column(postgresql.JSONB, nullable=True)  # Example queries for this page
+    is_active = Column(Boolean, default=True)
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

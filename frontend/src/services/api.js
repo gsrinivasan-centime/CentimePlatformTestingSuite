@@ -210,6 +210,11 @@ export const authAPI = {
     const response = await api.get('/auth/me');
     return response.data;
   },
+  
+  getPermissions: async () => {
+    const response = await api.get('/users/permissions/me');
+    return response.data;
+  },
 };
 
 // Users API

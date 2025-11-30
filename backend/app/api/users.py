@@ -4,19 +4,12 @@ from typing import List
 from app.core.database import get_db
 from app.models.models import User, UserRole, FeatureFile
 from app.schemas.schemas import User as UserSchema, UserUpdate, UserCreate
-from app.api.auth import get_current_active_user
+from app.api.auth import get_current_active_user, get_current_admin_or_super_admin, can_edit_users
 from app.core.security import get_password_hash
 from app.services.email_service import EmailService
 
 router = APIRouter()
 
-def require_admin(current_user: User = Depends(get_current_active_user)):
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
-    return current_user
 
 @router.get("", response_model=List[UserSchema])
 @router.get("/", response_model=List[UserSchema])
@@ -24,28 +17,45 @@ def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_active_user)  # All authenticated users can read
 ):
+    """List all users. All authenticated users can view the list."""
     users = db.query(User).offset(skip).limit(limit).all()
+    # Add can_edit flag based on current user's role
     return users
 
 @router.get("/{user_id}", response_model=UserSchema)
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user)  # All authenticated users can read
 ):
+    """Get a specific user. All authenticated users can view."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return users
+    return user
+
+
+@router.get("/permissions/me")
+def get_my_permissions(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get current user's permissions for Users and Settings pages."""
+    return {
+        "can_edit_users": can_edit_users(current_user),
+        "can_edit_settings": current_user.is_super_admin,
+        "role": current_user.role,
+        "is_super_admin": current_user.is_super_admin
+    }
+
 
 @router.post("", response_model=UserSchema, status_code=201)
 @router.post("/", response_model=UserSchema, status_code=201)
 def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_admin_or_super_admin)  # Admin or Super Admin only
 ):
     # Check if user already exists
     db_user = db.query(User).filter(User.email == user.email).first()
@@ -84,7 +94,7 @@ def update_user(
     user_id: int,
     user_update: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_admin_or_super_admin)  # Admin or Super Admin only
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -107,7 +117,7 @@ def update_user(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(get_current_admin_or_super_admin)  # Admin or Super Admin only
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

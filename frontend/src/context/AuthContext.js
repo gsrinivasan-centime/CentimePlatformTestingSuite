@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [permissions, setPermissions] = useState({ can_edit_users: false, can_edit_settings: false });
 
   useEffect(() => {
     // Check if user is logged in
@@ -20,6 +21,11 @@ export const AuthProvider = ({ children }) => {
         .then((userData) => {
           setUser(userData);
           localStorage.setItem('user', JSON.stringify(userData));
+          // Fetch user permissions
+          return authAPI.getPermissions();
+        })
+        .then((perms) => {
+          setPermissions(perms);
         })
         .catch(() => {
           logout();
@@ -42,6 +48,14 @@ export const AuthProvider = ({ children }) => {
       const userData = await authAPI.getCurrentUser();
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
+      
+      // Fetch user permissions
+      try {
+        const perms = await authAPI.getPermissions();
+        setPermissions(perms);
+      } catch (e) {
+        console.error('Failed to fetch permissions:', e);
+      }
       
       return { success: true };
     } catch (error) {
@@ -69,10 +83,27 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
     setUser(null);
+    setPermissions({ can_edit_users: false, can_edit_settings: false });
   };
 
   const isAdmin = () => {
     return user?.role === 'admin';
+  };
+
+  const isSuperAdmin = () => {
+    return user?.is_super_admin === true;
+  };
+
+  const isDeveloper = () => {
+    return user?.role === 'developer';
+  };
+
+  const canEditUsers = () => {
+    return permissions.can_edit_users || user?.role === 'admin' || user?.is_super_admin === true;
+  };
+
+  const canEditSettings = () => {
+    return permissions.can_edit_settings || user?.is_super_admin === true;
   };
 
   const value = {
@@ -83,6 +114,11 @@ export const AuthProvider = ({ children }) => {
     logout,
     isAuthenticated: !!user,
     isAdmin,
+    isSuperAdmin,
+    isDeveloper,
+    canEditUsers,
+    canEditSettings,
+    permissions,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

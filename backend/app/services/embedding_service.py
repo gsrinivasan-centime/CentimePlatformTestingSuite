@@ -222,13 +222,53 @@ class EmbeddingService:
         embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
         return [emb.tolist() for emb in embeddings]
     
-    def cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Calculate cosine similarity between two vectors"""
+    def _convert_to_list(self, embedding) -> List[float]:
+        """
+        Convert embedding to a Python list.
+        Handles pgvector Vector type, numpy arrays, and regular lists.
+        """
+        # Handle None check carefully for numpy arrays
+        if embedding is None:
+            return None
+        
+        # Check for numpy array first (before other checks that might fail)
+        if isinstance(embedding, np.ndarray):
+            return embedding.tolist()
+        
+        # If it's already a list, return as-is
+        if isinstance(embedding, list):
+            return embedding
+        
+        # For pgvector Vector type or any iterable, convert via list()
+        try:
+            return list(embedding)
+        except (TypeError, ValueError) as e:
+            print(f"Warning: Could not convert embedding to list: {e}")
+            return None
+    
+    def cosine_similarity(self, vec1, vec2) -> float:
+        """
+        Calculate cosine similarity between two vectors.
+        Handles pgvector Vector type, numpy arrays, and regular lists.
+        """
+        # Handle None checks carefully for numpy arrays
         if vec1 is None or vec2 is None:
             return 0.0
         
-        arr1 = np.array(vec1)
-        arr2 = np.array(vec2)
+        # Convert to lists first (handles pgvector Vector type)
+        list1 = self._convert_to_list(vec1)
+        list2 = self._convert_to_list(vec2)
+        
+        if list1 is None or list2 is None:
+            return 0.0
+        
+        arr1 = np.array(list1)
+        arr2 = np.array(list2)
+        
+        # Handle dimension mismatch
+        if arr1.shape != arr2.shape:
+            print(f"Warning: Shape mismatch - arr1: {arr1.shape}, arr2: {arr2.shape}")
+            return 0.0
         
         dot_product = np.dot(arr1, arr2)
         norm1 = np.linalg.norm(arr1)
@@ -245,17 +285,34 @@ class EmbeddingService:
         db: Session,
         threshold: float = 0.75,
         limit: int = 5,
-        exclude_ids: List[int] = None
+        exclude_ids: List[int] = None,
+        return_all: bool = False
     ) -> List[Dict]:
         """
         Find similar test cases using cosine similarity.
         
-        Uses Python-based similarity calculation since we store embeddings as arrays.
-        For production with large datasets, consider using pgvector's native operators.
+        Uses Python-based similarity calculation.
+        Handles pgvector Vector type by converting to Python lists.
+        
+        Args:
+            embedding: Query embedding vector
+            db: Database session
+            threshold: Similarity threshold (0-100) for marking as potential duplicate
+            limit: Maximum number of results to return
+            exclude_ids: List of test case IDs to exclude
+            return_all: If True, returns the top match even if below threshold
         """
         from app.models.models import TestCase
         
+        # Handle numpy array None check
         if embedding is None:
+            return []
+        if isinstance(embedding, np.ndarray) and embedding.size == 0:
+            return []
+        
+        # Convert query embedding to list if needed
+        query_embedding = self._convert_to_list(embedding)
+        if query_embedding is None:
             return []
         
         # Get all test cases with embeddings
@@ -266,25 +323,36 @@ class EmbeddingService:
         
         test_cases = query.all()
         
-        # Calculate similarities
-        results = []
+        # Calculate similarities for all test cases
+        all_results = []
         for tc in test_cases:
-            if tc.embedding:
-                similarity = self.cosine_similarity(embedding, tc.embedding)
-                similarity_percent = round(similarity * 100, 1)
-                
-                if similarity_percent >= threshold:
-                    results.append({
+            # Safe check for embedding existence (handles pgvector and numpy)
+            if tc.embedding is not None:
+                # Convert pgvector Vector to list for calculation
+                tc_embedding = self._convert_to_list(tc.embedding)
+                if tc_embedding is not None and len(tc_embedding) > 0:
+                    similarity = self.cosine_similarity(query_embedding, tc_embedding)
+                    similarity_percent = round(similarity * 100, 1)
+                    
+                    all_results.append({
                         "test_case_id": tc.id,
                         "test_id": tc.test_id,
                         "title": tc.title,
                         "similarity_percent": similarity_percent,
-                        "embedding_model": tc.embedding_model
+                        "embedding_model": tc.embedding_model,
+                        "is_above_threshold": similarity_percent >= threshold
                     })
         
-        # Sort by similarity descending and limit
-        results.sort(key=lambda x: x["similarity_percent"], reverse=True)
-        return results[:limit]
+        # Sort by similarity descending
+        all_results.sort(key=lambda x: x["similarity_percent"], reverse=True)
+        
+        if return_all:
+            # Return top matches regardless of threshold
+            return all_results[:limit]
+        else:
+            # Filter by threshold for backward compatibility
+            filtered = [r for r in all_results if r["similarity_percent"] >= threshold]
+            return filtered[:limit]
     
     def similarity_search(
         self,

@@ -5,19 +5,33 @@ Provides endpoints for managing application-wide settings like similarity thresh
 and embedding model selection.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
 from typing import Dict, Optional, List
 from datetime import datetime
+import threading
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.models.models import ApplicationSetting, TestCase, Issue, User, UserRole, Module
 from app.api.auth import get_current_user
 from app.services.embedding_service import get_embedding_service, SUPPORTED_MODELS, DEFAULT_MODEL
 
 router = APIRouter()
+
+# Global state for tracking embedding population progress
+embedding_population_status = {
+    "is_running": False,
+    "entity_type": None,  # "test_case" or "issue"
+    "total": 0,
+    "processed": 0,
+    "errors": 0,
+    "started_at": None,
+    "completed_at": None,
+    "message": None,
+    "used_model": None
+}
 
 
 class SettingsResponse(BaseModel):
@@ -50,11 +64,22 @@ class PopulateEmbeddingsRequest(BaseModel):
 
 
 class PopulateEmbeddingsResponse(BaseModel):
-    processed: int
-    total: int
-    errors: int
-    used_model: str
+    status: str  # "started", "already_running", "completed"
     message: str
+    total: Optional[int] = None
+
+
+class EmbeddingPopulationStatusResponse(BaseModel):
+    is_running: bool
+    entity_type: Optional[str] = None
+    total: int = 0
+    processed: int = 0
+    errors: int = 0
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    message: Optional[str] = None
+    used_model: Optional[str] = None
+    progress_percent: float = 0.0
 
 
 def get_setting(db: Session, key: str, default: str = None) -> str:
@@ -191,88 +216,233 @@ async def get_embedding_statistics(
     return stats
 
 
+def _run_embedding_population_background(regenerate_all: bool, current_model: str, entity_type: str = "test_case"):
+    """
+    Background function to populate embeddings.
+    Runs in a separate thread to avoid blocking the API.
+    Uses pagination to avoid loading all entities into memory at once.
+    """
+    global embedding_population_status
+    
+    db = SessionLocal()
+    try:
+        embedding_service = get_embedding_service()
+        
+        # Build module ID to name mapping first
+        modules = {m.id: m.name for m in db.query(Module).all()}
+        
+        # Use pagination instead of loading all at once to save memory
+        batch_size = 10  # Smaller batches to avoid memory issues on small EC2 instances
+        page_size = 50   # Fetch entities in pages
+        offset = 0
+        processed = 0
+        errors = 0
+        
+        while True:
+            # Fetch entities in pages (not all at once)
+            if entity_type == "test_case":
+                if regenerate_all:
+                    query = db.query(TestCase)
+                else:
+                    query = db.query(TestCase).filter(
+                        (TestCase.embedding.is_(None)) | 
+                        (TestCase.embedding_model != current_model)
+                    )
+                entities_page = query.order_by(TestCase.id).offset(offset).limit(page_size).all()
+            else:  # issue
+                if regenerate_all:
+                    query = db.query(Issue)
+                else:
+                    query = db.query(Issue).filter(
+                        (Issue.embedding.is_(None)) | 
+                        (Issue.embedding_model != current_model)
+                    )
+                entities_page = query.order_by(Issue.id).offset(offset).limit(page_size).all()
+            
+            if not entities_page:
+                break  # No more entities to process
+            
+            # Process this page in smaller batches
+            for i in range(0, len(entities_page), batch_size):
+                batch = entities_page[i:i + batch_size]
+                texts = []
+                valid_indices = []
+                
+                for idx, entity in enumerate(batch):
+                    try:
+                        module_name = modules.get(entity.module_id) if entity.module_id else None
+                        
+                        if entity_type == "test_case":
+                            text = embedding_service.prepare_text_for_embedding(
+                                title=entity.title,
+                                steps=entity.steps_to_reproduce,
+                                tag=entity.tag,
+                                test_type=entity.test_type,
+                                module_name=module_name,
+                                sub_module=entity.sub_module,
+                                expected_result=entity.expected_result
+                            )
+                        else:  # issue
+                            text = embedding_service.prepare_issue_text_for_embedding(
+                                title=entity.title,
+                                description=entity.description,
+                                module_name=module_name,
+                                status=entity.status,
+                                priority=entity.priority,
+                                severity=entity.severity,
+                                reporter_name=entity.reporter_name,
+                                assignee_name=entity.jira_assignee_name
+                            )
+                        
+                        if text:
+                            texts.append(text)
+                            valid_indices.append(idx)
+                    except Exception as e:
+                        print(f"Error preparing text for entity {entity.id}: {e}")
+                        errors += 1
+                
+                if texts:
+                    try:
+                        embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
+                        
+                        for j, embedding in enumerate(embeddings):
+                            entity = batch[valid_indices[j]]
+                            entity.embedding = embedding
+                            entity.embedding_model = current_model
+                            processed += 1
+                        
+                        db.commit()
+                        
+                        # Update progress
+                        embedding_population_status["processed"] = processed
+                        embedding_population_status["errors"] = errors
+                        embedding_population_status["message"] = f"Processing: {processed}/{embedding_population_status['total']}"
+                        
+                    except Exception as e:
+                        print(f"Error processing batch: {e}")
+                        errors += len(texts)
+                        embedding_population_status["errors"] = errors
+                        db.rollback()
+                
+                # Clear any cached objects to free memory
+                db.expire_all()
+            
+            # Move to next page
+            offset += page_size
+            
+            # Clear references to help garbage collection
+            entities_page = None
+            import gc
+            gc.collect()
+        
+        # Mark as completed
+        embedding_population_status["is_running"] = False
+        embedding_population_status["processed"] = processed
+        embedding_population_status["errors"] = errors
+        embedding_population_status["completed_at"] = datetime.utcnow().isoformat()
+        embedding_population_status["message"] = f"Completed: {processed}/{embedding_population_status['total']} embeddings generated"
+        
+    except Exception as e:
+        print(f"Critical error in embedding population: {e}")
+        import traceback
+        traceback.print_exc()
+        embedding_population_status["is_running"] = False
+        embedding_population_status["message"] = f"Error: {str(e)}"
+        embedding_population_status["completed_at"] = datetime.utcnow().isoformat()
+    finally:
+        db.close()
+
+
 @router.post("/populate-embeddings", response_model=PopulateEmbeddingsResponse)
 async def populate_embeddings(
     request: PopulateEmbeddingsRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Generate embeddings for test cases (admin only).
     
+    This runs as a background task to avoid timeouts.
+    Use GET /settings/embedding-population-status to check progress.
+    
     If regenerate_all=True, regenerates all embeddings.
     If regenerate_all=False (default), only generates for test cases without embeddings
     or with embeddings from a different model.
     """
+    global embedding_population_status
+    
     if not current_user.is_super_admin:
         raise HTTPException(status_code=403, detail="Only super admin can populate embeddings")
     
-    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
-    embedding_service = get_embedding_service()
+    # Check if already running
+    if embedding_population_status["is_running"]:
+        return {
+            "status": "already_running",
+            "message": f"Embedding population already in progress: {embedding_population_status['processed']}/{embedding_population_status['total']} completed",
+            "total": embedding_population_status["total"]
+        }
     
-    # Determine which test cases to process
+    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
+    
+    # Count how many need processing
     if request.regenerate_all:
-        test_cases = db.query(TestCase).all()
+        total = db.query(func.count(TestCase.id)).scalar() or 0
     else:
-        # Only missing or mismatched
-        test_cases = db.query(TestCase).filter(
+        total = db.query(func.count(TestCase.id)).filter(
             (TestCase.embedding.is_(None)) | 
             (TestCase.embedding_model != current_model)
-        ).all()
+        ).scalar() or 0
     
-    total = len(test_cases)
-    processed = 0
-    errors = 0
+    if total == 0:
+        return {
+            "status": "completed",
+            "message": "All test cases already have embeddings with the current model",
+            "total": 0
+        }
     
-    # Build module ID to name mapping for embedding text
-    from app.models.models import Module
-    modules = {m.id: m.name for m in db.query(Module).all()}
+    # Reset status and start background task
+    embedding_population_status = {
+        "is_running": True,
+        "entity_type": "test_case",
+        "total": total,
+        "processed": 0,
+        "errors": 0,
+        "started_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+        "message": "Starting embedding population...",
+        "used_model": current_model
+    }
     
-    # Process in batches for efficiency
-    batch_size = 50
-    for i in range(0, total, batch_size):
-        batch = test_cases[i:i + batch_size]
-        texts = []
-        valid_indices = []
-        
-        for idx, tc in enumerate(batch):
-            # Include all relevant fields for better semantic search
-            module_name = modules.get(tc.module_id) if tc.module_id else None
-            text = embedding_service.prepare_text_for_embedding(
-                title=tc.title,
-                steps=tc.steps_to_reproduce,
-                tag=tc.tag,
-                test_type=tc.test_type,
-                module_name=module_name,
-                sub_module=tc.sub_module,
-                expected_result=tc.expected_result
-            )
-            if text:
-                texts.append(text)
-                valid_indices.append(idx)
-        
-        if texts:
-            try:
-                embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
-                
-                for j, embedding in enumerate(embeddings):
-                    tc = batch[valid_indices[j]]
-                    tc.embedding = embedding
-                    tc.embedding_model = current_model
-                    processed += 1
-                
-                db.commit()
-            except Exception as e:
-                print(f"Error processing batch: {e}")
-                errors += len(texts)
-                db.rollback()
+    # Start background thread (not BackgroundTasks - we need it to survive the request)
+    thread = threading.Thread(
+        target=_run_embedding_population_background,
+        args=(request.regenerate_all, current_model, "test_case")
+    )
+    thread.daemon = True
+    thread.start()
     
     return {
-        "processed": processed,
-        "total": total,
-        "errors": errors,
-        "used_model": current_model,
-        "message": f"Successfully generated embeddings for {processed} test cases using {current_model}"
+        "status": "started",
+        "message": f"Started embedding population for {total} test cases. Check /settings/embedding-population-status for progress.",
+        "total": total
+    }
+
+
+@router.get("/embedding-population-status", response_model=EmbeddingPopulationStatusResponse)
+async def get_embedding_population_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get the current status of embedding population task"""
+    global embedding_population_status
+    
+    progress = 0.0
+    if embedding_population_status["total"] > 0:
+        progress = (embedding_population_status["processed"] / embedding_population_status["total"]) * 100
+    
+    return {
+        **embedding_population_status,
+        "progress_percent": round(progress, 1)
     }
 
 
@@ -331,97 +501,74 @@ async def get_issue_embedding_statistics(
 @router.post("/populate-issue-embeddings", response_model=PopulateEmbeddingsResponse)
 async def populate_issue_embeddings(
     request: PopulateEmbeddingsRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Generate embeddings for issues (admin only).
     
+    This runs as a background task to avoid timeouts.
+    Use GET /settings/embedding-population-status to check progress.
+    
     If regenerate_all=True, regenerates all embeddings.
     If regenerate_all=False (default), only generates for issues without embeddings
     or with embeddings from a different model.
     """
+    global embedding_population_status
+    
     if not current_user.is_super_admin:
         raise HTTPException(status_code=403, detail="Only super admin can populate embeddings")
     
-    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
-    embedding_service = get_embedding_service()
+    # Check if already running
+    if embedding_population_status["is_running"]:
+        return {
+            "status": "already_running",
+            "message": f"Embedding population already in progress: {embedding_population_status['processed']}/{embedding_population_status['total']} completed",
+            "total": embedding_population_status["total"]
+        }
     
-    # Determine which issues to process
+    current_model = get_setting(db, "embedding_model", DEFAULT_MODEL)
+    
+    # Count how many need processing
     if request.regenerate_all:
-        issues = db.query(Issue).all()
+        total = db.query(func.count(Issue.id)).scalar() or 0
     else:
-        # Only missing or mismatched
-        issues = db.query(Issue).filter(
+        total = db.query(func.count(Issue.id)).filter(
             (Issue.embedding.is_(None)) | 
             (Issue.embedding_model != current_model)
-        ).all()
+        ).scalar() or 0
     
-    total = len(issues)
-    processed = 0
-    errors = 0
+    if total == 0:
+        return {
+            "status": "completed",
+            "message": "All issues already have embeddings with the current model",
+            "total": 0
+        }
     
-    # Build module ID to name mapping
-    modules = {m.id: m.name for m in db.query(Module).all()}
+    # Reset status and start background task
+    embedding_population_status = {
+        "is_running": True,
+        "entity_type": "issue",
+        "total": total,
+        "processed": 0,
+        "errors": 0,
+        "started_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+        "message": "Starting issue embedding population...",
+        "used_model": current_model
+    }
     
-    # Build user ID to name mapping for reporter/assignee
-    users = {u.id: u.full_name or u.email for u in db.query(User).all()}
-    
-    # Process in batches for efficiency
-    batch_size = 50
-    for i in range(0, total, batch_size):
-        batch = issues[i:i + batch_size]
-        texts = []
-        valid_indices = []
-        
-        for idx, issue in enumerate(batch):
-            module_name = modules.get(issue.module_id) if issue.module_id else None
-            
-            # Get reporter name
-            reporter_name = issue.reporter_name
-            if not reporter_name and issue.created_by:
-                reporter_name = users.get(issue.created_by)
-            
-            # Get assignee name
-            assignee_name = issue.jira_assignee_name
-            if not assignee_name and issue.assigned_to:
-                assignee_name = users.get(issue.assigned_to)
-            
-            text = embedding_service.prepare_issue_text_for_embedding(
-                title=issue.title,
-                description=issue.description,
-                module_name=module_name,
-                status=issue.status,
-                priority=issue.priority,
-                severity=issue.severity,
-                reporter_name=reporter_name,
-                assignee_name=assignee_name,
-                jira_story_id=issue.jira_story_id
-            )
-            if text:
-                texts.append(text)
-                valid_indices.append(idx)
-        
-        if texts:
-            try:
-                embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
-                
-                for j, embedding in enumerate(embeddings):
-                    issue = batch[valid_indices[j]]
-                    issue.embedding = embedding
-                    issue.embedding_model = current_model
-                    processed += 1
-                
-                db.commit()
-            except Exception as e:
-                print(f"Error processing issue batch: {e}")
-                errors += len(texts)
-                db.rollback()
+    # Start background thread
+    thread = threading.Thread(
+        target=_run_embedding_population_background,
+        args=(request.regenerate_all, current_model, "issue")
+    )
+    thread.daemon = True
+    thread.start()
     
     return {
-        "processed": processed,
-        "total": total,
-        "errors": errors,
-        "used_model": current_model,
-        "message": f"Successfully generated embeddings for {processed} issues using {current_model}"
+        "status": "started",
+        "message": f"Started embedding population for {total} issues. Check /settings/embedding-population-status for progress.",
+        "total": total
     }

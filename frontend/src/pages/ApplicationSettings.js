@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Card,
@@ -54,8 +54,10 @@ const ApplicationSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [populatingEmbeddings, setPopulatingEmbeddings] = useState(false);
+  const [embeddingProgress, setEmbeddingProgress] = useState(null); // {processed, total, progress_percent, message}
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [canEdit, setCanEdit] = useState(false);  // Only super admin can edit
+  const pollIntervalRef = useRef(null);
   
   // Settings state
   const [threshold, setThreshold] = useState(75);
@@ -180,14 +182,84 @@ const ApplicationSettings = () => {
         regenerate_all: regenerateAll
       });
       
-      showSnackbar(response.data.message, 'success');
-      fetchSettings();
+      const data = response.data;
+      
+      if (data.status === 'started') {
+        showSnackbar(`Started processing ${data.total} test cases. Progress will be shown below.`, 'info');
+        // Start polling for status
+        startStatusPolling();
+      } else if (data.status === 'already_running') {
+        showSnackbar(data.message, 'warning');
+        // Resume polling
+        startStatusPolling();
+      } else if (data.status === 'completed') {
+        showSnackbar(data.message, 'success');
+        setPopulatingEmbeddings(false);
+        fetchSettings();
+      }
     } catch (err) {
       showSnackbar('Failed to populate embeddings: ' + (err.response?.data?.detail || err.message), 'error');
-    } finally {
       setPopulatingEmbeddings(false);
     }
   };
+
+  const startStatusPolling = () => {
+    // Clear any existing interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    
+    // Poll every 2 seconds
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await api.get('/settings/embedding-population-status');
+        const status = response.data;
+        
+        setEmbeddingProgress(status);
+        
+        if (!status.is_running) {
+          // Processing complete
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setPopulatingEmbeddings(false);
+          showSnackbar(status.message || 'Embedding population completed', 'success');
+          fetchSettings();
+        }
+      } catch (err) {
+        console.error('Failed to poll embedding status:', err);
+      }
+    }, 2000);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Check if there's already a running task on mount
+  useEffect(() => {
+    const checkRunningTask = async () => {
+      try {
+        const response = await api.get('/settings/embedding-population-status');
+        const status = response.data;
+        if (status.is_running) {
+          setPopulatingEmbeddings(true);
+          setEmbeddingProgress(status);
+          startStatusPolling();
+        }
+      } catch (err) {
+        // Ignore - endpoint may not exist or not authenticated yet
+      }
+    };
+    
+    if (!loading) {
+      checkRunningTask();
+    }
+  }, [loading]);
 
   const getModelStatusChip = (modelName) => {
     const status = modelsStatus[modelName];
@@ -556,6 +628,35 @@ const ApplicationSettings = () => {
                           : `Regenerate All (${embeddingStats.total_test_cases})`
                         }
                       </Button>
+
+                      {/* Progress Display */}
+                      {populatingEmbeddings && embeddingProgress && (
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            {embeddingProgress.message || 'Processing embeddings...'}
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Box sx={{ flex: 1 }}>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={embeddingProgress.progress_percent || 0} 
+                                sx={{ height: 8, borderRadius: 4 }}
+                              />
+                            </Box>
+                            <Typography variant="body2" fontWeight="bold">
+                              {Math.round(embeddingProgress.progress_percent || 0)}%
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            {embeddingProgress.processed || 0} / {embeddingProgress.total || 0} processed
+                            {embeddingProgress.errors > 0 && (
+                              <span style={{ color: 'red', marginLeft: 8 }}>
+                                ({embeddingProgress.errors} errors)
+                              </span>
+                            )}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   )}
                 </>

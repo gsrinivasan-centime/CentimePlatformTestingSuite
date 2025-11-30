@@ -21,30 +21,52 @@ router = APIRouter()
 def generate_test_id(tag: str, db: Session) -> str:
     """
     Generate next test ID based on tag
-    Format: TC_UI_{n}, TC_API_{n}, or TC_HYBRID_{n}
+    Format: TC_UI_001, TC_API_001, or TC_HYB_001 (zero-padded to 3 digits)
     """
-    tag_upper = tag.upper()
-    prefix = f"TC_{tag_upper}_"
+    # Map tag to short form
+    tag_map = {
+        'ui': 'UI',
+        'api': 'API', 
+        'hybrid': 'HYB'
+    }
+    tag_short = tag_map.get(tag.lower(), tag.upper())
+    prefix = f"TC_{tag_short}_"
     
     # Find the highest existing number for this tag
-    test_cases = db.query(TestCase).filter(TestCase.test_id.like(f"{prefix}%")).all()
+    # Also check old formats for backward compatibility
+    from sqlalchemy import or_
+    old_prefixes = [f"{tag.upper()}", f"TC_{tag.upper()}_"]  # e.g., API, TC_API_
+    
+    test_cases = db.query(TestCase).filter(
+        or_(
+            TestCase.test_id.like(f"{prefix}%"),
+            *[TestCase.test_id.like(f"{old_prefix}%") for old_prefix in old_prefixes]
+        )
+    ).all()
     
     if not test_cases:
-        return f"{prefix}1"
+        return f"{prefix}001"
     
-    # Extract numbers from existing test IDs
+    # Extract numbers from existing test IDs (handle both old and new formats)
     numbers = []
     for tc in test_cases:
         try:
-            # Extract number after the prefix
-            num_str = tc.test_id.replace(prefix, "")
-            numbers.append(int(num_str))
+            # Try new format first: TC_TAG_NNN
+            if tc.test_id.startswith(prefix):
+                num_str = tc.test_id.replace(prefix, "")
+                numbers.append(int(num_str))
+            # Try old format: TAG + number (e.g., API001, UI0001)
+            else:
+                import re
+                match = re.search(r'\d+$', tc.test_id)
+                if match:
+                    numbers.append(int(match.group()))
         except ValueError:
             continue
     
-    # Return next number
+    # Return next number with zero-padding (3 digits)
     next_num = max(numbers) + 1 if numbers else 1
-    return f"{prefix}{next_num}"
+    return f"{prefix}{next_num:03d}"
 
 @router.get("/generate-test-id")
 def get_next_test_id(

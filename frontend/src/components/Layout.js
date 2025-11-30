@@ -141,11 +141,29 @@ const Layout = ({ children }) => {
 
     const queryLower = searchQuery.toLowerCase();
     
+    // Remove common navigation phrases to get the core intent
+    const cleanQuery = queryLower
+      .replace(/^(go to|navigate to|open|show|view|take me to)\s+/i, '')
+      .replace(/\s+(page|section|screen)$/i, '')
+      .trim();
+    
     // Only show navigation options that directly match the query
-    const filtered = quickSearchOptions.filter(option => 
-      option.label.toLowerCase().includes(queryLower) ||
-      option.keywords.some(kw => kw.includes(queryLower))
-    );
+    // Match if: query contains keyword OR keyword contains query OR cleaned query matches
+    const filtered = quickSearchOptions.filter(option => {
+      const labelLower = option.label.toLowerCase();
+      return (
+        labelLower.includes(queryLower) ||
+        labelLower.includes(cleanQuery) ||
+        queryLower.includes(labelLower) ||
+        cleanQuery.includes(labelLower) ||
+        option.keywords.some(kw => 
+          kw.includes(queryLower) || 
+          queryLower.includes(kw) ||
+          kw.includes(cleanQuery) ||
+          cleanQuery.includes(kw)
+        )
+      );
+    });
 
     // Only show filtered navigation options if there's a direct match
     // Don't show generic "Search X for..." options - that's what AI search is for

@@ -30,7 +30,7 @@ from app.services.embedding_service import EmbeddingService
 logger = logging.getLogger(__name__)
 
 # Configuration - Default values (can be overridden by database settings)
-GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None) or "AIzaSyCagZrCG5WhTA2EaK-4Mt8Nlz4JsX0nSlo"
+GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None)
 GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_MIN_CONFIDENCE_THRESHOLD = 0.5
 DEFAULT_MIN_SIMILARITY_THRESHOLD = 0.5  # Minimum 50% similarity for semantic search results
@@ -265,7 +265,9 @@ class SmartSearchService:
         releases_list = []
         previous_release_id = None
         previous_release_str = "None"
-        for i, r in enumerate(context.releases[:5]):
+        # Build a mapping for reference in the prompt
+        version_to_id_examples = []
+        for i, r in enumerate(context.releases[:10]):  # Include more releases for lookup
             if r.id == current_release_id:
                 releases_list.append(f"{r.version} (ID:{r.id}, CURRENT)")
                 # The next release in the list is the previous one
@@ -275,7 +277,9 @@ class SmartSearchService:
                     previous_release_str = f"{prev_r.version} (ID:{prev_r.id})"
             else:
                 releases_list.append(f"{r.version} (ID:{r.id})")
+            version_to_id_examples.append(f'"{r.version}" → ID:{r.id}')
         releases_desc = ", ".join(releases_list)
+        version_mapping_str = ", ".join(version_to_id_examples[:5])  # Show first 5 mappings
         
         current_release_str = f"{current_release.version} (ID:{current_release.id})" if current_release else "None"
         
@@ -339,12 +343,28 @@ ISSUE-SPECIFIC RULES (CRITICAL):
 - "issues in release 2.1" → Find release ID for version 2.1 from Available Releases, use that ID
 - For semantic issue search (e.g., "issues related to payments"), use requires_semantic_search=true with target_page="/releases/ID?tab=issues"
 
+RELEASE VERSION LOOKUP (CRITICAL):
+- Users refer to releases by version like "R 2.89", "R 2.90", "2.89", "Release 2.90", etc.
+- You MUST look up the release ID from Available Releases above
+- Version to ID mapping: {version_mapping_str}
+- Example: "issues in R 2.89" → Find "R 2.89" in releases, get its ID, use /releases/ID?tab=issues
+- Example: "stories of Release 2.90" → Find "R 2.90" in releases, get its ID, use /releases/ID?tab=stories
+- If version not found in Available Releases, use current release ID: {current_release.id if current_release else 'N/A'}
+
 RELEASE-SPECIFIC VIEWS:
 - "stories of release X", "stories in release X" → intent: view_release_stories, target_page: "/releases/ID?tab=stories"
 - "issues of release X", "issues in release X", "show issues" → intent: view_release_issues, target_page: "/releases/ID?tab=issues"
 - If release not specified, default to current release ID: {current_release.id if current_release else 'N/A'}
 
 USER QUERY: "{query}"
+
+**FIRST DECISION - SEMANTIC SEARCH (CRITICAL):**
+Before anything else, determine if this query needs semantic search:
+- Does query contain "related to", "about", "for", "involving", "matching"? → requires_semantic_search=TRUE
+- Does query mention domain terms (ACH, payments, invoice, fraud, GL sync, reconciliation, deposit)? → requires_semantic_search=TRUE  
+- Is user just navigating ("show test cases", "go to dashboard", "open issues")? → requires_semantic_search=FALSE
+
+If this query contains ANY content-specific terms or "related to X", you MUST set requires_semantic_search=true.
 
 Analyze the query and respond with ONLY valid JSON (no markdown, no explanation):
 {{
@@ -366,17 +386,26 @@ CRITICAL RULES:
 7. For "create test", "design test", "new test case", "BDD", "Gherkin" → Navigate to Test Design Studio (/test-design-studio)
 8. For "run tests", "execute tests" → Navigate to Executions (/executions)
 
-FILTER vs SEMANTIC SEARCH:
+FILTER vs SEMANTIC SEARCH (CRITICAL - READ CAREFULLY):
 9. "UI", "API" test cases → filters.tag="ui"|"api"
 10. "manual" or "automated" test cases → filters.test_type="manual"|"automated"
-11. Only use requires_semantic_search=true for specific content keywords (e.g., "tests about invoice processing")
+11. USE requires_semantic_search=true when:
+    - Query contains domain-specific keywords like "ACH", "payments", "invoice", "fraud", "GL sync", etc.
+    - Query says "related to X", "about X", "for X", "involving X"
+    - Query asks for test cases/issues matching a functional area
+    - Examples that NEED semantic search:
+      * "show test cases related to ACH" → requires_semantic_search=true, semantic_query="ACH test cases"
+      * "tests about payments" → requires_semantic_search=true, semantic_query="payments test cases"
+      * "issues related to invoice processing" → requires_semantic_search=true, semantic_query="invoice processing issues"
+      * "ACH payment test cases" → requires_semantic_search=true, semantic_query="ACH payment test cases"
 
 SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
 12. When setting semantic_query, include relevant context words for better matching
     - BAD: semantic_query="ACH" (too short, poor embedding match)
-    - GOOD: semantic_query="ACH payments issues" (includes context)
+    - GOOD: semantic_query="ACH payments test cases" (includes context)
     - For "issues related to X", use semantic_query="X issues" or "X related problems"
     - For "tests about Y", use semantic_query="Y test cases" or "Y testing"
+    - ALWAYS add "test cases" or "issues" suffix to improve embedding match quality
 
 12. confidence should be HIGH (0.8-1.0) when intent is clear
 13. Always use module_id with the NUMERIC ID, not the module name
@@ -449,6 +478,12 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                 confidence=result_dict.get("confidence", 0.5)
             )
             
+            # Code-level fallback: Force semantic search for obvious patterns
+            result = self._enforce_semantic_search(query, result)
+            
+            # Resolve release version numbers to IDs
+            result = self._resolve_release_version(query, result, db)
+            
             # Cache the result in database
             self._set_llm_cache(db, cache_key, query, result, cache_ttl, 
                                token_usage.input_tokens, token_usage.output_tokens)
@@ -462,6 +497,123 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
         except Exception as e:
             logger.error(f"[Smart Search] LLM classification error: {e}")
             return self._fallback_classification(query), TokenUsage()
+    
+    def _enforce_semantic_search(self, query: str, result: LLMClassificationResult) -> LLMClassificationResult:
+        """Force semantic search for queries that obviously need it (LLM fallback)"""
+        if result.requires_semantic_search:
+            return result  # Already set, no need to override
+        
+        query_lower = query.lower()
+        
+        # Patterns that MUST trigger semantic search
+        semantic_triggers = [
+            'related to', 'about', 'involving', 'for', 'matching', 'containing',
+            'with', 'regarding', 'concerning'
+        ]
+        
+        # Domain-specific keywords that indicate content search
+        domain_keywords = [
+            'ach', 'payment', 'invoice', 'fraud', 'gl sync', 'reconcil',
+            'deposit', 'batch', 'settlement', 'remittance', 'vendor',
+            'customer', 'bank', 'transaction', 'ledger', 'posting'
+        ]
+        
+        should_force_semantic = False
+        reason = ""
+        
+        # Check for semantic trigger phrases
+        for trigger in semantic_triggers:
+            if trigger in query_lower:
+                should_force_semantic = True
+                reason = f"trigger phrase '{trigger}'"
+                break
+        
+        # Check for domain keywords (only if intent involves searchable entities)
+        if not should_force_semantic and result.intent in ['view_test_cases', 'view_release_issues', 'view_issues']:
+            for keyword in domain_keywords:
+                if keyword in query_lower:
+                    should_force_semantic = True
+                    reason = f"domain keyword '{keyword}'"
+                    break
+        
+        if should_force_semantic:
+            logger.info(f"[Smart Search] Forcing semantic search due to {reason}")
+            result.requires_semantic_search = True
+            
+            # Build semantic_query if not already set
+            if not result.semantic_query:
+                # Extract meaningful words by removing stop words
+                words = [w for w in query.split() if w.lower() not in STOP_WORDS and len(w) > 2]
+                # Add context suffix based on intent
+                suffix = "test cases" if result.intent == "view_test_cases" else "issues"
+                result.semantic_query = " ".join(words) + f" {suffix}"
+                logger.info(f"[Smart Search] Generated semantic_query: {result.semantic_query}")
+        
+        return result
+    
+    def _resolve_release_version(self, query: str, result: LLMClassificationResult, db: Session) -> LLMClassificationResult:
+        """Resolve release version numbers (e.g., R 2.89) to actual release IDs in the target_page"""
+        import re
+        
+        # Only process if target_page involves releases
+        if not result.target_page or '/releases' not in result.target_page:
+            return result
+        
+        query_lower = query.lower()
+        
+        # Extract version number from query using various patterns
+        # Patterns: "R 2.89", "R2.89", "Release 2.89", "release 2.89", "2.89", "v2.89"
+        version_patterns = [
+            r'r\s*(\d+\.\d+)',           # R 2.89 or R2.89
+            r'release\s*(\d+\.\d+)',     # Release 2.89
+            r'v(\d+\.\d+)',              # v2.89
+            r'version\s*(\d+\.\d+)',     # version 2.89
+        ]
+        
+        extracted_version = None
+        for pattern in version_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                extracted_version = match.group(1)
+                break
+        
+        if not extracted_version:
+            return result
+        
+        logger.info(f"[Smart Search] Extracted version number: {extracted_version}")
+        
+        # Look up release ID from database
+        try:
+            # Try exact match first (with R prefix)
+            release = db.query(Release).filter(
+                Release.version.ilike(f'%{extracted_version}%')
+            ).first()
+            
+            if release:
+                logger.info(f"[Smart Search] Resolved version '{extracted_version}' to release ID {release.id} ({release.version})")
+                
+                # Update target_page with correct release ID
+                # Handle patterns like /releases/1?tab=issues or /releases/1
+                old_path = result.target_page
+                
+                # Replace the release ID in the path
+                if '?tab=' in result.target_page:
+                    # Path with tab: /releases/X?tab=issues
+                    base_path = result.target_page.split('?')[0]
+                    tab_part = result.target_page.split('?')[1]
+                    result.target_page = f"/releases/{release.id}?{tab_part}"
+                elif result.target_page.startswith('/releases/'):
+                    # Path without tab: /releases/X
+                    result.target_page = f"/releases/{release.id}"
+                
+                if old_path != result.target_page:
+                    logger.info(f"[Smart Search] Updated target_page: {old_path} → {result.target_page}")
+            else:
+                logger.warning(f"[Smart Search] Could not find release with version '{extracted_version}'")
+        except Exception as e:
+            logger.error(f"[Smart Search] Error resolving release version: {e}")
+        
+        return result
     
     def _fallback_classification(self, query: str) -> LLMClassificationResult:
         """Fallback classification when LLM fails"""
@@ -645,8 +797,8 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
             return results
         
         elif entity_type == "issue":
-            # For issues, use the embedding column if it exists
-            # Otherwise fall back to keyword search
+            # For issues, use the embedding column with pgvector native operators
+            # Column is now vector(384) type - no cast needed!
             try:
                 embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
                 
@@ -657,19 +809,22 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                     filter_clause = "AND id = ANY(:filter_ids)"
                     params["filter_ids"] = pre_filter_ids
                 
-                # Use string formatting for the vector literal (it's safe since it's generated from floats)
-                # Cast embedding array to vector type for pgvector operator
+                # DB-level similarity filtering using pgvector
                 sql = text(f"""
-                    SELECT id, 1 - (embedding::vector <=> '{embedding_str}'::vector) as similarity
-                    FROM issues
-                    WHERE embedding IS NOT NULL
-                    {filter_clause}
-                    AND (1 - (embedding::vector <=> '{embedding_str}'::vector)) >= :min_similarity
-                    ORDER BY embedding::vector <=> '{embedding_str}'::vector
+                    SELECT id, similarity FROM (
+                        SELECT id, 1 - (embedding <=> '{embedding_str}'::vector) AS similarity
+                        FROM issues
+                        WHERE embedding IS NOT NULL
+                        {filter_clause}
+                    ) ranked
+                    WHERE similarity >= :min_similarity
+                    ORDER BY similarity DESC
                     LIMIT :limit
                 """)
                 result = db.execute(sql, params)
-                return [(row[0], row[1]) for row in result.fetchall()]
+                rows = result.fetchall()
+                logger.info(f"[Smart Search] Issue semantic search: {len(rows)} results above {min_similarity} threshold")
+                return [(row[0], row[1]) for row in rows]
             except Exception as e:
                 logger.warning(f"[Smart Search] Issue semantic search failed: {e}")
                 # Rollback the failed transaction

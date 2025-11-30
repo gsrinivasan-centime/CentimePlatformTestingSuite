@@ -191,11 +191,36 @@ deploy_backend_prod() {
     
     check_ec2_connection
     
-    # Copy updated backend files
+    # Check for production .env file
+    if [ ! -f "$BACKEND_DIR/.env.prod" ]; then
+        print_error "Production environment file not found: $BACKEND_DIR/.env.prod"
+        print_info "Please create .env.prod with AWS RDS DATABASE_URL"
+        exit 1
+    fi
+    
+    # Verify production .env has AWS RDS (not Supabase)
+    if grep -q "supabase" "$BACKEND_DIR/.env.prod"; then
+        print_error "Production .env.prod appears to point to Supabase!"
+        print_error "Please update DATABASE_URL to use AWS RDS"
+        exit 1
+    fi
+    
+    # Copy production .env to .env before syncing
+    print_info "Setting up production environment..."
+    cp "$BACKEND_DIR/.env.prod" "$BACKEND_DIR/.env.deploy"
+    
+    # Copy updated backend files (excluding dev .env, will copy .env.deploy as .env)
     print_info "Syncing backend code to EC2..."
-    rsync -avz --exclude='venv' --exclude='__pycache__' --exclude='*.pyc' \
+    rsync -avz --exclude='venv' --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='.env.prod' --exclude='.env.example' \
         -e "ssh -i $EC2_KEY" \
         "$BACKEND_DIR/" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/"
+    
+    # Copy production .env separately
+    print_info "Deploying production environment configuration..."
+    scp -i "$EC2_KEY" "$BACKEND_DIR/.env.deploy" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/.env"
+    
+    # Clean up temporary file
+    rm -f "$BACKEND_DIR/.env.deploy"
     
     # Deploy on EC2 - pass RUN_MIGRATE flag
     print_info "Configuring backend on EC2..."

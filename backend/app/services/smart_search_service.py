@@ -346,6 +346,14 @@ RELEASE-SPECIFIC VIEWS:
 
 USER QUERY: "{query}"
 
+**FIRST DECISION - SEMANTIC SEARCH (CRITICAL):**
+Before anything else, determine if this query needs semantic search:
+- Does query contain "related to", "about", "for", "involving", "matching"? → requires_semantic_search=TRUE
+- Does query mention domain terms (ACH, payments, invoice, fraud, GL sync, reconciliation, deposit)? → requires_semantic_search=TRUE  
+- Is user just navigating ("show test cases", "go to dashboard", "open issues")? → requires_semantic_search=FALSE
+
+If this query contains ANY content-specific terms or "related to X", you MUST set requires_semantic_search=true.
+
 Analyze the query and respond with ONLY valid JSON (no markdown, no explanation):
 {{
   "intent": "view_test_cases|view_test_design_studio|view_stories|view_release|view_release_dashboard|view_release_stories|view_release_issues|view_modules|view_dashboard|view_executions|unknown",
@@ -366,17 +374,26 @@ CRITICAL RULES:
 7. For "create test", "design test", "new test case", "BDD", "Gherkin" → Navigate to Test Design Studio (/test-design-studio)
 8. For "run tests", "execute tests" → Navigate to Executions (/executions)
 
-FILTER vs SEMANTIC SEARCH:
+FILTER vs SEMANTIC SEARCH (CRITICAL - READ CAREFULLY):
 9. "UI", "API" test cases → filters.tag="ui"|"api"
 10. "manual" or "automated" test cases → filters.test_type="manual"|"automated"
-11. Only use requires_semantic_search=true for specific content keywords (e.g., "tests about invoice processing")
+11. USE requires_semantic_search=true when:
+    - Query contains domain-specific keywords like "ACH", "payments", "invoice", "fraud", "GL sync", etc.
+    - Query says "related to X", "about X", "for X", "involving X"
+    - Query asks for test cases/issues matching a functional area
+    - Examples that NEED semantic search:
+      * "show test cases related to ACH" → requires_semantic_search=true, semantic_query="ACH test cases"
+      * "tests about payments" → requires_semantic_search=true, semantic_query="payments test cases"
+      * "issues related to invoice processing" → requires_semantic_search=true, semantic_query="invoice processing issues"
+      * "ACH payment test cases" → requires_semantic_search=true, semantic_query="ACH payment test cases"
 
 SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
 12. When setting semantic_query, include relevant context words for better matching
     - BAD: semantic_query="ACH" (too short, poor embedding match)
-    - GOOD: semantic_query="ACH payments issues" (includes context)
+    - GOOD: semantic_query="ACH payments test cases" (includes context)
     - For "issues related to X", use semantic_query="X issues" or "X related problems"
     - For "tests about Y", use semantic_query="Y test cases" or "Y testing"
+    - ALWAYS add "test cases" or "issues" suffix to improve embedding match quality
 
 12. confidence should be HIGH (0.8-1.0) when intent is clear
 13. Always use module_id with the NUMERIC ID, not the module name
@@ -449,6 +466,9 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                 confidence=result_dict.get("confidence", 0.5)
             )
             
+            # Code-level fallback: Force semantic search for obvious patterns
+            result = self._enforce_semantic_search(query, result)
+            
             # Cache the result in database
             self._set_llm_cache(db, cache_key, query, result, cache_ttl, 
                                token_usage.input_tokens, token_usage.output_tokens)
@@ -462,6 +482,59 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
         except Exception as e:
             logger.error(f"[Smart Search] LLM classification error: {e}")
             return self._fallback_classification(query), TokenUsage()
+    
+    def _enforce_semantic_search(self, query: str, result: LLMClassificationResult) -> LLMClassificationResult:
+        """Force semantic search for queries that obviously need it (LLM fallback)"""
+        if result.requires_semantic_search:
+            return result  # Already set, no need to override
+        
+        query_lower = query.lower()
+        
+        # Patterns that MUST trigger semantic search
+        semantic_triggers = [
+            'related to', 'about', 'involving', 'for', 'matching', 'containing',
+            'with', 'regarding', 'concerning'
+        ]
+        
+        # Domain-specific keywords that indicate content search
+        domain_keywords = [
+            'ach', 'payment', 'invoice', 'fraud', 'gl sync', 'reconcil',
+            'deposit', 'batch', 'settlement', 'remittance', 'vendor',
+            'customer', 'bank', 'transaction', 'ledger', 'posting'
+        ]
+        
+        should_force_semantic = False
+        reason = ""
+        
+        # Check for semantic trigger phrases
+        for trigger in semantic_triggers:
+            if trigger in query_lower:
+                should_force_semantic = True
+                reason = f"trigger phrase '{trigger}'"
+                break
+        
+        # Check for domain keywords (only if intent involves searchable entities)
+        if not should_force_semantic and result.intent in ['view_test_cases', 'view_release_issues', 'view_issues']:
+            for keyword in domain_keywords:
+                if keyword in query_lower:
+                    should_force_semantic = True
+                    reason = f"domain keyword '{keyword}'"
+                    break
+        
+        if should_force_semantic:
+            logger.info(f"[Smart Search] Forcing semantic search due to {reason}")
+            result.requires_semantic_search = True
+            
+            # Build semantic_query if not already set
+            if not result.semantic_query:
+                # Extract meaningful words by removing stop words
+                words = [w for w in query.split() if w.lower() not in STOP_WORDS and len(w) > 2]
+                # Add context suffix based on intent
+                suffix = "test cases" if result.intent == "view_test_cases" else "issues"
+                result.semantic_query = " ".join(words) + f" {suffix}"
+                logger.info(f"[Smart Search] Generated semantic_query: {result.semantic_query}")
+        
+        return result
     
     def _fallback_classification(self, query: str) -> LLMClassificationResult:
         """Fallback classification when LLM fails"""

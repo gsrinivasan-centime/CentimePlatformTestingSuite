@@ -3,6 +3,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.core.database import Base
+from pgvector.sqlalchemy import Vector
 import enum
 
 class UserRole(str, enum.Enum):
@@ -163,8 +164,9 @@ class TestCase(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Similarity analysis - embedding vector stored as float array (384 dimensions)
-    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    # Similarity analysis - embedding vector (384 dimensions for all-MiniLM-L6-v2)
+    # Uses pgvector's Vector type for native similarity operators
+    embedding = Column(Vector(384), nullable=True)
     embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
     
     # Relationships
@@ -374,8 +376,9 @@ class Issue(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
     
-    # Similarity analysis - embedding vector stored as float array (384 dimensions)
-    embedding = Column(postgresql.ARRAY(Float), nullable=True)
+    # Similarity analysis - embedding vector (384 dimensions for all-MiniLM-L6-v2)
+    # Uses pgvector's Vector type for native similarity operators
+    embedding = Column(Vector(384), nullable=True)
     embedding_model = Column(String(50), nullable=True)  # Track which model generated the embedding
     
     # Relationships

@@ -690,17 +690,59 @@ const ApplicationSettings = () => {
                                 </Typography>
                               </Box>
                               
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="body2" color="text.secondary">Cache TTL</Typography>
-                                <Typography variant="body2" fontWeight="medium">
-                                  {cacheTTL}s
+                              <Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Cache TTL
+                                  </Typography>
+                                  <Chip label={`${cacheTTL}s`} size="small" color="info" />
+                                </Box>
+                                <Slider
+                                  value={cacheTTL}
+                                  onChange={(e, val) => setCacheTTL(val)}
+                                  min={30}
+                                  max={3600}
+                                  step={30}
+                                  marks={[
+                                    { value: 60, label: '1m' },
+                                    { value: 300, label: '5m' },
+                                    { value: 900, label: '15m' },
+                                    { value: 1800, label: '30m' },
+                                    { value: 3600, label: '1h' }
+                                  ]}
+                                  valueLabelDisplay="auto"
+                                  valueLabelFormat={(v) => v >= 60 ? `${Math.floor(v/60)}m ${v%60}s` : `${v}s`}
+                                  size="small"
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  How long to cache LLM responses (30s - 1 hour)
                                 </Typography>
                               </Box>
                               
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="body2" color="text.secondary">Max Results</Typography>
-                                <Typography variant="body2" fontWeight="medium">
-                                  {maxResults}
+                              <Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Max Results
+                                  </Typography>
+                                  <Chip label={maxResults} size="small" color="info" />
+                                </Box>
+                                <Slider
+                                  value={maxResults}
+                                  onChange={(e, val) => setMaxResults(val)}
+                                  min={10}
+                                  max={200}
+                                  step={10}
+                                  marks={[
+                                    { value: 10, label: '10' },
+                                    { value: 50, label: '50' },
+                                    { value: 100, label: '100' },
+                                    { value: 200, label: '200' }
+                                  ]}
+                                  valueLabelDisplay="auto"
+                                  size="small"
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  Maximum number of results to return from search
                                 </Typography>
                               </Box>
                             </>

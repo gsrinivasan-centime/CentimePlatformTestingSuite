@@ -62,12 +62,20 @@ async def startup_event():
         print(f"   ⚠️  Warning: {backend.capitalize()} is not properly configured")
         print("   File uploads to issues may not work.")
     
-    # Preload embedding model in background for faster similarity checks
-    print("\n🧠 Embedding Models: Starting background preload...")
+    # Preload only the configured embedding model (to save memory)
+    print("\n🧠 Embedding Model: Starting background preload...")
     try:
         from app.services.embedding_service import get_embedding_service
+        from app.core.database import SessionLocal
         embedding_service = get_embedding_service()
-        asyncio.create_task(embedding_service.preload_models())
+        # Get a db session to check which model is configured
+        db = SessionLocal()
+        try:
+            # Get configured model synchronously, then pass to async preload
+            configured_model = embedding_service.get_configured_model(db)
+        finally:
+            db.close()
+        asyncio.create_task(embedding_service.preload_models(configured_model=configured_model))
     except Exception as e:
         print(f"   ⚠️  Warning: Could not start model preload: {e}")
     

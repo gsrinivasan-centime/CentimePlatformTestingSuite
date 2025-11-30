@@ -323,19 +323,42 @@ class EmbeddingService:
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
     
-    async def preload_models(self):
-        """Background task to preload both models at startup"""
-        print("🚀 Starting background model preload...")
+    def get_configured_model(self, db: Session) -> str:
+        """Get the currently configured embedding model from database settings"""
+        try:
+            from app.models.models import ApplicationSetting
+            setting = db.query(ApplicationSetting).filter(
+                ApplicationSetting.key == "embedding_model"
+            ).first()
+            if setting and setting.value in SUPPORTED_MODELS:
+                return setting.value
+        except Exception as e:
+            print(f"⚠️ Could not get configured model: {e}")
+        return DEFAULT_MODEL
+    
+    async def preload_models(self, configured_model: str = None):
+        """Background task to preload only the configured model at startup.
         
-        for model_name in SUPPORTED_MODELS.keys():
-            try:
-                # Run in executor to not block
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, self._get_model, model_name)
-            except Exception as e:
-                print(f"⚠️ Failed to preload {model_name}: {e}")
+        To save memory, only the currently selected model is loaded.
+        Other models are loaded on-demand when user switches to them.
         
-        print("✅ Model preload complete")
+        Args:
+            configured_model: The model name to preload (from application settings).
+                             Falls back to DEFAULT_MODEL if not specified.
+        """
+        # Determine which model to preload
+        model_to_load = configured_model if configured_model else DEFAULT_MODEL
+        
+        print(f"🚀 Preloading configured embedding model: {model_to_load}")
+        print(f"   (Other models will be loaded on-demand to save memory)")
+        
+        try:
+            # Run in executor to not block
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._get_model, model_to_load)
+            print(f"✅ Model preload complete: {model_to_load}")
+        except Exception as e:
+            print(f"⚠️ Failed to preload {model_to_load}: {e}")
 
 
 # Singleton instance

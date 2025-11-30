@@ -471,51 +471,52 @@ const Layout = ({ children }) => {
                       {/* AI Search Result */}
                       {aiResult && (
                         <>
-                          <Box sx={{ 
-                            px: 2, 
-                            py: 1, 
-                            backgroundColor: '#e3f2fd',
-                            borderBottom: '1px solid #bbdefb',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                          }}>
-                            <AIIcon sx={{ fontSize: 16, color: '#1976d2' }} />
-                            <Typography variant="caption" sx={{ color: '#1565c0', fontWeight: 600 }}>
-                              AI Search Result
-                            </Typography>
-                          </Box>
-                          
                           {aiResult.success ? (
                             <ListItemButton
                               onClick={handleAINavigate}
                               sx={{
-                                py: 1.5,
-                                backgroundColor: '#f8f9fa',
-                                '&:hover': { backgroundColor: '#e8f4fd' },
+                                py: 1,
+                                px: 2,
+                                backgroundColor: '#e3f2fd',
+                                '&:hover': { backgroundColor: '#bbdefb' },
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
                               }}
                             >
-                              <ListItemIcon sx={{ minWidth: 36, color: '#1976d2' }}>
-                                {getIntentIcon(aiResult.intent)}
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={
-                                  <Typography variant="body2" fontWeight={500}>
-                                    {aiResult.message}
+                              <AIIcon sx={{ fontSize: 18, color: '#1976d2', flexShrink: 0 }} />
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                                <Typography 
+                                  variant="body2" 
+                                  fontWeight={500}
+                                  sx={{ 
+                                    color: '#1565c0',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {aiResult.message}
+                                </Typography>
+                                {aiResult.entity_ids?.length > 0 && (
+                                  <Typography 
+                                    variant="caption" 
+                                    sx={{ 
+                                      color: '#666',
+                                      whiteSpace: 'nowrap',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    ({aiResult.entity_ids.length} results)
                                   </Typography>
-                                }
-                                secondary={
-                                  <Typography variant="caption" color="text.secondary">
-                                    → {aiResult.navigate_to}
-                                    {aiResult.entity_ids?.length > 0 && ` (${aiResult.entity_ids.length} results)`}
-                                  </Typography>
-                                }
-                              />
-                              <ArrowForwardIcon sx={{ fontSize: 18, color: '#999' }} />
+                                )}
+                              </Box>
+                              <ArrowForwardIcon sx={{ fontSize: 18, color: '#1976d2', flexShrink: 0 }} />
                             </ListItemButton>
                           ) : (
-                            <Box sx={{ p: 2 }}>
-                              <Typography variant="body2" color="text.secondary">
+                            <Box sx={{ p: 1.5, px: 2, backgroundColor: '#fff3e0', display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <AIIcon sx={{ fontSize: 18, color: '#f57c00', flexShrink: 0 }} />
+                              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {aiResult.message}
                               </Typography>
                             </Box>

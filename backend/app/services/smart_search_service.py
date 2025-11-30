@@ -30,7 +30,7 @@ from app.services.embedding_service import EmbeddingService
 logger = logging.getLogger(__name__)
 
 # Configuration - Default values (can be overridden by database settings)
-GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None) or "AIzaSyCagZrCG5WhTA2EaK-4Mt8Nlz4JsX0nSlo"
+GOOGLE_API_KEY = getattr(settings, 'GOOGLE_API_KEY', None)
 GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_MIN_CONFIDENCE_THRESHOLD = 0.5
 DEFAULT_MIN_SIMILARITY_THRESHOLD = 0.5  # Minimum 50% similarity for semantic search results

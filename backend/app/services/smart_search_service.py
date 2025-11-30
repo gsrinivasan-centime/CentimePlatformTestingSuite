@@ -265,7 +265,9 @@ class SmartSearchService:
         releases_list = []
         previous_release_id = None
         previous_release_str = "None"
-        for i, r in enumerate(context.releases[:5]):
+        # Build a mapping for reference in the prompt
+        version_to_id_examples = []
+        for i, r in enumerate(context.releases[:10]):  # Include more releases for lookup
             if r.id == current_release_id:
                 releases_list.append(f"{r.version} (ID:{r.id}, CURRENT)")
                 # The next release in the list is the previous one
@@ -275,7 +277,9 @@ class SmartSearchService:
                     previous_release_str = f"{prev_r.version} (ID:{prev_r.id})"
             else:
                 releases_list.append(f"{r.version} (ID:{r.id})")
+            version_to_id_examples.append(f'"{r.version}" → ID:{r.id}')
         releases_desc = ", ".join(releases_list)
+        version_mapping_str = ", ".join(version_to_id_examples[:5])  # Show first 5 mappings
         
         current_release_str = f"{current_release.version} (ID:{current_release.id})" if current_release else "None"
         
@@ -338,6 +342,14 @@ ISSUE-SPECIFIC RULES (CRITICAL):
 - "critical issues" → intent: view_release_issues, target_page: "/releases/{current_release.id if current_release else '1'}?tab=issues", filters: {{"severity": "critical"}}
 - "issues in release 2.1" → Find release ID for version 2.1 from Available Releases, use that ID
 - For semantic issue search (e.g., "issues related to payments"), use requires_semantic_search=true with target_page="/releases/ID?tab=issues"
+
+RELEASE VERSION LOOKUP (CRITICAL):
+- Users refer to releases by version like "R 2.89", "R 2.90", "2.89", "Release 2.90", etc.
+- You MUST look up the release ID from Available Releases above
+- Version to ID mapping: {version_mapping_str}
+- Example: "issues in R 2.89" → Find "R 2.89" in releases, get its ID, use /releases/ID?tab=issues
+- Example: "stories of Release 2.90" → Find "R 2.90" in releases, get its ID, use /releases/ID?tab=stories
+- If version not found in Available Releases, use current release ID: {current_release.id if current_release else 'N/A'}
 
 RELEASE-SPECIFIC VIEWS:
 - "stories of release X", "stories in release X" → intent: view_release_stories, target_page: "/releases/ID?tab=stories"
@@ -469,6 +481,9 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
             # Code-level fallback: Force semantic search for obvious patterns
             result = self._enforce_semantic_search(query, result)
             
+            # Resolve release version numbers to IDs
+            result = self._resolve_release_version(query, result, db)
+            
             # Cache the result in database
             self._set_llm_cache(db, cache_key, query, result, cache_ttl, 
                                token_usage.input_tokens, token_usage.output_tokens)
@@ -533,6 +548,70 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                 suffix = "test cases" if result.intent == "view_test_cases" else "issues"
                 result.semantic_query = " ".join(words) + f" {suffix}"
                 logger.info(f"[Smart Search] Generated semantic_query: {result.semantic_query}")
+        
+        return result
+    
+    def _resolve_release_version(self, query: str, result: LLMClassificationResult, db: Session) -> LLMClassificationResult:
+        """Resolve release version numbers (e.g., R 2.89) to actual release IDs in the target_page"""
+        import re
+        
+        # Only process if target_page involves releases
+        if not result.target_page or '/releases' not in result.target_page:
+            return result
+        
+        query_lower = query.lower()
+        
+        # Extract version number from query using various patterns
+        # Patterns: "R 2.89", "R2.89", "Release 2.89", "release 2.89", "2.89", "v2.89"
+        version_patterns = [
+            r'r\s*(\d+\.\d+)',           # R 2.89 or R2.89
+            r'release\s*(\d+\.\d+)',     # Release 2.89
+            r'v(\d+\.\d+)',              # v2.89
+            r'version\s*(\d+\.\d+)',     # version 2.89
+        ]
+        
+        extracted_version = None
+        for pattern in version_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                extracted_version = match.group(1)
+                break
+        
+        if not extracted_version:
+            return result
+        
+        logger.info(f"[Smart Search] Extracted version number: {extracted_version}")
+        
+        # Look up release ID from database
+        try:
+            # Try exact match first (with R prefix)
+            release = db.query(Release).filter(
+                Release.version.ilike(f'%{extracted_version}%')
+            ).first()
+            
+            if release:
+                logger.info(f"[Smart Search] Resolved version '{extracted_version}' to release ID {release.id} ({release.version})")
+                
+                # Update target_page with correct release ID
+                # Handle patterns like /releases/1?tab=issues or /releases/1
+                old_path = result.target_page
+                
+                # Replace the release ID in the path
+                if '?tab=' in result.target_page:
+                    # Path with tab: /releases/X?tab=issues
+                    base_path = result.target_page.split('?')[0]
+                    tab_part = result.target_page.split('?')[1]
+                    result.target_page = f"/releases/{release.id}?{tab_part}"
+                elif result.target_page.startswith('/releases/'):
+                    # Path without tab: /releases/X
+                    result.target_page = f"/releases/{release.id}"
+                
+                if old_path != result.target_page:
+                    logger.info(f"[Smart Search] Updated target_page: {old_path} → {result.target_page}")
+            else:
+                logger.warning(f"[Smart Search] Could not find release with version '{extracted_version}'")
+        except Exception as e:
+            logger.error(f"[Smart Search] Error resolving release version: {e}")
         
         return result
     

@@ -317,7 +317,8 @@ CONTEXT:
 
 FILTER VALUES - Use these EXACT values in filters:
 - module_id: Use the numeric ID from Available Modules above
-- tag: "ui", "api", "hybrid" ONLY (lowercase) - for test cases
+- tag: "ui", "api", "hybrid" ONLY (lowercase) - for test type (UI/API/Hybrid)
+- tags: "smoke", "regression", "sanity", "prod", "functional", "critical" - for custom test tags (comma-separated in DB)
 - test_type: "manual", "automated" - for test cases
 - status: "open", "in_progress", "resolved", "closed" - for issues
 - severity: "critical", "major", "minor", "trivial" - for issues
@@ -325,7 +326,13 @@ FILTER VALUES - Use these EXACT values in filters:
 - assigned_to: Use user ID (numeric) - for issues assigned to a user
 - created_by: Use user ID (numeric) - for issues reported/created by a user
 
-NOTE: "smoke", "regression", "sanity", "functional" are NOT valid tags. Use semantic search for these test category keywords.
+CUSTOM TAGS (tags field) - IMPORTANT:
+- "regression test cases", "regression tests" → filters.tags="regression"
+- "smoke tests", "smoke test cases" → filters.tags="smoke"
+- "prod test cases", "production tests" → filters.tags="prod"
+- "sanity tests" → filters.tags="sanity"
+- "critical tests" → filters.tags="critical"
+- These are DIFFERENT from "tag" (ui/api/hybrid). Use "tags" (plural) for these custom labels.
 
 SPECIAL TOKENS TO RESOLVE:
 - "me", "my", "assigned to me", "reported by me", "created by me" → Use user ID {context.current_user.id}
@@ -387,9 +394,10 @@ CRITICAL RULES:
 8. For "run tests", "execute tests" → Navigate to Executions (/executions)
 
 FILTER vs SEMANTIC SEARCH (CRITICAL - READ CAREFULLY):
-9. "UI", "API" test cases → filters.tag="ui"|"api"
+9. "UI", "API" test cases → filters.tag="ui"|"api" (test type, singular "tag")
 10. "manual" or "automated" test cases → filters.test_type="manual"|"automated"
-11. USE requires_semantic_search=true when:
+11. "regression", "smoke", "prod", "sanity" test cases → filters.tags="regression"|"smoke"|"prod"|"sanity" (custom labels, plural "tags")
+12. USE requires_semantic_search=true when:
     - Query contains domain-specific keywords like "ACH", "payments", "invoice", "fraud", "GL sync", etc.
     - Query says "related to X", "about X", "for X", "involving X"
     - Query asks for test cases/issues matching a functional area
@@ -720,6 +728,23 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                     query = query.filter(TestCase.tag == tag_lower)
                 else:
                     logger.warning(f"[Smart Search] Invalid tag '{tag_lower}', ignoring filter. Valid tags: {valid_tags}")
+            
+            # Handle custom tags filter (smoke, regression, prod, sanity, etc.)
+            # This filters on the comma-separated 'tags' column
+            tags = filters.get("tags")
+            if tags:
+                tags_lower = tags.lower() if isinstance(tags, str) else str(tags).lower()
+                logger.info(f"[Smart Search] Applying custom tags filter: {tags_lower}")
+                # Use ILIKE to match the tag anywhere in the comma-separated string
+                query = query.filter(
+                    or_(
+                        TestCase.tags.ilike(f"%{tags_lower}%"),
+                        TestCase.tags.ilike(f"{tags_lower},%"),
+                        TestCase.tags.ilike(f"%,{tags_lower}"),
+                        TestCase.tags == tags_lower
+                    )
+                )
+            
             if filters.get("test_type"):
                 test_type = filters["test_type"]
                 test_type_lower = test_type.lower() if isinstance(test_type, str) else test_type

@@ -55,8 +55,10 @@ import {
   RateReview as RateReviewIcon,
   CheckCircleOutline as CheckCircleOutlineIcon,
   Cancel as CancelIcon,
+  CloudUpload as UploadIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
-import { stepCatalogAPI, featureFilesAPI, modulesAPI } from '../services/api';
+import { stepCatalogAPI, featureFilesAPI, modulesAPI, testCasesAPI } from '../services/api';
 import PublishPreviewModal from '../components/PublishPreviewModal';
 import { useAuth } from '../context/AuthContext';
 
@@ -113,6 +115,20 @@ const TestDesignStudio = () => {
   const [publishPreviewLoading, setPublishPreviewLoading] = useState(false);
   const [publishPreviewError, setPublishPreviewError] = useState(null);
   const [fileToPublish, setFileToPublish] = useState(null);
+  
+  // Bulk upload state
+  const [openBulkUploadDialog, setOpenBulkUploadDialog] = useState(false);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [bulkUploadConfig, setBulkUploadConfig] = useState({
+    module_id: '',
+    sub_module: '',
+    feature_section: '',
+    test_type: 'automated',
+    tag: 'ui'
+  });
+  const [bulkUploadSubModules, setBulkUploadSubModules] = useState([]);
+  const [bulkUploadFeatures, setBulkUploadFeatures] = useState([]);
   
   // Editor settings with localStorage persistence
   const [editorTheme, setEditorTheme] = useState(() => {
@@ -207,6 +223,42 @@ const TestDesignStudio = () => {
   };
 
   // Dashboard actions
+  // Professional BDD template with Scenario and Scenario Outline examples
+  const DEFAULT_BDD_TEMPLATE = `Feature: User Authentication
+  As a registered user
+  I want to log in to the application
+  So that I can access my account and protected features
+
+  Background:
+    Given the application is running
+    And the database is available
+
+  @smoke @login
+  Scenario: Successful login with valid credentials
+    Given I am on the login page
+    When I enter username "testuser@example.com"
+    And I enter password "SecurePass123"
+    And I click the "Sign In" button
+    Then I should be redirected to the dashboard
+    And I should see a welcome message "Welcome, Test User"
+
+  @regression @login
+  Scenario Outline: Login validation with different user types
+    Given I am on the login page
+    When I enter username "<email>"
+    And I enter password "<password>"
+    And I click the "Sign In" button
+    Then I should see the "<expected_result>" message
+    And the user role should be "<role>"
+
+    Examples:
+      | email                  | password      | expected_result     | role    |
+      | admin@example.com      | AdminPass123  | Welcome, Admin      | admin   |
+      | tester@example.com     | TesterPass123 | Welcome, Tester     | tester  |
+      | viewer@example.com     | ViewerPass123 | Welcome, Viewer     | viewer  |
+      | invalid@example.com    | WrongPass     | Invalid credentials | none    |
+`;
+
   const handleStartNew = () => {
     if (featureFiles.length >= MAX_FILES_PER_USER) {
       showSnackbar(`Maximum ${MAX_FILES_PER_USER} files allowed. Please delete or publish existing files.`, 'warning');
@@ -217,8 +269,126 @@ const TestDesignStudio = () => {
     setFileName('');
     setFileDescription('');
     setSelectedModule('');
-    setEditorContent('Feature: New Feature\n  As a user\n  I want to\n  So that\n\n  Scenario: Sample Scenario\n    Given \n    When \n    Then ');
+    setEditorContent(DEFAULT_BDD_TEMPLATE);
     setView('editor');
+  };
+
+  // ========== BULK UPLOAD HANDLERS ==========
+  const loadBulkUploadSubModules = async (moduleId) => {
+    if (!moduleId) {
+      setBulkUploadSubModules([]);
+      setBulkUploadFeatures([]);
+      return;
+    }
+    
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId);
+      setBulkUploadSubModules(options);
+      setBulkUploadFeatures([]);
+    } catch (err) {
+      console.error('Failed to load sub-modules:', err);
+      setBulkUploadSubModules([]);
+    }
+  };
+
+  const loadBulkUploadFeatures = async (moduleId, subModule) => {
+    if (!moduleId || !subModule) {
+      setBulkUploadFeatures([]);
+      return;
+    }
+    
+    try {
+      const options = await testCasesAPI.getHierarchyOptions(moduleId, subModule);
+      setBulkUploadFeatures(options);
+    } catch (err) {
+      console.error('Failed to load features:', err);
+      setBulkUploadFeatures([]);
+    }
+  };
+
+  const handleBulkUploadConfigChange = async (name, value) => {
+    const newConfig = { ...bulkUploadConfig, [name]: value };
+    
+    // Reset cascading fields
+    if (name === 'module_id') {
+      newConfig.sub_module = '';
+      newConfig.feature_section = '';
+      await loadBulkUploadSubModules(value);
+    } else if (name === 'sub_module') {
+      newConfig.feature_section = '';
+      await loadBulkUploadFeatures(bulkUploadConfig.module_id, value);
+    }
+    
+    setBulkUploadConfig(newConfig);
+  };
+
+  const handleBulkUpload = async () => {
+    if (!uploadFile) {
+      showSnackbar('Please select a feature file', 'error');
+      return;
+    }
+
+    if (!bulkUploadConfig.module_id) {
+      showSnackbar('Please select a module', 'error');
+      return;
+    }
+
+    try {
+      setUploadLoading(true);
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('module_id', bulkUploadConfig.module_id);
+      if (bulkUploadConfig.sub_module) {
+        formData.append('sub_module', bulkUploadConfig.sub_module);
+      }
+      if (bulkUploadConfig.feature_section) {
+        formData.append('feature_section', bulkUploadConfig.feature_section);
+      }
+      formData.append('test_type', bulkUploadConfig.test_type);
+      formData.append('tag', bulkUploadConfig.tag);
+      
+      // Use the new bulk upload for approval endpoint
+      const response = await featureFilesAPI.bulkUploadForApproval(formData);
+      
+      setOpenBulkUploadDialog(false);
+      setUploadFile(null);
+      setBulkUploadConfig({
+        module_id: '',
+        sub_module: '',
+        feature_section: '',
+        test_type: 'automated',
+        tag: 'ui'
+      });
+      setBulkUploadSubModules([]);
+      setBulkUploadFeatures([]);
+      
+      // Show success message about approval workflow
+      showSnackbar(
+        `Feature file uploaded with ${response.scenario_count} scenario(s). Awaiting admin approval before test cases are created.`,
+        'success'
+      );
+      
+      // Reload the data to show in pending approval section
+      await loadInitialData();
+    } catch (err) {
+      showSnackbar(err.response?.data?.detail || 'Bulk upload failed', 'error');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
+
+  const handleDownloadFeatureTemplate = () => {
+    const templateContent = DEFAULT_BDD_TEMPLATE;
+    
+    const blob = new Blob([templateContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sample_template.feature';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   const handleEditFile = async (file) => {
@@ -756,14 +926,24 @@ const TestDesignStudio = () => {
           <Typography variant="h6">
             My Feature Files ({featureFiles.length}/{MAX_FILES_PER_USER})
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleStartNew}
-            disabled={featureFiles.length >= MAX_FILES_PER_USER || loading}
-          >
-            Start New Design
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="outlined"
+              startIcon={<UploadIcon />}
+              onClick={() => setOpenBulkUploadDialog(true)}
+              disabled={loading}
+            >
+              Bulk Upload
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleStartNew}
+              disabled={featureFiles.length >= MAX_FILES_PER_USER || loading}
+            >
+              Start New Design
+            </Button>
+          </Box>
         </Box>
 
         {featureFiles.length >= MAX_FILES_PER_USER && (
@@ -1799,6 +1979,209 @@ const TestDesignStudio = () => {
         onPublish={handleConfirmPublish}
         fileId={fileToPublish?.id}
       />
+
+      {/* Bulk Upload Dialog */}
+      <Dialog 
+        open={openBulkUploadDialog} 
+        onClose={() => {
+          setOpenBulkUploadDialog(false);
+          setUploadFile(null);
+          setBulkUploadConfig({
+            module_id: '',
+            sub_module: '',
+            feature_section: '',
+            test_type: 'automated',
+            tag: 'ui'
+          });
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Bulk Upload Feature File</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Upload a BDD Feature file (.feature) for approval. Once approved by an admin, 
+              each scenario will become a test case with auto-generated test IDs.
+            </Typography>
+            
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                Approval Required
+              </Typography>
+              <Typography variant="body2">
+                Uploaded feature files require admin approval before test cases are created.
+                You can track your pending uploads in the "Sent for Approval" section below.
+              </Typography>
+            </Alert>
+            
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                ✓ Supports Gherkin syntax (Given/When/Then)<br />
+                ✓ Scenarios converted to individual test cases<br />
+                ✓ Scenario Outlines with Examples supported<br />
+                ✓ Steps automatically extracted<br />
+                ✓ Tags added: bdd, gherkin
+              </Typography>
+            </Alert>
+
+            {/* Upload Configuration */}
+            <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+              <Typography variant="subtitle2" gutterBottom fontWeight="bold">
+                Configuration:
+              </Typography>
+              <TextField
+                select
+                label="Module *"
+                value={bulkUploadConfig.module_id}
+                onChange={(e) => handleBulkUploadConfigChange('module_id', e.target.value)}
+                fullWidth
+                margin="dense"
+                required
+              >
+                {modules.map((module) => (
+                  <MenuItem key={module.id} value={module.id}>
+                    {module.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Sub-Module (Optional)"
+                value={bulkUploadConfig.sub_module}
+                onChange={(e) => handleBulkUploadConfigChange('sub_module', e.target.value)}
+                fullWidth
+                margin="dense"
+                disabled={!bulkUploadConfig.module_id || bulkUploadSubModules.length === 0}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {bulkUploadSubModules.map((subModule, index) => (
+                  <MenuItem key={index} value={subModule.name || subModule}>
+                    {subModule.name || subModule}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Feature (Optional)"
+                value={bulkUploadConfig.feature_section}
+                onChange={(e) => handleBulkUploadConfigChange('feature_section', e.target.value)}
+                fullWidth
+                margin="dense"
+                disabled={!bulkUploadConfig.sub_module || bulkUploadFeatures.length === 0}
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {bulkUploadFeatures.map((feature, index) => (
+                  <MenuItem key={index} value={feature.name || feature}>
+                    {feature.name || feature}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                <Grid item xs={6}>
+                  <TextField
+                    select
+                    label="Test Type"
+                    value={bulkUploadConfig.test_type}
+                    onChange={(e) => handleBulkUploadConfigChange('test_type', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                  >
+                    <MenuItem value="automated">Automated</MenuItem>
+                    <MenuItem value="manual">Manual</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    select
+                    label="Tag"
+                    value={bulkUploadConfig.tag}
+                    onChange={(e) => handleBulkUploadConfigChange('tag', e.target.value)}
+                    fullWidth
+                    margin="dense"
+                  >
+                    <MenuItem value="ui">UI</MenuItem>
+                    <MenuItem value="api">API</MenuItem>
+                    <MenuItem value="hybrid">Hybrid</MenuItem>
+                  </TextField>
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {/* Download Template Button */}
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={handleDownloadFeatureTemplate}
+              fullWidth
+              sx={{ mb: 3 }}
+            >
+              Download Sample Feature Template
+            </Button>
+
+            {/* File Drop Zone */}
+            <Box
+              sx={{
+                border: '2px dashed',
+                borderColor: 'primary.main',
+                borderRadius: 2,
+                p: 3,
+                textAlign: 'center',
+                bgcolor: 'background.default',
+                cursor: 'pointer',
+                '&:hover': {
+                  bgcolor: 'action.hover',
+                },
+              }}
+              onClick={() => document.getElementById('bulk-file-upload').click()}
+            >
+              <input
+                id="bulk-file-upload"
+                type="file"
+                accept=".feature"
+                style={{ display: 'none' }}
+                onChange={(e) => setUploadFile(e.target.files[0])}
+              />
+              <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
+              <Typography variant="h6" gutterBottom>
+                {uploadFile 
+                  ? uploadFile.name 
+                  : 'Click to select Feature file'
+                }
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                or drag and drop your .feature file here
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setOpenBulkUploadDialog(false);
+            setUploadFile(null);
+            setBulkUploadConfig({
+              module_id: '',
+              sub_module: '',
+              feature_section: '',
+              test_type: 'automated',
+              tag: 'ui'
+            });
+          }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleBulkUpload}
+            variant="contained"
+            disabled={!uploadFile || !bulkUploadConfig.module_id || uploadLoading}
+          >
+            {uploadLoading ? <CircularProgress size={24} /> : 'Upload for Approval'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 

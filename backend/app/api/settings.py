@@ -220,6 +220,7 @@ def _run_embedding_population_background(regenerate_all: bool, current_model: st
     """
     Background function to populate embeddings.
     Runs in a separate thread to avoid blocking the API.
+    Uses pagination to avoid loading all entities into memory at once.
     """
     global embedding_population_status
     
@@ -227,99 +228,112 @@ def _run_embedding_population_background(regenerate_all: bool, current_model: st
     try:
         embedding_service = get_embedding_service()
         
-        if entity_type == "test_case":
-            # Determine which test cases to process
-            if regenerate_all:
-                entities = db.query(TestCase).all()
-            else:
-                entities = db.query(TestCase).filter(
-                    (TestCase.embedding.is_(None)) | 
-                    (TestCase.embedding_model != current_model)
-                ).all()
-        else:  # issue
-            if regenerate_all:
-                entities = db.query(Issue).all()
-            else:
-                entities = db.query(Issue).filter(
-                    (Issue.embedding.is_(None)) | 
-                    (Issue.embedding_model != current_model)
-                ).all()
-        
-        embedding_population_status["total"] = len(entities)
-        
-        if len(entities) == 0:
-            embedding_population_status["is_running"] = False
-            embedding_population_status["message"] = "No entities need embedding updates"
-            embedding_population_status["completed_at"] = datetime.utcnow().isoformat()
-            return
-        
-        # Build module ID to name mapping
+        # Build module ID to name mapping first
         modules = {m.id: m.name for m in db.query(Module).all()}
         
-        # Process in batches for efficiency
-        batch_size = 20  # Smaller batches to avoid memory issues
+        # Use pagination instead of loading all at once to save memory
+        batch_size = 10  # Smaller batches to avoid memory issues on small EC2 instances
+        page_size = 50   # Fetch entities in pages
+        offset = 0
         processed = 0
         errors = 0
         
-        for i in range(0, len(entities), batch_size):
-            batch = entities[i:i + batch_size]
-            texts = []
-            valid_indices = []
+        while True:
+            # Fetch entities in pages (not all at once)
+            if entity_type == "test_case":
+                if regenerate_all:
+                    query = db.query(TestCase)
+                else:
+                    query = db.query(TestCase).filter(
+                        (TestCase.embedding.is_(None)) | 
+                        (TestCase.embedding_model != current_model)
+                    )
+                entities_page = query.order_by(TestCase.id).offset(offset).limit(page_size).all()
+            else:  # issue
+                if regenerate_all:
+                    query = db.query(Issue)
+                else:
+                    query = db.query(Issue).filter(
+                        (Issue.embedding.is_(None)) | 
+                        (Issue.embedding_model != current_model)
+                    )
+                entities_page = query.order_by(Issue.id).offset(offset).limit(page_size).all()
             
-            for idx, entity in enumerate(batch):
-                try:
-                    module_name = modules.get(entity.module_id) if entity.module_id else None
-                    
-                    if entity_type == "test_case":
-                        text = embedding_service.prepare_text_for_embedding(
-                            title=entity.title,
-                            steps=entity.steps_to_reproduce,
-                            tag=entity.tag,
-                            test_type=entity.test_type,
-                            module_name=module_name,
-                            sub_module=entity.sub_module,
-                            expected_result=entity.expected_result
-                        )
-                    else:  # issue
-                        text = embedding_service.prepare_issue_text_for_embedding(
-                            title=entity.title,
-                            description=entity.description,
-                            module_name=module_name,
-                            status=entity.status,
-                            priority=entity.priority,
-                            severity=entity.severity,
-                            reporter_name=entity.reporter_name,
-                            assignee_name=entity.jira_assignee_name
-                        )
-                    
-                    if text:
-                        texts.append(text)
-                        valid_indices.append(idx)
-                except Exception as e:
-                    print(f"Error preparing text for entity {entity.id}: {e}")
-                    errors += 1
+            if not entities_page:
+                break  # No more entities to process
             
-            if texts:
-                try:
-                    embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
-                    
-                    for j, embedding in enumerate(embeddings):
-                        entity = batch[valid_indices[j]]
-                        entity.embedding = embedding
-                        entity.embedding_model = current_model
-                        processed += 1
-                    
-                    db.commit()
-                    
-                    # Update progress
-                    embedding_population_status["processed"] = processed
-                    embedding_population_status["errors"] = errors
-                    
-                except Exception as e:
-                    print(f"Error processing batch: {e}")
-                    errors += len(texts)
-                    embedding_population_status["errors"] = errors
-                    db.rollback()
+            # Process this page in smaller batches
+            for i in range(0, len(entities_page), batch_size):
+                batch = entities_page[i:i + batch_size]
+                texts = []
+                valid_indices = []
+                
+                for idx, entity in enumerate(batch):
+                    try:
+                        module_name = modules.get(entity.module_id) if entity.module_id else None
+                        
+                        if entity_type == "test_case":
+                            text = embedding_service.prepare_text_for_embedding(
+                                title=entity.title,
+                                steps=entity.steps_to_reproduce,
+                                tag=entity.tag,
+                                test_type=entity.test_type,
+                                module_name=module_name,
+                                sub_module=entity.sub_module,
+                                expected_result=entity.expected_result
+                            )
+                        else:  # issue
+                            text = embedding_service.prepare_issue_text_for_embedding(
+                                title=entity.title,
+                                description=entity.description,
+                                module_name=module_name,
+                                status=entity.status,
+                                priority=entity.priority,
+                                severity=entity.severity,
+                                reporter_name=entity.reporter_name,
+                                assignee_name=entity.jira_assignee_name
+                            )
+                        
+                        if text:
+                            texts.append(text)
+                            valid_indices.append(idx)
+                    except Exception as e:
+                        print(f"Error preparing text for entity {entity.id}: {e}")
+                        errors += 1
+                
+                if texts:
+                    try:
+                        embeddings = embedding_service.generate_embeddings_batch(texts, current_model)
+                        
+                        for j, embedding in enumerate(embeddings):
+                            entity = batch[valid_indices[j]]
+                            entity.embedding = embedding
+                            entity.embedding_model = current_model
+                            processed += 1
+                        
+                        db.commit()
+                        
+                        # Update progress
+                        embedding_population_status["processed"] = processed
+                        embedding_population_status["errors"] = errors
+                        embedding_population_status["message"] = f"Processing: {processed}/{embedding_population_status['total']}"
+                        
+                    except Exception as e:
+                        print(f"Error processing batch: {e}")
+                        errors += len(texts)
+                        embedding_population_status["errors"] = errors
+                        db.rollback()
+                
+                # Clear any cached objects to free memory
+                db.expire_all()
+            
+            # Move to next page
+            offset += page_size
+            
+            # Clear references to help garbage collection
+            entities_page = None
+            import gc
+            gc.collect()
         
         # Mark as completed
         embedding_population_status["is_running"] = False
@@ -330,6 +344,8 @@ def _run_embedding_population_background(regenerate_all: bool, current_model: st
         
     except Exception as e:
         print(f"Critical error in embedding population: {e}")
+        import traceback
+        traceback.print_exc()
         embedding_population_status["is_running"] = False
         embedding_population_status["message"] = f"Error: {str(e)}"
         embedding_population_status["completed_at"] = datetime.utcnow().isoformat()

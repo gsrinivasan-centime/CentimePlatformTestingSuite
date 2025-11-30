@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -44,14 +42,15 @@ import {
   Warning as WarningIcon,
   ExpandMore as ExpandMoreIcon,
   Info as InfoIcon,
-  CloudDownload as CloudDownloadIcon
+  CloudDownload as CloudDownloadIcon,
+  SmartToy as SmartToyIcon,
+  Token as TokenIcon,
+  AccessTime as AccessTimeIcon,
+  Cached as CachedIcon
 } from '@mui/icons-material';
 import api from '../services/api';
 
 const ApplicationSettings = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [populatingEmbeddings, setPopulatingEmbeddings] = useState(false);
@@ -65,12 +64,16 @@ const ApplicationSettings = () => {
   const [modelsStatus, setModelsStatus] = useState({});
   const [embeddingStats, setEmbeddingStats] = useState(null);
   
-  // Check if user is admin
-  useEffect(() => {
-    if (user && user.role !== 'admin') {
-      navigate('/');
-    }
-  }, [user, navigate]);
+  // Smart Search / LLM settings state
+  const [smartSearchSettings, setSmartSearchSettings] = useState(null);
+  const [loadingSmartSearch, setLoadingSmartSearch] = useState(false);
+  const [savingSmartSearch, setSavingSmartSearch] = useState(false);
+  
+  // Editable smart search settings
+  const [minSimilarity, setMinSimilarity] = useState(50);
+  const [minConfidence, setMinConfidence] = useState(50);
+  const [cacheTTL, setCacheTTL] = useState(60);
+  const [maxResults, setMaxResults] = useState(50);
 
   const fetchSettings = async () => {
     try {
@@ -83,10 +86,54 @@ const ApplicationSettings = () => {
       setModelsStatus(response.data.models_status || {});
       setEmbeddingStats(response.data.embedding_stats || null);
       setCanEdit(response.data.can_edit || false);
+      
+      // Fetch smart search settings for all users (read-only)
+      fetchSmartSearchSettings();
     } catch (err) {
       showSnackbar('Failed to load settings: ' + (err.response?.data?.detail || err.message), 'error');
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const fetchSmartSearchSettings = async () => {
+    try {
+      setLoadingSmartSearch(true);
+      const response = await api.get('/search/settings');
+      setSmartSearchSettings(response.data);
+      
+      // Populate editable fields from settings
+      if (response.data?.llm_settings) {
+        const settings = response.data.llm_settings;
+        setMinSimilarity(Math.round((settings.min_similarity_threshold || 0.5) * 100));
+        setMinConfidence(Math.round((settings.min_confidence_threshold || 0.5) * 100));
+        setCacheTTL(settings.cache_ttl_seconds || 60);
+        setMaxResults(settings.max_results || 50);
+      }
+    } catch (err) {
+      console.error('Failed to load smart search settings:', err);
+      // Don't show error for non-super-admins
+    } finally {
+      setLoadingSmartSearch(false);
+    }
+  };
+  
+  const saveSmartSearchSettings = async () => {
+    try {
+      setSavingSmartSearch(true);
+      await api.put('/search/settings', {
+        min_similarity_threshold: minSimilarity / 100,
+        min_confidence_threshold: minConfidence / 100,
+        cache_ttl_seconds: cacheTTL,
+        max_results: maxResults
+      });
+      showSnackbar('Smart search settings saved successfully!', 'success');
+      // Refresh settings to confirm
+      fetchSmartSearchSettings();
+    } catch (err) {
+      showSnackbar('Failed to save smart search settings: ' + (err.response?.data?.detail || err.message), 'error');
+    } finally {
+      setSavingSmartSearch(false);
     }
   };
 
@@ -516,6 +563,301 @@ const ApplicationSettings = () => {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Smart Search / LLM Settings - Read-only for all users */}
+        <Grid item xs={12}>
+          <Card elevation={3}>
+            <CardHeader
+              avatar={<SmartToyIcon color="primary" />}
+              title="Smart Search Settings"
+              titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }}
+              subheader={smartSearchSettings?.can_edit ? "LLM configuration and token usage statistics" : "LLM configuration and token usage statistics (read-only)"}
+              action={
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {smartSearchSettings?.can_edit && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={savingSmartSearch ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                      onClick={saveSmartSearchSettings}
+                      disabled={savingSmartSearch || loadingSmartSearch}
+                    >
+                      {savingSmartSearch ? 'Saving...' : 'Save'}
+                    </Button>
+                  )}
+                  <IconButton onClick={fetchSmartSearchSettings} disabled={loadingSmartSearch}>
+                    <RefreshIcon />
+                  </IconButton>
+                </Box>
+              }
+            />
+              <Divider />
+              <CardContent>
+                {loadingSmartSearch ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : smartSearchSettings ? (
+                  <Grid container spacing={3}>
+                    {/* LLM Configuration */}
+                    <Grid item xs={12} md={4}>
+                      <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                          <PsychologyIcon color="primary" />
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            LLM Configuration
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2" color="text.secondary">Model</Typography>
+                            <Chip 
+                              label={smartSearchSettings.llm_settings?.model_name || 'N/A'} 
+                              size="small" 
+                              color="primary"
+                            />
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2" color="text.secondary">Temperature</Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              {smartSearchSettings.llm_settings?.temperature}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2" color="text.secondary">Max Output Tokens</Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              {smartSearchSettings.llm_settings?.max_output_tokens}
+                            </Typography>
+                          </Box>
+                          
+                          {/* Editable Settings for Super Admin */}
+                          {smartSearchSettings?.can_edit ? (
+                            <>
+                              <Divider sx={{ my: 1 }} />
+                              <Typography variant="caption" color="primary" fontWeight="bold">
+                                Configurable Settings
+                              </Typography>
+                              
+                              <Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Min Similarity
+                                  </Typography>
+                                  <Chip label={`${minSimilarity}%`} size="small" color="secondary" />
+                                </Box>
+                                <Slider
+                                  value={minSimilarity}
+                                  onChange={(e, val) => setMinSimilarity(val)}
+                                  min={10}
+                                  max={90}
+                                  step={5}
+                                  marks={[
+                                    { value: 10, label: '10%' },
+                                    { value: 50, label: '50%' },
+                                    { value: 90, label: '90%' }
+                                  ]}
+                                  valueLabelDisplay="auto"
+                                  size="small"
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  Minimum semantic similarity score for search results
+                                </Typography>
+                              </Box>
+                              
+                              <Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Min Confidence
+                                  </Typography>
+                                  <Chip label={`${minConfidence}%`} size="small" color="secondary" />
+                                </Box>
+                                <Slider
+                                  value={minConfidence}
+                                  onChange={(e, val) => setMinConfidence(val)}
+                                  min={10}
+                                  max={90}
+                                  step={5}
+                                  marks={[
+                                    { value: 10, label: '10%' },
+                                    { value: 50, label: '50%' },
+                                    { value: 90, label: '90%' }
+                                  ]}
+                                  valueLabelDisplay="auto"
+                                  size="small"
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  Minimum LLM confidence to proceed with navigation
+                                </Typography>
+                              </Box>
+                              
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" color="text.secondary">Cache TTL</Typography>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {cacheTTL}s
+                                </Typography>
+                              </Box>
+                              
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" color="text.secondary">Max Results</Typography>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {maxResults}
+                                </Typography>
+                              </Box>
+                            </>
+                          ) : (
+                            <>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" color="text.secondary">Cache TTL</Typography>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {smartSearchSettings.llm_settings?.cache_ttl_seconds}s
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" color="text.secondary">Min Similarity</Typography>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {((smartSearchSettings.llm_settings?.min_similarity_threshold || 0.5) * 100).toFixed(0)}%
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="body2" color="text.secondary">Confidence Threshold</Typography>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {(smartSearchSettings.llm_settings?.min_confidence_threshold * 100).toFixed(0)}%
+                                </Typography>
+                              </Box>
+                            </>
+                          )}
+                        </Box>
+                      </Paper>
+                    </Grid>
+
+                    {/* Token Usage Statistics */}
+                    <Grid item xs={12} md={8}>
+                      <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                          <TokenIcon color="primary" />
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Token Usage Statistics
+                          </Typography>
+                        </Box>
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'grey.50' }}>
+                                <TableCell>Period</TableCell>
+                                <TableCell align="right">Queries</TableCell>
+                                <TableCell align="right">Input Tokens</TableCell>
+                                <TableCell align="right">Output Tokens</TableCell>
+                                <TableCell align="right">Total Tokens</TableCell>
+                                <TableCell align="right">Cache Rate</TableCell>
+                                <TableCell align="right">Avg Response</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {['usage_today', 'usage_week', 'usage_month'].map((period) => {
+                                const usage = smartSearchSettings[period];
+                                if (!usage) return null;
+                                const periodLabel = period === 'usage_today' ? 'Today' : 
+                                                   period === 'usage_week' ? 'This Week' : 'This Month';
+                                return (
+                                  <TableRow key={period} hover>
+                                    <TableCell>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <AccessTimeIcon fontSize="small" color="action" />
+                                        {periodLabel}
+                                      </Box>
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      <Chip 
+                                        label={usage.total_queries.toLocaleString()} 
+                                        size="small" 
+                                        color="primary" 
+                                        variant="outlined"
+                                      />
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      {usage.total_input_tokens.toLocaleString()}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      {usage.total_output_tokens.toLocaleString()}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      <Typography fontWeight="medium">
+                                        {usage.total_tokens.toLocaleString()}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      <Chip 
+                                        icon={<CachedIcon fontSize="small" />}
+                                        label={`${usage.cache_hit_rate.toFixed(1)}%`} 
+                                        size="small" 
+                                        color={usage.cache_hit_rate > 30 ? 'success' : 'default'}
+                                        variant="outlined"
+                                      />
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      {usage.avg_response_time_ms.toFixed(0)}ms
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                        
+                        {/* Summary Stats */}
+                        <Grid container spacing={2} sx={{ mt: 2 }}>
+                          <Grid item xs={6} md={3}>
+                            <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'primary.50', borderRadius: 1 }}>
+                              <Typography variant="h5" color="primary.main" fontWeight="bold">
+                                {smartSearchSettings.usage_today?.total_queries || 0}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Queries Today
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'success.50', borderRadius: 1 }}>
+                              <Typography variant="h5" color="success.main" fontWeight="bold">
+                                {((smartSearchSettings.usage_today?.total_tokens || 0) / 1000).toFixed(1)}K
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Tokens Today
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'info.50', borderRadius: 1 }}>
+                              <Typography variant="h5" color="info.main" fontWeight="bold">
+                                {((smartSearchSettings.usage_month?.total_tokens || 0) / 1000).toFixed(1)}K
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Tokens This Month
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'warning.50', borderRadius: 1 }}>
+                              <Typography variant="h5" color="warning.main" fontWeight="bold">
+                                {smartSearchSettings.usage_today?.avg_tokens_per_query?.toFixed(0) || 0}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Avg Tokens/Query
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  </Grid>
+                ) : (
+                  <Alert severity="info">
+                    Smart search settings could not be loaded. Click refresh to try again.
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
 
         {/* Help Section */}
         <Grid item xs={12}>

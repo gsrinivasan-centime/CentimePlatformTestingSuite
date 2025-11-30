@@ -42,6 +42,41 @@ def get_current_active_user(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+
+def get_current_super_admin(current_user: User = Depends(get_current_user)):
+    """Dependency that requires the current user to be a super admin"""
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    if not getattr(current_user, 'is_super_admin', False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required"
+        )
+    return current_user
+
+
+def get_current_admin_or_super_admin(current_user: User = Depends(get_current_user)):
+    """Dependency that requires the current user to be an admin or super admin.
+    Used for resources that Admin and Super Admin can edit (e.g., Users page)."""
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    if current_user.role != UserRole.ADMIN and not getattr(current_user, 'is_super_admin', False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return current_user
+
+
+def can_edit_users(user: User) -> bool:
+    """Check if user can edit users (Admin or Super Admin)"""
+    return user.role == UserRole.ADMIN or getattr(user, 'is_super_admin', False)
+
+
+def can_edit_settings(user: User) -> bool:
+    """Check if user can edit settings (Super Admin only)"""
+    return getattr(user, 'is_super_admin', False)
+
 @router.post("/register", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
 def register(user: UserCreate, db: Session = Depends(get_db)):
     # Validate email domain

@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # File Storage Backend Selection
     FILE_STORAGE_BACKEND: str = "confluence"  # Options: "confluence" or "google_drive"
     
+    # Google Gemini API for Smart Search
+    GOOGLE_API_KEY: str = ""  # Gemini API key for LLM-powered search
+    
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     
     @property

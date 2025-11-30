@@ -6,6 +6,7 @@ from enum import Enum
 class UserRole(str, Enum):
     ADMIN = "admin"
     TESTER = "tester"
+    DEVELOPER = "developer"
 
 class TestType(str, Enum):
     MANUAL = "manual"
@@ -66,6 +67,7 @@ class User(UserBase):
     is_active: bool
     is_email_verified: bool
     email_verified_at: Optional[datetime] = None
+    is_super_admin: bool = False
     created_at: datetime
     
     class Config:

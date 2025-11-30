@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -58,7 +59,11 @@ import { useToast } from '../context/ToastContext';
 
 const TestCases = () => {
   const { showSuccess, showError } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [testCases, setTestCases] = useState([]);
+  const [filteredBySmartSearch, setFilteredBySmartSearch] = useState(false);
+  const [smartSearchIds, setSmartSearchIds] = useState([]);
+  const [smartSearchQuery, setSmartSearchQuery] = useState('');
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
@@ -160,6 +165,25 @@ const TestCases = () => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Handle URL search params from smart search
+  useEffect(() => {
+    const idsParam = searchParams.get('ids');
+    const searchQuery = searchParams.get('search');
+    
+    if (idsParam) {
+      const ids = idsParam.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        setSmartSearchIds(ids);
+        setSmartSearchQuery(searchQuery || '');
+        setFilteredBySmartSearch(true);
+      }
+    } else {
+      setSmartSearchIds([]);
+      setSmartSearchQuery('');
+      setFilteredBySmartSearch(false);
+    }
+  }, [searchParams]);
   
   // NEW: Apply filters when they change
   useEffect(() => {
@@ -983,6 +1007,33 @@ const TestCases = () => {
         </Alert>
       )}
 
+      {/* Smart Search Filter Banner */}
+      {filteredBySmartSearch && smartSearchIds.length > 0 && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 2 }}
+          action={
+            <Button 
+              color="inherit" 
+              size="small"
+              onClick={() => {
+                setSearchParams({});
+                setFilteredBySmartSearch(false);
+                setSmartSearchIds([]);
+                setSmartSearchQuery('');
+              }}
+            >
+              Clear Filter
+            </Button>
+          }
+        >
+          <Typography variant="body2">
+            <strong>AI Search Results:</strong> Showing {smartSearchIds.length} test case{smartSearchIds.length !== 1 ? 's' : ''} 
+            {smartSearchQuery && <> matching "<em>{smartSearchQuery}</em>"</>}
+          </Typography>
+        </Alert>
+      )}
+
       {/* Test Type Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
         <Tabs 
@@ -1379,6 +1430,13 @@ const TestCases = () => {
             <TableBody>
               {testCases
                 .filter((testCase) => {
+                  // First, filter by smart search IDs if present
+                  if (filteredBySmartSearch && smartSearchIds.length > 0) {
+                    if (!smartSearchIds.includes(testCase.id)) {
+                      return false;
+                    }
+                  }
+                  
                   // Filter by test type tab
                   if (testTypeTab === 'ui' && testCase.tag !== 'ui' && testCase.tag !== 'hybrid') {
                     return false;

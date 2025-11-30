@@ -5,7 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { LoadingProvider, useLoading } from './context/LoadingContext';
 import { setErrorHandler, setLoadingHandlers } from './services/api';
-import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
+import { ProtectedRoute, AdminRoute, ViewableRoute } from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -163,21 +163,21 @@ function AppContent() {
         <Route
           path="/users"
           element={
-            <AdminRoute>
+            <ViewableRoute>
               <Layout>
                 <Users />
               </Layout>
-            </AdminRoute>
+            </ViewableRoute>
           }
         />
         <Route
           path="/settings"
           element={
-            <AdminRoute>
+            <ViewableRoute>
               <Layout>
                 <ApplicationSettings />
               </Layout>
-            </AdminRoute>
+            </ViewableRoute>
           }
         />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

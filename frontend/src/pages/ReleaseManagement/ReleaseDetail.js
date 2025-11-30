@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -34,10 +34,25 @@ import StoriesView from './StoriesView';
 import ReleaseIssuesView from './ReleaseIssuesView';
 import ManageTestCasesDialog from './ManageTestCasesDialog';
 
+// Tab name to index mapping for URL-based navigation
+const TAB_MAP = {
+  'dashboard': 0,
+  'stories': 1,
+  'modules': 2,
+  'issues': 3
+};
+const TAB_NAMES = ['dashboard', 'stories', 'modules', 'issues'];
+
 const ReleaseDetail = () => {
   const { releaseId } = useParams();
   const navigate = useNavigate();
-  const [currentTab, setCurrentTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Get tab from URL, default to 'dashboard'
+  const tabFromUrl = searchParams.get('tab') || 'dashboard';
+  const initialTab = TAB_MAP[tabFromUrl] !== undefined ? TAB_MAP[tabFromUrl] : 0;
+  
+  const [currentTab, setCurrentTab] = useState(initialTab);
   const [release, setRelease] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,6 +61,23 @@ const ReleaseDetail = () => {
   const [syncingStories, setSyncingStories] = useState(false);
   const [syncMessage, setSyncMessage] = useState(null);
   const [confirmSyncDialogOpen, setConfirmSyncDialogOpen] = useState(false);
+  
+  // Get filter params from URL for passing to child components
+  const urlFilters = useMemo(() => ({
+    status: searchParams.get('status'),
+    assignee: searchParams.get('assignee'),
+    search: searchParams.get('search'),
+    ids: searchParams.get('ids')?.split(',').map(id => parseInt(id, 10)).filter(Boolean)
+  }), [searchParams]);
+  
+  // Sync tab state with URL when URL changes externally (e.g., back button)
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') || 'dashboard';
+    const tabIndex = TAB_MAP[urlTab] !== undefined ? TAB_MAP[urlTab] : 0;
+    if (tabIndex !== currentTab) {
+      setCurrentTab(tabIndex);
+    }
+  }, [searchParams, currentTab]);
 
   useEffect(() => {
     fetchReleaseDetails();
@@ -67,7 +99,32 @@ const ReleaseDetail = () => {
   };
 
   const handleTabChange = (event, newValue) => {
+    // Update URL with new tab, preserving other params if needed
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('tab', TAB_NAMES[newValue]);
+    // Clear filters when changing tabs (they're tab-specific)
+    newParams.delete('status');
+    newParams.delete('assignee');
+    newParams.delete('search');
+    newParams.delete('ids');
+    setSearchParams(newParams);
     setCurrentTab(newValue);
+  };
+  
+  // Navigate to a specific tab programmatically (for DashboardView's "View Details" buttons)
+  const navigateToTab = (tabName, filters = {}) => {
+    const tabIndex = TAB_MAP[tabName];
+    if (tabIndex !== undefined) {
+      const newParams = new URLSearchParams();
+      newParams.set('tab', tabName);
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== null && value !== undefined) {
+          newParams.set(key, value);
+        }
+      });
+      setSearchParams(newParams);
+      setCurrentTab(tabIndex);
+    }
   };
 
   const handleRefresh = () => {
@@ -226,11 +283,16 @@ const ReleaseDetail = () => {
           <DashboardView
             releaseId={releaseId}
             key={`dashboard-${refreshKey}`}
-            onNavigateToTree={() => setCurrentTab(2)}
+            onNavigateToTree={() => navigateToTab('modules')}
+            onNavigateToTab={navigateToTab}
           />
         )}
         {currentTab === 1 && (
-          <StoriesView releaseId={releaseId} key={`stories-${refreshKey}`} />
+          <StoriesView 
+            releaseId={releaseId} 
+            key={`stories-${refreshKey}`}
+            urlFilters={urlFilters}
+          />
         )}
         {currentTab === 2 && (
           <TreeView releaseId={releaseId} key={`tree-${refreshKey}`} />
@@ -240,6 +302,7 @@ const ReleaseDetail = () => {
             releaseId={releaseId}
             releaseVersion={release?.version}
             key={`issues-${refreshKey}`}
+            urlFilters={urlFilters}
           />
         )}
       </Box>

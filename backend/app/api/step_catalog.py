@@ -354,6 +354,141 @@ async def create_feature_file(
     return db_file
 
 
+@router.post("/feature-files/bulk-upload")
+async def bulk_upload_feature_file_for_approval(
+    file: UploadFile = File(...),
+    module_id: int = Form(...),
+    sub_module: str = Form(None),
+    feature_section: str = Form(None),
+    test_type: str = Form("automated"),
+    tag: str = Form("ui"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Bulk upload a feature file that goes through approval workflow.
+    
+    This creates a FeatureFile record with status='pending_approval' that
+    requires admin approval before test cases are created.
+    
+    Parameters:
+    - file: The .feature file to upload
+    - module_id: Required. The module ID for all test cases when approved
+    - sub_module: Optional. Sub-module name
+    - feature_section: Optional. Feature section name (will be extracted from file if not provided)
+    - test_type: Default 'automated'. Can be 'manual' or 'automated'
+    - tag: Default 'ui'. Can be 'ui', 'api', or 'hybrid'
+    
+    Returns:
+    - FeatureFile record with status='pending_approval'
+    """
+    from gherkin.parser import Parser
+    from gherkin.token_scanner import TokenScanner
+    from datetime import datetime
+    import json
+    
+    if not file.filename.endswith('.feature'):
+        raise HTTPException(status_code=400, detail="File must be a .feature file")
+    
+    if not module_id:
+        raise HTTPException(status_code=400, detail="module_id is required")
+    
+    # Validate module exists
+    module = db.query(Module).filter(Module.id == module_id).first()
+    if not module:
+        raise HTTPException(status_code=404, detail=f"Module with id {module_id} not found")
+    
+    # Validate test_type and tag
+    if test_type.lower() not in ['manual', 'automated']:
+        raise HTTPException(status_code=400, detail="test_type must be 'manual' or 'automated'")
+    
+    if tag.lower() not in ['ui', 'api', 'hybrid']:
+        raise HTTPException(status_code=400, detail="tag must be 'ui', 'api', or 'hybrid'")
+    
+    # Check draft/pending limit
+    existing_count = db.query(FeatureFile).filter(
+        FeatureFile.created_by == current_user.id,
+        FeatureFile.status.in_(["draft", "pending_approval"])
+    ).count()
+    
+    if existing_count >= MAX_DRAFT_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_DRAFT_FILES} draft/pending files allowed. Please wait for approval or delete existing files."
+        )
+    
+    try:
+        # Read feature file
+        contents = await file.read()
+        feature_text = contents.decode('utf-8')
+        
+        # Check if file is empty
+        if not feature_text or feature_text.strip() == "":
+            raise HTTPException(status_code=400, detail="Uploaded feature file is empty")
+        
+        # Parse and validate feature file
+        parser = Parser()
+        token_scanner = TokenScanner(feature_text)
+        gherkin_document = parser.parse(token_scanner)
+        
+        feature = gherkin_document.get('feature')
+        if not feature:
+            raise HTTPException(status_code=400, detail="No feature found in file")
+        
+        feature_name = feature.get('name', 'Unnamed Feature')
+        
+        # Count scenarios for info
+        scenario_count = 0
+        for child in feature.get('children', []):
+            if child.get('type') in ['Scenario', 'ScenarioOutline']:
+                scenario_count += 1
+        
+        # Use file name without extension as feature file name
+        file_name = file.filename.replace('.feature', '') if file.filename else feature_name
+        
+        # Create description with upload configuration for later use
+        config_data = {
+            "bulk_upload": True,
+            "module_id": module_id,
+            "sub_module": sub_module,
+            "feature_section": feature_section or feature_name,
+            "test_type": test_type.lower(),
+            "tag": tag.lower()
+        }
+        description = f"Bulk uploaded feature file. Module: {module.name}. Contains {scenario_count} scenario(s).\n[CONFIG]{json.dumps(config_data)}[/CONFIG]"
+        
+        # Create feature file with pending_approval status
+        db_file = FeatureFile(
+            name=file_name,
+            content=feature_text,
+            description=description,
+            module_id=module_id,
+            status="pending_approval",
+            created_by=current_user.id,
+            submitted_for_approval_at=datetime.utcnow()
+        )
+        db.add(db_file)
+        db.commit()
+        db.refresh(db_file)
+        
+        return {
+            "message": "Feature file uploaded and submitted for approval",
+            "file_id": db_file.id,
+            "file_name": db_file.name,
+            "status": "pending_approval",
+            "scenario_count": scenario_count,
+            "requires_approval": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process feature file: {str(e)}"
+        )
+
+
 @router.put("/feature-files/{file_id}", response_model=FeatureFileSchema)
 async def update_feature_file(
     file_id: int,
@@ -566,12 +701,13 @@ async def check_similarity(
         try:
             embedding = embedding_service.generate_embedding(text_for_embedding, current_model)
             
-            # Find similar test cases
+            # Find similar test cases (return_all=True to get top match regardless of threshold)
             similar = embedding_service.find_similar_test_cases(
                 embedding=embedding,
                 db=db,
                 threshold=threshold,
-                limit=1  # Get only the most similar
+                limit=1,  # Get only the most similar
+                return_all=True  # Always return top match to show actual similarity
             )
             
             if similar:
@@ -583,7 +719,7 @@ async def check_similarity(
                     "similar_test_case_id": top_match["test_id"],
                     "similar_test_case_db_id": top_match["test_case_id"],
                     "similar_test_case_title": top_match["title"],
-                    "is_potential_duplicate": top_match["similarity_percent"] >= threshold
+                    "is_potential_duplicate": top_match.get("is_above_threshold", top_match["similarity_percent"] >= threshold)
                 })
             else:
                 results.append({

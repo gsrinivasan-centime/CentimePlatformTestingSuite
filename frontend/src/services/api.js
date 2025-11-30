@@ -638,6 +638,16 @@ export const featureFilesAPI = {
     return response.data;
   },
   
+  // Bulk upload feature file for approval
+  bulkUploadForApproval: async (formData) => {
+    const response = await api.post('/step-catalog/feature-files/bulk-upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+  
   // Approve feature file (admin only)
   approve: async (id, scenarioTypes = null) => {
     const response = await api.post(`/step-catalog/feature-files/${id}/approve`, {

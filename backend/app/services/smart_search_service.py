@@ -645,8 +645,8 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
             return results
         
         elif entity_type == "issue":
-            # For issues, use the embedding column if it exists
-            # Otherwise fall back to keyword search
+            # For issues, use the embedding column with pgvector native operators
+            # Column is now vector(384) type - no cast needed!
             try:
                 embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
                 
@@ -657,19 +657,22 @@ SEMANTIC QUERY OPTIMIZATION (IMPORTANT):
                     filter_clause = "AND id = ANY(:filter_ids)"
                     params["filter_ids"] = pre_filter_ids
                 
-                # Use string formatting for the vector literal (it's safe since it's generated from floats)
-                # Cast embedding array to vector type for pgvector operator
+                # DB-level similarity filtering using pgvector
                 sql = text(f"""
-                    SELECT id, 1 - (embedding::vector <=> '{embedding_str}'::vector) as similarity
-                    FROM issues
-                    WHERE embedding IS NOT NULL
-                    {filter_clause}
-                    AND (1 - (embedding::vector <=> '{embedding_str}'::vector)) >= :min_similarity
-                    ORDER BY embedding::vector <=> '{embedding_str}'::vector
+                    SELECT id, similarity FROM (
+                        SELECT id, 1 - (embedding <=> '{embedding_str}'::vector) AS similarity
+                        FROM issues
+                        WHERE embedding IS NOT NULL
+                        {filter_clause}
+                    ) ranked
+                    WHERE similarity >= :min_similarity
+                    ORDER BY similarity DESC
                     LIMIT :limit
                 """)
                 result = db.execute(sql, params)
-                return [(row[0], row[1]) for row in result.fetchall()]
+                rows = result.fetchall()
+                logger.info(f"[Smart Search] Issue semantic search: {len(rows)} results above {min_similarity} threshold")
+                return [(row[0], row[1]) for row in rows]
             except Exception as e:
                 logger.warning(f"[Smart Search] Issue semantic search failed: {e}")
                 # Rollback the failed transaction

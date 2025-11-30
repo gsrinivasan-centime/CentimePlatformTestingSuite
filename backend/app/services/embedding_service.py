@@ -296,7 +296,10 @@ class EmbeddingService:
         min_similarity: float = 0.3
     ) -> List[Tuple[int, float]]:
         """
-        Search for similar test cases using pgvector cosine distance.
+        Search for similar test cases using pgvector cosine distance at DB level.
+        
+        The embedding column is now vector(384) type, enabling native pgvector operators.
+        Similarity threshold is applied at the database level for performance.
         
         Args:
             db: Database session
@@ -304,7 +307,7 @@ class EmbeddingService:
             top_k: Maximum results to return
             filter_ids: Optional list of IDs to filter results
             model_name: Embedding model name for filtering
-            min_similarity: Minimum similarity threshold (0.0-1.0) to include in results
+            min_similarity: Minimum similarity threshold (0.0-1.0) - applied at DB level
             
         Returns:
             List of (test_case_id, similarity_score) tuples
@@ -319,7 +322,8 @@ class EmbeddingService:
             embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
             
             # Build SQL query with pgvector cosine distance
-            # Note: embedding column is stored as double precision[], needs to be cast to vector
+            # Column is now vector(384) type - no cast needed!
+            # Uses HNSW index for fast approximate nearest neighbor search
             filter_clause = ""
             params = {"limit": top_k, "min_similarity": min_similarity}
             
@@ -327,20 +331,26 @@ class EmbeddingService:
                 filter_clause = "AND id = ANY(:filter_ids)"
                 params["filter_ids"] = filter_ids
             
-            # Use string formatting for the vector literal (it's safe since it's generated from floats)
-            # Cast embedding array to vector type for pgvector operator
+            # Cosine similarity = 1 - cosine_distance
+            # The <=> operator returns cosine distance (0 = identical, 2 = opposite)
+            # We filter by similarity >= min_similarity in a subquery for efficiency
             sql = text(f"""
-                SELECT id, 1 - (embedding::vector <=> '{embedding_str}'::vector) as similarity
-                FROM test_cases
-                WHERE embedding IS NOT NULL
-                {filter_clause}
-                AND (1 - (embedding::vector <=> '{embedding_str}'::vector)) >= :min_similarity
-                ORDER BY embedding::vector <=> '{embedding_str}'::vector
+                SELECT id, similarity FROM (
+                    SELECT id, 1 - (embedding <=> '{embedding_str}'::vector) AS similarity
+                    FROM test_cases
+                    WHERE embedding IS NOT NULL
+                    {filter_clause}
+                ) ranked
+                WHERE similarity >= :min_similarity
+                ORDER BY similarity DESC
                 LIMIT :limit
             """)
             
             result = db.execute(sql, params)
-            return [(row[0], row[1]) for row in result.fetchall()]
+            rows = result.fetchall()
+            
+            print(f"[EmbeddingService] DB-level similarity search: {len(rows)} results above {min_similarity} threshold")
+            return [(row[0], row[1]) for row in rows]
             
         except Exception as e:
             print(f"[EmbeddingService] Vector search failed: {e}")

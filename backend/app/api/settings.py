@@ -224,6 +224,10 @@ async def populate_embeddings(
     processed = 0
     errors = 0
     
+    # Build module ID to name mapping for embedding text
+    from app.models.models import Module
+    modules = {m.id: m.name for m in db.query(Module).all()}
+    
     # Process in batches for efficiency
     batch_size = 50
     for i in range(0, total, batch_size):
@@ -232,7 +236,17 @@ async def populate_embeddings(
         valid_indices = []
         
         for idx, tc in enumerate(batch):
-            text = embedding_service.prepare_text_for_embedding(tc.title, tc.steps_to_reproduce)
+            # Include all relevant fields for better semantic search
+            module_name = modules.get(tc.module_id) if tc.module_id else None
+            text = embedding_service.prepare_text_for_embedding(
+                title=tc.title,
+                steps=tc.steps_to_reproduce,
+                tag=tc.tag,
+                test_type=tc.test_type,
+                module_name=module_name,
+                sub_module=tc.sub_module,
+                expected_result=tc.expected_result
+            )
             if text:
                 texts.append(text)
                 valid_indices.append(idx)

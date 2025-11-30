@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -10,6 +10,8 @@ from app.schemas.schemas import Issue as IssueSchema, IssueCreate, IssueUpdate, 
 from app.api.auth import get_current_active_user
 from app.services.file_storage import file_storage
 from app.services.jira_service import jira_service
+# Note: Issue model doesn't have embedding column yet - embeddings disabled
+# from app.services.background_tasks import compute_issue_embedding
 from fastapi import UploadFile, File, Form
 import json
 import requests
@@ -53,6 +55,10 @@ def create_issue(
     db.add(db_issue)
     db.commit()
     db.refresh(db_issue)
+    
+    # TODO: Add embedding generation when Issue model has embedding column
+    # background_tasks.add_task(compute_issue_embedding, db_issue.id)
+    
     return db_issue
 
 @router.get("/stats", response_model=List[IssueStats])
@@ -140,6 +146,12 @@ def update_issue(
         
     db.commit()
     db.refresh(db_issue)
+    
+    # TODO: Add embedding re-generation when Issue model has embedding column
+    # embedding_fields = {'title', 'description', 'steps_to_reproduce', 'severity', 'status', 'module_id'}
+    # if any(field in update_data for field in embedding_fields):
+    #     background_tasks.add_task(compute_issue_embedding, db_issue.id)
+    
     return db_issue
 
 @router.delete("/{issue_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -57,6 +57,12 @@ EC2_FRONTEND_PATH="/home/ubuntu/CentimePlatformTestingSuite/frontend"
 # Production domain
 PROD_DOMAIN="qa-portal.ddns.net"
 
+# Database Configurations
+# DEVELOPMENT: Supabase PostgreSQL (cloud)
+DEV_DB_HOST="db.mskrrxsixxflavjuxiun.supabase.co"
+# PRODUCTION: AWS RDS PostgreSQL
+PROD_DB_HOST="rds.amazonaws.com"
+
 ###############################################################################
 # Helper Functions
 ###############################################################################
@@ -67,17 +73,28 @@ Usage: $0 [ENVIRONMENT] [OPTIONS]
 
 ENVIRONMENTS:
   dev         Deploy to local development environment (localhost:3000, localhost:8000)
+              Database: Supabase PostgreSQL (db.mskrrxsixxflavjuxiun.supabase.co)
+              
   prod        Deploy to production EC2 environment (qa-portal.ddns.net)
+              Database: AWS RDS PostgreSQL
 
 OPTIONS:
   --backend-only    Deploy only backend
   --frontend-only   Deploy only frontend
+  --migrate         Run database migrations (alembic upgrade head)
   --skip-build      Skip frontend build (prod only)
   --help            Show this help message
 
+DATABASE CONFIGURATION:
+  LOCAL/DEVELOPMENT (.env on local machine):
+    DATABASE_URL=postgresql://postgres:Testcentime\$100@db.mskrrxsixxflavjuxiun.supabase.co:5432/postgres
+    
+  PRODUCTION (.env on EC2):
+    DATABASE_URL=postgresql://postgres:YourPassword@centime-test-db.xxxxx.us-east-1.rds.amazonaws.com:5432/test_management
+
 EXAMPLES:
-  $0 dev                    # Deploy both frontend and backend locally
-  $0 prod                   # Deploy both to EC2
+  $0 dev                    # Deploy both frontend and backend locally (uses Supabase)
+  $0 prod                   # Deploy both to EC2 (uses AWS RDS)
   $0 prod --backend-only    # Deploy only backend to EC2
   $0 prod --frontend-only   # Deploy only frontend to EC2
 
@@ -123,12 +140,31 @@ deploy_backend_dev() {
         exit 1
     fi
     
-    # Verify database connection
+    # Verify database connection and check it's pointing to Supabase for dev
     print_info "Verifying database connection..."
-    python3 -c "from app.core.config import settings; print(f'Database: {settings.DATABASE_URL.split(\"@\")[1].split(\"/\")[0]}')" || {
-        print_error "Database configuration error"
-        exit 1
-    }
+    DB_HOST=$(python3 -c "from app.core.config import settings; print(settings.DATABASE_URL.split('@')[1].split(':')[0])" 2>/dev/null || echo "unknown")
+    print_info "Database Host: $DB_HOST"
+    
+    if [[ "$DB_HOST" == *"supabase"* ]]; then
+        print_success "✓ Using Supabase PostgreSQL (Development)"
+    elif [[ "$DB_HOST" == *"rds.amazonaws.com"* ]]; then
+        print_warning "⚠️  Using AWS RDS PostgreSQL - This is typically for PRODUCTION!"
+        print_warning "    For development, consider using Supabase: db.mskrrxsixxflavjuxiun.supabase.co"
+    elif [[ "$DB_HOST" == "localhost" ]]; then
+        print_info "Using local PostgreSQL database"
+    else
+        print_info "Database: $DB_HOST"
+    fi
+    
+    # Run database migrations (only if --migrate flag is set)
+    if [ "$RUN_MIGRATE" = "true" ]; then
+        print_info "Running database migrations..."
+        if alembic upgrade head; then
+            print_success "✓ Database migrations applied successfully"
+        else
+            print_warning "⚠️  Migration failed or no new migrations to apply"
+        fi
+    fi
     
     # Kill any existing backend process
     print_info "Stopping existing backend process..."
@@ -161,9 +197,9 @@ deploy_backend_prod() {
         -e "ssh -i $EC2_KEY" \
         "$BACKEND_DIR/" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/"
     
-    # Deploy on EC2
+    # Deploy on EC2 - pass RUN_MIGRATE flag
     print_info "Configuring backend on EC2..."
-    ssh -i "$EC2_KEY" "$EC2_USER@$EC2_HOST" << 'EOFBACKEND'
+    ssh -i "$EC2_KEY" "$EC2_USER@$EC2_HOST" "RUN_MIGRATE=$RUN_MIGRATE bash -s" << 'EOFBACKEND'
         set -e
         cd ~/CentimePlatformTestingSuite/backend
         
@@ -172,9 +208,32 @@ deploy_backend_prod() {
         pip install -q --upgrade pip
         pip install -q -r requirements.txt
         
-        # Verify configuration
+        # Verify configuration and database
         echo "Verifying configuration..."
-        python3 -c "from app.core.config import settings; print(f'FRONTEND_URL: {settings.FRONTEND_URL}'); print(f'Database: Connected')"
+        python3 -c "from app.core.config import settings; print(f'FRONTEND_URL: {settings.FRONTEND_URL}')"
+        
+        # Check database host - Production should use AWS RDS
+        DB_HOST=$(python3 -c "from app.core.config import settings; print(settings.DATABASE_URL.split('@')[1].split(':')[0])" 2>/dev/null || echo "unknown")
+        echo "Database Host: $DB_HOST"
+        
+        if [[ "$DB_HOST" == *"rds.amazonaws.com"* ]]; then
+            echo "✅ Using AWS RDS PostgreSQL (Production)"
+        elif [[ "$DB_HOST" == *"supabase"* ]]; then
+            echo "⚠️  WARNING: Using Supabase - This is typically for DEVELOPMENT!"
+            echo "    For production, consider using AWS RDS"
+        else
+            echo "Database: $DB_HOST"
+        fi
+        
+        # Run database migrations (only if --migrate flag is set)
+        if [ "$RUN_MIGRATE" = "true" ]; then
+            echo "Running database migrations..."
+            if alembic upgrade head; then
+                echo "✅ Database migrations applied successfully"
+            else
+                echo "⚠️  Migration failed or no new migrations to apply"
+            fi
+        fi
         
         # Restart backend service
         echo "Restarting backend service..."
@@ -382,6 +441,7 @@ main() {
     FRONTEND_ONLY=false
     SKIP_BUILD=false
     SETUP_INFRA=false
+    RUN_MIGRATE=false
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -399,6 +459,10 @@ main() {
                 ;;
             --skip-build)
                 SKIP_BUILD=true
+                shift
+                ;;
+            --migrate)
+                RUN_MIGRATE=true
                 shift
                 ;;
             --setup-infra)
@@ -435,6 +499,7 @@ main() {
     print_info "Environment: $ENVIRONMENT"
     print_info "Backend: $([ "$FRONTEND_ONLY" = true ] && echo "Skip" || echo "Deploy")"
     print_info "Frontend: $([ "$BACKEND_ONLY" = true ] && echo "Skip" || echo "Deploy")"
+    print_info "Migrate: $([ "$RUN_MIGRATE" = true ] && echo "Yes" || echo "No")"
     echo ""
     
     # Deploy based on environment and options

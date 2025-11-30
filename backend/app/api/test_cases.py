@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import csv
@@ -14,6 +14,7 @@ from app.schemas.schemas import (
 )
 from app.api.auth import get_current_active_user
 from app.services.test_sync import TestCaseSync
+from app.services.background_tasks import compute_test_case_embedding, compute_batch_embeddings
 
 router = APIRouter()
 
@@ -88,6 +89,7 @@ def list_test_cases(
 @router.post("/", response_model=TestCaseSchema, status_code=201)
 def create_test_case(
     test_case: TestCaseCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -131,10 +133,15 @@ def create_test_case(
     db.add(db_test_case)
     db.commit()
     db.refresh(db_test_case)
+    
+    # Schedule async embedding generation
+    background_tasks.add_task(compute_test_case_embedding, db_test_case.id)
+    
     return db_test_case
 
 @router.post("/bulk-upload")
 async def bulk_upload_test_cases(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -163,6 +170,7 @@ async def bulk_upload_test_cases(
         created_count = 0
         failed_count = 0
         errors = []
+        created_ids = []  # Track created test case IDs for embedding generation
         
         for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (header is row 1)
             try:
@@ -268,6 +276,8 @@ async def bulk_upload_test_cases(
                 
                 db.add(db_test_case)
                 db.commit()
+                db.refresh(db_test_case)
+                created_ids.append(db_test_case.id)
                 created_count += 1
                 
             except Exception as e:
@@ -275,6 +285,10 @@ async def bulk_upload_test_cases(
                 errors.append(f"Row {row_num}: {str(e)}")
                 db.rollback()
                 continue
+        
+        # Schedule batch embedding generation for all created test cases
+        if created_ids:
+            background_tasks.add_task(compute_batch_embeddings, "test_case", created_ids)
         
         return {
             "message": "Bulk upload completed",
@@ -288,6 +302,7 @@ async def bulk_upload_test_cases(
 
 @router.post("/bulk-upload-feature")
 async def bulk_upload_feature_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     module_id: int = Form(...),
     sub_module: str = Form(None),
@@ -351,6 +366,7 @@ async def bulk_upload_feature_file(
         created_count = 0
         failed_count = 0
         errors = []
+        created_ids = []  # Track created test case IDs for embedding generation
         
         # Get feature
         feature = gherkin_document.get('feature')
@@ -445,6 +461,8 @@ async def bulk_upload_feature_file(
                         
                         db.add(db_test_case)
                         db.commit()
+                        db.refresh(db_test_case)
+                        created_ids.append(db_test_case.id)
                         created_count += 1
                 else:
                     # Regular Scenario (no examples)
@@ -486,6 +504,8 @@ async def bulk_upload_feature_file(
                     
                     db.add(db_test_case)
                     db.commit()
+                    db.refresh(db_test_case)
+                    created_ids.append(db_test_case.id)
                     created_count += 1
                     
             except Exception as e:
@@ -493,6 +513,10 @@ async def bulk_upload_feature_file(
                 errors.append(f"Scenario '{scenario_name}': {str(e)}")
                 db.rollback()
                 continue
+        
+        # Schedule batch embedding generation for all created test cases
+        if created_ids:
+            background_tasks.add_task(compute_batch_embeddings, "test_case", created_ids)
         
         return {
             "message": "Feature file upload completed",
@@ -665,6 +689,7 @@ def get_test_case(
 def update_test_case(
     test_case_id: int,
     test_case_update: TestCaseUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -688,6 +713,12 @@ def update_test_case(
     
     db.commit()
     db.refresh(test_case)
+    
+    # Re-compute embedding if content fields changed
+    embedding_fields = {'title', 'steps_to_reproduce', 'tag', 'test_type', 'module_id', 'sub_module', 'expected_result', 'description'}
+    if any(field in update_data for field in embedding_fields):
+        background_tasks.add_task(compute_test_case_embedding, test_case.id)
+    
     return test_case
 
 @router.delete("/{test_case_id}", status_code=204)

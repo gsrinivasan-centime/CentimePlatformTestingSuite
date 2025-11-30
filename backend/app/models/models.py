@@ -8,6 +8,7 @@ import enum
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     TESTER = "tester"
+    DEVELOPER = "developer"
 
 class TestType(str, enum.Enum):
     MANUAL = "manual"
@@ -390,3 +391,44 @@ class ApplicationSetting(Base):
     description = Column(String(500), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class SmartSearchLog(Base):
+    """Logs for smart search queries - tracks usage and token consumption"""
+    __tablename__ = "smart_search_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    query = Column(Text, nullable=False)
+    intent = Column(String(50), nullable=True)
+    target_page = Column(String(100), nullable=True)
+    filters = Column(postgresql.JSONB, nullable=True)  # Extracted filters as JSON
+    semantic_query = Column(Text, nullable=True)  # Semantic search portion
+    input_tokens = Column(Integer, default=0)
+    output_tokens = Column(Integer, default=0)
+    results_count = Column(Integer, default=0)
+    confidence = Column(Float, nullable=True)
+    cached = Column(Boolean, default=False)
+    response_time_ms = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", backref="smart_search_logs")
+
+
+class NavigationRegistry(Base):
+    """Registry of available pages/navigation targets for smart search"""
+    __tablename__ = "navigation_registry"
+    
+    page_key = Column(String(50), primary_key=True)
+    display_name = Column(String(100), nullable=False)
+    path = Column(String(100), nullable=False)
+    entity_type = Column(String(50), nullable=True)  # test_case, issue, story, release, etc.
+    filters = Column(postgresql.JSONB, nullable=True)  # Available filter fields
+    searchable_fields = Column(postgresql.JSONB, nullable=True)  # Fields that support semantic search
+    capabilities = Column(postgresql.JSONB, nullable=True)  # What this page can do
+    example_queries = Column(postgresql.JSONB, nullable=True)  # Example queries for this page
+    is_active = Column(Boolean, default=True)
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

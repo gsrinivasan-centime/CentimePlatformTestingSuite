@@ -32,18 +32,23 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   AdminPanelSettings as AdminIcon,
-  Person as UserIcon
+  Person as UserIcon,
+  Code as DeveloperIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import ResizableTableCell from '../components/ResizableTableCell';
 import TruncatedText from '../components/TruncatedText';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 const Users = () => {
   const { showSuccess, showError } = useToast();
+  const { canEditUsers } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState(false);  // View-only mode for non-admins
   const [editMode, setEditMode] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [formData, setFormData] = useState({
@@ -53,6 +58,8 @@ const Users = () => {
     role: 'TESTER'
   });
   const [error, setError] = useState('');
+  
+  const isEditable = canEditUsers();
 
   useEffect(() => {
     fetchUsers();
@@ -73,7 +80,14 @@ const Users = () => {
 
   const handleOpenDialog = (user = null) => {
     if (user) {
-      setEditMode(true);
+      // If non-admin clicks on a user, open in view mode
+      if (!isEditable) {
+        setViewMode(true);
+        setEditMode(false);
+      } else {
+        setViewMode(false);
+        setEditMode(true);
+      }
       setCurrentUser(user);
       setFormData({
         name: user.full_name || user.name || '',
@@ -82,6 +96,9 @@ const Users = () => {
         role: user.role
       });
     } else {
+      // Create new user - only admins can do this
+      if (!isEditable) return;
+      setViewMode(false);
       setEditMode(false);
       setCurrentUser(null);
       setFormData({
@@ -97,6 +114,7 @@ const Users = () => {
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
+    setViewMode(false);
     setEditMode(false);
     setCurrentUser(null);
     setFormData({
@@ -208,19 +226,26 @@ const Users = () => {
   };
 
   const getRoleIcon = (role) => {
-    return role?.toLowerCase() === 'admin' ? <AdminIcon /> : <UserIcon />;
+    const roleLower = role?.toLowerCase();
+    if (roleLower === 'admin') return <AdminIcon />;
+    if (roleLower === 'developer') return <DeveloperIcon />;
+    return <UserIcon />;
   };
 
   const getRoleColor = (role) => {
-    return role?.toLowerCase() === 'admin' ? 'error' : 'primary';
+    const roleLower = role?.toLowerCase();
+    if (roleLower === 'admin') return 'error';
+    if (roleLower === 'developer') return 'secondary';
+    return 'primary';
   };
 
   const getStatistics = () => {
     const total = users.length;
     const admins = users.filter(u => u.role?.toLowerCase() === 'admin').length;
+    const developers = users.filter(u => u.role?.toLowerCase() === 'developer').length;
     const testers = users.filter(u => u.role?.toLowerCase() === 'tester').length;
     
-    return { total, admins, testers };
+    return { total, admins, developers, testers };
   };
 
   const stats = getStatistics();
@@ -228,16 +253,25 @@ const Users = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">
-          User Management
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          Add User
-        </Button>
+        <Box>
+          <Typography variant="h4" component="h1">
+            User Management
+          </Typography>
+          {!isEditable && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Read-only access - Contact an Admin to make changes
+            </Typography>
+          )}
+        </Box>
+        {isEditable && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+          >
+            Add User
+          </Button>
+        )}
       </Box>
 
       {error && (
@@ -254,7 +288,7 @@ const Users = () => {
         <>
           {/* Statistics Cards */}
           <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={3}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
@@ -264,7 +298,7 @@ const Users = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={3}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
@@ -274,7 +308,17 @@ const Users = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={4}>
+        <Grid item xs={12} sm={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Developers
+              </Typography>
+              <Typography variant="h4" color="secondary.main">{stats.developers}</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={3}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
@@ -333,26 +377,42 @@ const Users = () => {
                       : 'N/A'}
                   </TableCell>
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    <IconButton
-                      size="small"
-                      color="primary"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenDialog(user);
-                      }}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(user.id);
-                      }}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
+                    {isEditable ? (
+                      <>
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDialog(user);
+                          }}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(user.id);
+                          }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </>
+                    ) : (
+                      <IconButton
+                        size="small"
+                        color="primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDialog(user);
+                        }}
+                        title="View details"
+                      >
+                        <ViewIcon />
+                      </IconButton>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -370,10 +430,10 @@ const Users = () => {
         </TableContainer>
       </Paper>
 
-      {/* Add/Edit User Dialog */}
+      {/* Add/Edit/View User Dialog */}
       <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {editMode ? 'Edit User' : 'Add New User'}
+          {viewMode ? 'View User Details' : (editMode ? 'Edit User' : 'Add New User')}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
@@ -388,9 +448,11 @@ const Users = () => {
               name="name"
               value={formData.name}
               onChange={handleChange}
-              required
+              required={!viewMode}
               sx={{ mb: 2 }}
-              autoFocus
+              autoFocus={!viewMode}
+              InputProps={{ readOnly: viewMode }}
+              disabled={viewMode}
             />
             <TextField
               fullWidth
@@ -399,42 +461,49 @@ const Users = () => {
               type="email"
               value={formData.email}
               onChange={handleChange}
-              required
+              required={!viewMode}
               sx={{ mb: 2 }}
               placeholder="user@centime.com"
-              helperText="Email must end with @centime.com"
-              disabled={editMode}
+              helperText={!viewMode && !editMode ? "Email must end with @centime.com" : ""}
+              disabled={editMode || viewMode}
+              InputProps={{ readOnly: viewMode || editMode }}
             />
-            <TextField
-              fullWidth
-              label={editMode ? 'New Password (leave blank to keep current)' : 'Password'}
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              required={!editMode}
-              sx={{ mb: 2 }}
-              helperText={editMode ? 'Leave blank to keep current password' : ''}
-            />
-            <FormControl fullWidth>
+            {!viewMode && (
+              <TextField
+                fullWidth
+                label={editMode ? 'New Password (leave blank to keep current)' : 'Password'}
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                required={!editMode}
+                sx={{ mb: 2 }}
+                helperText={editMode ? 'Leave blank to keep current password' : ''}
+              />
+            )}
+            <FormControl fullWidth disabled={viewMode}>
               <InputLabel>Role</InputLabel>
               <Select
                 name="role"
                 value={formData.role}
                 onChange={handleChange}
                 label="Role"
+                inputProps={{ readOnly: viewMode }}
               >
                 <MenuItem value="tester">Tester</MenuItem>
+                <MenuItem value="developer">Developer</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>
               </Select>
             </FormControl>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit}>
-            {editMode ? 'Update' : 'Create'}
-          </Button>
+          <Button onClick={handleCloseDialog}>{viewMode ? 'Close' : 'Cancel'}</Button>
+          {!viewMode && (
+            <Button variant="contained" onClick={handleSubmit}>
+              {editMode ? 'Update' : 'Create'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
         </>

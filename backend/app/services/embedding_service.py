@@ -104,19 +104,54 @@ class EmbeddingService:
         embedding = model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
     
-    def prepare_text_for_embedding(self, title: str, steps: str = None) -> str:
-        """Prepare test case text for embedding generation"""
+    def prepare_text_for_embedding(
+        self, 
+        title: str, 
+        steps: str = None,
+        tag: str = None,
+        test_type: str = None,
+        module_name: str = None,
+        sub_module: str = None,
+        expected_result: str = None
+    ) -> str:
+        """
+        Prepare test case text for embedding generation.
+        
+        Includes all relevant metadata fields to enable semantic search on:
+        - Title and description/steps
+        - Tag (UI, API, etc.)
+        - Test type (Functional, Regression, etc.)
+        - Module and sub-module names
+        - Expected results
+        """
         text_parts = []
         
+        # Add metadata fields with labels to help semantic understanding
+        if tag:
+            text_parts.append(f"Tag: {tag.strip()}")
+        
+        if test_type:
+            text_parts.append(f"Type: {test_type.strip()}")
+        
+        if module_name:
+            text_parts.append(f"Module: {module_name.strip()}")
+        
+        if sub_module:
+            text_parts.append(f"SubModule: {sub_module.strip()}")
+        
+        # Add main content
         if title:
-            text_parts.append(title.strip())
+            text_parts.append(f"Title: {title.strip()}")
         
         if steps:
             # Clean up steps text
             cleaned_steps = steps.strip()
-            text_parts.append(cleaned_steps)
+            text_parts.append(f"Steps: {cleaned_steps}")
         
-        return " ".join(text_parts)
+        if expected_result:
+            text_parts.append(f"Expected: {expected_result.strip()}")
+        
+        return " | ".join(text_parts)
     
     def generate_embeddings_batch(self, texts: List[str], model_name: str = DEFAULT_MODEL) -> List[List[float]]:
         """Generate embeddings for multiple texts efficiently"""
@@ -190,6 +225,103 @@ class EmbeddingService:
         # Sort by similarity descending and limit
         results.sort(key=lambda x: x["similarity_percent"], reverse=True)
         return results[:limit]
+    
+    def similarity_search(
+        self,
+        db: Session,
+        query_embedding: List[float],
+        top_k: int = 50,
+        filter_ids: List[int] = None,
+        model_name: str = DEFAULT_MODEL,
+        min_similarity: float = 0.3
+    ) -> List[Tuple[int, float]]:
+        """
+        Search for similar test cases using pgvector cosine distance.
+        
+        Args:
+            db: Database session
+            query_embedding: Query vector
+            top_k: Maximum results to return
+            filter_ids: Optional list of IDs to filter results
+            model_name: Embedding model name for filtering
+            min_similarity: Minimum similarity threshold (0.0-1.0) to include in results
+            
+        Returns:
+            List of (test_case_id, similarity_score) tuples
+        """
+        from app.models.models import TestCase
+        
+        if query_embedding is None:
+            return []
+        
+        try:
+            # Format embedding as postgres vector literal
+            embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+            
+            # Build SQL query with pgvector cosine distance
+            # Note: embedding column is stored as double precision[], needs to be cast to vector
+            filter_clause = ""
+            params = {"limit": top_k, "min_similarity": min_similarity}
+            
+            if filter_ids:
+                filter_clause = "AND id = ANY(:filter_ids)"
+                params["filter_ids"] = filter_ids
+            
+            # Use string formatting for the vector literal (it's safe since it's generated from floats)
+            # Cast embedding array to vector type for pgvector operator
+            sql = text(f"""
+                SELECT id, 1 - (embedding::vector <=> '{embedding_str}'::vector) as similarity
+                FROM test_cases
+                WHERE embedding IS NOT NULL
+                {filter_clause}
+                AND (1 - (embedding::vector <=> '{embedding_str}'::vector)) >= :min_similarity
+                ORDER BY embedding::vector <=> '{embedding_str}'::vector
+                LIMIT :limit
+            """)
+            
+            result = db.execute(sql, params)
+            return [(row[0], row[1]) for row in result.fetchall()]
+            
+        except Exception as e:
+            print(f"[EmbeddingService] Vector search failed: {e}")
+            # Rollback the failed transaction before fallback
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            # Fallback to Python-based similarity
+            return self._python_similarity_search(
+                db, query_embedding, top_k, filter_ids, min_similarity
+            )
+    
+    def _python_similarity_search(
+        self,
+        db: Session,
+        query_embedding: List[float],
+        top_k: int = 50,
+        filter_ids: List[int] = None,
+        min_similarity: float = 0.3
+    ) -> List[Tuple[int, float]]:
+        """Fallback Python-based similarity search"""
+        from app.models.models import TestCase
+        
+        query = db.query(TestCase).filter(TestCase.embedding.isnot(None))
+        if filter_ids:
+            query = query.filter(TestCase.id.in_(filter_ids))
+        
+        test_cases = query.all()
+        
+        results = []
+        for tc in test_cases:
+            if tc.embedding:
+                similarity = self.cosine_similarity(query_embedding, tc.embedding)
+                # Only include results that meet minimum similarity threshold
+                if similarity >= min_similarity:
+                    results.append((tc.id, similarity))
+        
+        # Sort by similarity descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
     
     async def preload_models(self):
         """Background task to preload both models at startup"""

@@ -227,16 +227,17 @@ class EmbeddingService:
         Convert embedding to a Python list.
         Handles pgvector Vector type, numpy arrays, and regular lists.
         """
+        # Handle None check carefully for numpy arrays
         if embedding is None:
             return None
+        
+        # Check for numpy array first (before other checks that might fail)
+        if isinstance(embedding, np.ndarray):
+            return embedding.tolist()
         
         # If it's already a list, return as-is
         if isinstance(embedding, list):
             return embedding
-        
-        # If it's a numpy array, convert to list
-        if hasattr(embedding, 'tolist'):
-            return embedding.tolist()
         
         # For pgvector Vector type or any iterable, convert via list()
         try:
@@ -250,6 +251,7 @@ class EmbeddingService:
         Calculate cosine similarity between two vectors.
         Handles pgvector Vector type, numpy arrays, and regular lists.
         """
+        # Handle None checks carefully for numpy arrays
         if vec1 is None or vec2 is None:
             return 0.0
         
@@ -262,6 +264,11 @@ class EmbeddingService:
         
         arr1 = np.array(list1)
         arr2 = np.array(list2)
+        
+        # Handle dimension mismatch
+        if arr1.shape != arr2.shape:
+            print(f"Warning: Shape mismatch - arr1: {arr1.shape}, arr2: {arr2.shape}")
+            return 0.0
         
         dot_product = np.dot(arr1, arr2)
         norm1 = np.linalg.norm(arr1)
@@ -297,7 +304,10 @@ class EmbeddingService:
         """
         from app.models.models import TestCase
         
+        # Handle numpy array None check
         if embedding is None:
+            return []
+        if isinstance(embedding, np.ndarray) and embedding.size == 0:
             return []
         
         # Convert query embedding to list if needed
@@ -316,10 +326,11 @@ class EmbeddingService:
         # Calculate similarities for all test cases
         all_results = []
         for tc in test_cases:
-            if tc.embedding:
+            # Safe check for embedding existence (handles pgvector and numpy)
+            if tc.embedding is not None:
                 # Convert pgvector Vector to list for calculation
                 tc_embedding = self._convert_to_list(tc.embedding)
-                if tc_embedding:
+                if tc_embedding is not None and len(tc_embedding) > 0:
                     similarity = self.cosine_similarity(query_embedding, tc_embedding)
                     similarity_percent = round(similarity * 100, 1)
                     

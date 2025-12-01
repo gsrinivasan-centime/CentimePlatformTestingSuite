@@ -146,10 +146,17 @@ class EmailService:
         return EmailService.send_email(email, subject, html_content)
     
     @staticmethod
-    def send_password_reset_email(email: str, frontend_url: str = "http://localhost:3000") -> bool:
+    def send_password_reset_email(email: str, frontend_url: str = None) -> bool:
         """
         Send password reset email
+        Args:
+            email: User's email address
+            frontend_url: Frontend URL for reset link (defaults to settings.FRONTEND_URL)
         """
+        # Use configured frontend URL if not provided
+        if frontend_url is None:
+            frontend_url = settings.FRONTEND_URL
+        
         # Create password reset token (valid for 1 hour)
         reset_token = create_access_token(
             data={"sub": email, "type": "password_reset"},

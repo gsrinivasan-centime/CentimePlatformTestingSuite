@@ -511,9 +511,16 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, 
     );
 };
 
-const IssueList = ({ onEdit, refreshTrigger }) => {
-    const [issues, setIssues] = useState([]);
-    const [loading, setLoading] = useState(true);
+const IssueList = ({ 
+    onEdit, 
+    refreshTrigger, 
+    issues: externalIssues,  // Issues passed from parent (optional)
+    loading: externalLoading,  // Loading state from parent (optional)
+    showModuleColumn = true,
+    highlightIds = []  // IDs to highlight (from smart search)
+}) => {
+    const [internalIssues, setInternalIssues] = useState([]);
+    const [internalLoading, setInternalLoading] = useState(true);
     const [page, setPage] = useState(0);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [jiraUsers, setJiraUsers] = useState([]);
@@ -529,6 +536,11 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         reporter: ''
     });
 
+    // Use external issues if provided, otherwise use internal state
+    const issues = externalIssues !== undefined ? externalIssues : internalIssues;
+    const loading = externalLoading !== undefined ? externalLoading : internalLoading;
+    const setIssues = externalIssues !== undefined ? () => {} : setInternalIssues;
+
     // Memoized lookup map for JIRA users to avoid repeated .find() calls
     const jiraUsersMap = useMemo(() => {
         const map = {};
@@ -539,14 +551,17 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
     }, [jiraUsers]);
 
     const fetchIssues = async () => {
-        setLoading(true);
+        // Skip fetching if issues are provided externally
+        if (externalIssues !== undefined) return;
+        
+        setInternalLoading(true);
         try {
             const data = await issueService.getAll();
-            setIssues(data);
+            setInternalIssues(data);
         } catch (error) {
             console.error('Error fetching issues:', error);
         } finally {
-            setLoading(false);
+            setInternalLoading(false);
         }
     };
 
@@ -573,7 +588,7 @@ const IssueList = ({ onEdit, refreshTrigger }) => {
         fetchJiraUsers();
         fetchModules();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [refreshTrigger]);
+    }, [refreshTrigger, externalIssues]);
 
     const handleUpdate = async (issueId, updates) => {
         try {

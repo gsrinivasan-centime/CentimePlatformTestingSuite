@@ -233,6 +233,28 @@ deploy_backend_prod() {
         pip install -q --upgrade pip
         pip install -q -r requirements.txt
         
+        # Update systemd service file (ensures workers count is synced)
+        echo "Updating systemd service configuration..."
+        sudo tee /etc/systemd/system/centime-backend.service > /dev/null << 'SERVICEEOF'
+[Unit]
+Description=Centime QA Portal Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/CentimePlatformTestingSuite/backend
+Environment="PATH=/home/ubuntu/CentimePlatformTestingSuite/backend/venv/bin"
+ExecStart=/home/ubuntu/CentimePlatformTestingSuite/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
+        sudo systemctl daemon-reload
+        
         # Verify configuration and database
         echo "Verifying configuration..."
         python3 -c "from app.core.config import settings; print(f'FRONTEND_URL: {settings.FRONTEND_URL}')"
@@ -435,7 +457,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/CentimePlatformTestingSuite/backend
 Environment="PATH=/home/ubuntu/CentimePlatformTestingSuite/backend/venv/bin"
-ExecStart=/home/ubuntu/CentimePlatformTestingSuite/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+ExecStart=/home/ubuntu/CentimePlatformTestingSuite/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=10
 

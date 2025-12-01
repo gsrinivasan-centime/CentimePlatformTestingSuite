@@ -34,7 +34,8 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion, urlFilters = {} }) => {
         setLoading(true);
         try {
             // Build filter params including URL filters
-            const filterParams = { release_id: releaseId };
+            // Ensure release_id is passed as integer
+            const filterParams = { release_id: parseInt(releaseId, 10) };
             if (urlFilters.status) {
                 filterParams.status = urlFilters.status;
             }
@@ -90,8 +91,8 @@ const ReleaseIssuesView = ({ releaseId, releaseVersion, urlFilters = {} }) => {
             if (selectedIssue) {
                 savedIssue = await issueService.update(selectedIssue.id, issueData);
             } else {
-                // Ensure the issue is linked to the current release
-                savedIssue = await issueService.create({ ...issueData, release_id: releaseId });
+                // Ensure the issue is linked to the current release (convert to integer)
+                savedIssue = await issueService.create({ ...issueData, release_id: parseInt(releaseId, 10) });
             }
 
             // Handle file uploads if any

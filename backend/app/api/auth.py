@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
@@ -210,9 +210,14 @@ def refresh_token(refresh_request: RefreshTokenRequest, db: Session = Depends(ge
     }
 
 @router.post("/verify-email")
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email(
+    token: str, 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """
-    Verify user's email address using the token from email link
+    Verify user's email address using the token from email link.
+    Sends async notification to super admins upon successful verification.
     """
     # Decode token
     payload = decode_access_token(token)
@@ -246,6 +251,22 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     user.is_email_verified = True
     user.email_verified_at = datetime.utcnow()
     db.commit()
+    
+    # Send async notification to super admins
+    super_admins = db.query(User).filter(
+        User.is_super_admin == True,
+        User.is_active == True,
+        User.is_email_verified == True
+    ).all()
+    super_admin_emails = [admin.email for admin in super_admins]
+    
+    if super_admin_emails:
+        background_tasks.add_task(
+            EmailService.send_admin_notification_new_user,
+            user_email=user.email,
+            user_name=user.full_name,
+            super_admin_emails=super_admin_emails
+        )
     
     return {"message": "Email verified successfully. You can now login."}
 

@@ -227,3 +227,92 @@ class EmailService:
         subject = "Password Reset Request - Centime QA Portal"
         return EmailService.send_email(email, subject, html_content)
 
+    @staticmethod
+    def send_admin_notification_new_user(user_email: str, user_name: str, super_admin_emails: list) -> None:
+        """
+        Send notification email to super admins when a new user verifies their email.
+        This is designed to be called asynchronously (in a background task).
+        
+        Args:
+            user_email: The newly verified user's email
+            user_name: The newly verified user's full name
+            super_admin_emails: List of super admin email addresses to notify
+        """
+        from datetime import datetime
+        
+        if not super_admin_emails:
+            print("No super admins to notify about new user verification")
+            return
+        
+        verified_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ 
+                    background-color: #4CAF50; 
+                    color: white; 
+                    padding: 20px; 
+                    text-align: center;
+                    border-radius: 5px 5px 0 0;
+                }}
+                .content {{ 
+                    background-color: #f9f9f9; 
+                    padding: 30px; 
+                    border: 1px solid #ddd;
+                    border-top: none;
+                }}
+                .info-box {{
+                    background-color: #e8f5e9;
+                    border-left: 4px solid #4CAF50;
+                    padding: 15px;
+                    margin: 20px 0;
+                }}
+                .footer {{
+                    text-align: center;
+                    padding: 20px;
+                    font-size: 12px;
+                    color: #666;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎉 New User Verified</h1>
+                </div>
+                <div class="content">
+                    <h2>A new user has verified their email</h2>
+                    <p>A new team member has successfully verified their email address and can now access the QA Portal.</p>
+                    
+                    <div class="info-box">
+                        <p><strong>Name:</strong> {user_name}</p>
+                        <p><strong>Email:</strong> {user_email}</p>
+                        <p><strong>Verified At:</strong> {verified_at}</p>
+                    </div>
+                    
+                    <p>You can manage users and their roles in the Admin Settings section of the QA Portal.</p>
+                </div>
+                <div class="footer">
+                    <p>This is an automated notification from Centime QA Portal.</p>
+                    <p>&copy; 2025 Centime QA Portal. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        subject = f"🎉 New User Verified: {user_name} - Centime QA Portal"
+        
+        # Send to all super admins
+        for admin_email in super_admin_emails:
+            try:
+                EmailService.send_email(admin_email, subject, html_content)
+                print(f"Admin notification sent to {admin_email} about new user: {user_email}")
+            except Exception as e:
+                print(f"Failed to send admin notification to {admin_email}: {str(e)}")
+

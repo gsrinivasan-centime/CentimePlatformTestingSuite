@@ -627,12 +627,21 @@ const IssueList = ({
     const applyFilters = (issue) => {
         if (filters.id && !issue.id.toString().includes(filters.id)) return false;
         if (filters.title && !issue.title.toLowerCase().includes(filters.title.toLowerCase())) return false;
-        if (filters.storyId && issue.jira_story_id && !issue.jira_story_id.toLowerCase().includes(filters.storyId.toLowerCase())) return false;
-        if (filters.module && issue.module && !issue.module.name.toLowerCase().includes(filters.module.toLowerCase())) return false;
+        if (filters.storyId && (!issue.jira_story_id || !issue.jira_story_id.toLowerCase().includes(filters.storyId.toLowerCase()))) return false;
+        if (filters.module && (!issue.module || !issue.module.name.toLowerCase().includes(filters.module.toLowerCase()))) return false;
         if (filters.status && issue.status !== filters.status) return false;
         if (filters.priority && issue.priority !== filters.priority) return false;
-        if (filters.assignee && issue.jira_assignee_name && !issue.jira_assignee_name.toLowerCase().includes(filters.assignee.toLowerCase())) return false;
-        if (filters.reporter && issue.reporter_name && !issue.reporter_name.toLowerCase().includes(filters.reporter.toLowerCase())) return false;
+        
+        // For assignee filter, check both jira_assignee_name and lookup from jiraUsersMap
+        if (filters.assignee) {
+            const assigneeName = issue.jira_assignee_name || 
+                (issue.jira_assignee_id && jiraUsersMap[issue.jira_assignee_id]?.displayName);
+            if (!assigneeName || !assigneeName.toLowerCase().includes(filters.assignee.toLowerCase())) {
+                return false;
+            }
+        }
+        
+        if (filters.reporter && (!issue.reporter_name || !issue.reporter_name.toLowerCase().includes(filters.reporter.toLowerCase()))) return false;
         return true;
     };
 

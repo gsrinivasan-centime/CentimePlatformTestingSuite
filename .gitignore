@@ -47,6 +47,9 @@ Thumbs.db
 
 # Database - PostgreSQL (connection details in .env)
 
+# Logs directory
+logs/
+
 # Reports
 *.pdf
 *.xlsx

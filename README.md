@@ -1,134 +1,129 @@
-# Centime Test Management System
+# Centime QA Portal
 
-Quality Assurance portal for managing test cases, releases, and JIRA integration.
+A comprehensive Test Management System for QA teams to manage test cases, track releases, integrate with JIRA, and leverage AI for intelligent test case management.
 
-## 🚨 Important: PostgreSQL Migration
+## ✨ Key Features
 
-**This application now uses PostgreSQL instead of SQLite.**
-
-If you're seeing database errors, follow the Quick Start guide below.
+- **Test Case Management** - Hierarchical organization with modules, sub-modules, and features
+- **Test Design Studio** - BDD/Gherkin editor with Monaco IDE and step catalog
+- **Release Management** - Track releases, execution progress, and approvals
+- **AI-Powered Search** - Semantic similarity search and duplicate detection
+- **JIRA Integration** - Story import, bug tracking, and sync
+- **Confluence Integration** - Feature file storage and publishing
 
 ## 🚀 Quick Start
 
-### First Time Setup
+### Prerequisites
 
-1. **Install PostgreSQL**
+- Python 3.9+
+- Node.js 16+
+- PostgreSQL 12+ (or use Supabase cloud)
+
+### Development Setup
+
+1. **Clone the repository**
    ```bash
-   ./setup_postgresql_macos.sh
+   git clone https://github.com/gsrinivasan-centime/CentimePlatformTestingSuite.git
+   cd CentimePlatformTestingSuite
    ```
 
-2. **Setup Backend**
+2. **Configure environment**
    ```bash
-   cd backend
-   ./migrate_to_postgresql.sh
-   ```
-
-3. **Start Application**
-   ```bash
-   # Terminal 1 - Backend
-   ./start_backend.sh
+   # Backend
+   cp backend/.env.example backend/.env
+   # Edit backend/.env with your database URL and API keys
    
-   # Terminal 2 - Frontend
-   ./start_frontend.sh
+   # Frontend
+   cp frontend/.env.example frontend/.env
    ```
 
-4. **Access Application**
+3. **Start the application**
+   ```bash
+   # Option 1: Using deployment script
+   ./deploy_app.sh dev
+   
+   # Option 2: Manual start
+   ./start_backend.sh   # Terminal 1
+   ./start_frontend.sh  # Terminal 2
+   ```
+
+4. **Access the application**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000/docs
-   - Login: admin@centime.com / Admin123!
+   - Login: `admin@centime.com` / `Admin123!`
 
-### Already Setup?
+### Production Deployment
 
-Just start the servers:
 ```bash
-./start_backend.sh  # Terminal 1
-./start_frontend.sh # Terminal 2
+# Deploy to EC2 (pulls from git)
+./deploy_app.sh prod
+
+# Deploy specific branch
+./deploy_app.sh prod --branch main
+
+# Backend only
+./deploy_app.sh prod --backend-only
+
+# With database migrations
+./deploy_app.sh prod --migrate
 ```
 
-## 📚 Documentation
+See `./deploy_app.sh --help` for all options.
 
-- **[Quick Start Guide](QUICKSTART_POSTGRESQL.md)** - Get running in 5 minutes
-- **[Migration Checklist](MIGRATION_CHECKLIST.md)** - Step-by-step migration guide
-- **[PostgreSQL Setup](docs/POSTGRESQL_SETUP.md)** - Detailed PostgreSQL instructions
-- **[Backend README](backend/README.md)** - Backend documentation
-- **[Setup Guide](docs/SETUP_GUIDE.md)** - Complete setup instructions
+## 🛠️ Tech Stack
 
-## 🗂️ Project Structure
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | React 18, Material-UI, Monaco Editor, Recharts |
+| **Backend** | FastAPI, Python 3.13, SQLAlchemy, Alembic |
+| **Database** | PostgreSQL, pgvector (AI embeddings) |
+| **AI/ML** | Sentence Transformers (all-MiniLM-L6-v2) |
+| **Integrations** | JIRA Cloud, Confluence |
+
+## 📁 Project Structure
 
 ```
 CentimePlatformTestingSuite/
 ├── backend/                 # FastAPI backend
 │   ├── alembic/            # Database migrations
 │   ├── app/                # Application code
-│   ├── init_db_postgres.py # Database initialization
-│   └── migrate_to_postgresql.sh
+│   │   ├── api/           # API endpoints
+│   │   ├── models/        # SQLAlchemy models
+│   │   ├── schemas/       # Pydantic schemas
+│   │   └── services/      # Business logic
+│   └── requirements.txt
 ├── frontend/               # React frontend
 │   ├── src/
+│   │   ├── components/    # React components
+│   │   ├── pages/         # Page components
+│   │   └── services/      # API clients
 │   └── package.json
 ├── docs/                   # Documentation
-├── test_suite/            # Automated tests
-└── setup_postgresql_macos.sh
+├── deploy_app.sh          # Unified deployment script
+├── start_backend.sh       # Backend startup
+└── start_frontend.sh      # Frontend startup
 ```
 
-## 🛠️ Tech Stack
+## 👥 Default Users
 
-- **Backend**: FastAPI, SQLAlchemy, PostgreSQL, Alembic
-- **Frontend**: React 18, Material-UI
-- **Database**: PostgreSQL 12+
-- **Testing**: Pytest, Selenium
-- **Integrations**: JIRA, Confluence
-
-## 📋 Features
-
-- ✅ Test case management with hierarchy
-- ✅ Release management and tracking
-- ✅ JIRA story integration
-- ✅ Bug/issue tracking with media attachments
-- ✅ Execution status tracking
-- ✅ BDD/Gherkin support
-- ✅ Step catalog
-- ✅ Test automation integration
-- ✅ Reports and analytics
-
-## 🔧 Requirements
-
-- Python 3.9+
-- Node.js 16+
-- PostgreSQL 12+
-- npm or yarn
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@centime.com | Admin123! |
+| Tester | tester@centime.com | Tester123! |
 
 ## 🐛 Troubleshooting
 
-### "Can't connect to database"
+### Database Connection Issues
 
-1. Check PostgreSQL is running:
-   ```bash
-   brew services list
-   ```
+```bash
+# Check PostgreSQL status
+brew services list | grep postgres
 
-2. Start PostgreSQL if needed:
-   ```bash
-   brew services start postgresql@16
-   ```
+# Start PostgreSQL
+brew services start postgresql@16
+```
 
-3. Verify database exists:
-   ```bash
-   psql -U $(whoami) postgres -l | grep test_management
-   ```
-
-### "Migration errors"
-
-1. Check DATABASE_URL in backend/.env
-2. Reset database:
-   ```bash
-   cd backend
-   psql -U $(whoami) postgres -c "DROP DATABASE test_management;"
-   psql -U $(whoami) postgres -c "CREATE DATABASE test_management;"
-   alembic upgrade head
-   python init_db_postgres.py
-   ```
-
-### "Module not found"
+### Backend Won't Start
 
 ```bash
 cd backend
@@ -136,34 +131,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 📖 Additional Resources
+### Frontend Won't Start
 
-- [API Documentation](http://localhost:8000/docs) (when backend is running)
-- [JIRA Integration Setup](docs/JIRA_INTEGRATION_SETUP.md)
-- [Bulk Upload Guide](docs/BULK_UPLOAD_GUIDE.md)
-- [BDD Feature Guide](docs/BDD_FEATURE_UPLOAD_GUIDE.md)
+```bash
+cd frontend
+npm install
+```
 
-## 👥 Default Users
+## 📚 Documentation
 
-After initialization:
+For detailed technical documentation including architecture, database schema, AI features, and deployment details:
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@centime.com | Admin123! |
-| Tester | tester@centime.com | Tester123! |
+**➡️ [Architecture & Features Guide](docs/ARCHITECTURE_AND_FEATURES.md)**
 
-## 🤝 Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Create migrations if needed: `alembic revision --autogenerate -m "description"`
-4. Test your changes
-5. Submit a pull request
+Additional guides:
+- **[API Documentation](http://localhost:8000/docs)** - Interactive API docs (when backend is running)
+- **[BDD Feature Guide](docs/BDD_FEATURE_UPLOAD_GUIDE.md)** - Guide for writing Gherkin feature files
+- **[Bulk Upload Guide](docs/BULK_UPLOAD_GUIDE.md)** - Bulk import test cases via CSV
 
 ## 📄 License
 
-Internal Centime Project
-
----
-
-**Need Help?** Check [QUICKSTART_POSTGRESQL.md](QUICKSTART_POSTGRESQL.md) for immediate assistance.
+Internal use only - Centime Inc.

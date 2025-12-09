@@ -77,12 +77,15 @@ ENVIRONMENTS:
               
   prod        Deploy to production EC2 environment (qa-portal.ddns.net)
               Database: AWS RDS PostgreSQL
+              Backend: Pulls latest code from git (default: main branch)
+              Frontend: Builds locally and syncs static files to EC2
 
 OPTIONS:
   --backend-only    Deploy only backend
   --frontend-only   Deploy only frontend
   --migrate         Run database migrations (alembic upgrade head)
   --skip-build      Skip frontend build (prod only)
+  --branch <name>   Git branch to deploy (prod only, default: main)
   --help            Show this help message
 
 DATABASE CONFIGURATION:
@@ -93,10 +96,11 @@ DATABASE CONFIGURATION:
     DATABASE_URL=postgresql://postgres:YourPassword@centime-test-db.xxxxx.us-east-1.rds.amazonaws.com:5432/test_management
 
 EXAMPLES:
-  $0 dev                    # Deploy both frontend and backend locally (uses Supabase)
-  $0 prod                   # Deploy both to EC2 (uses AWS RDS)
-  $0 prod --backend-only    # Deploy only backend to EC2
-  $0 prod --frontend-only   # Deploy only frontend to EC2
+  $0 dev                        # Deploy both frontend and backend locally (uses Supabase)
+  $0 prod                       # Deploy both to EC2, pulls main branch from git
+  $0 prod --branch develop      # Deploy from develop branch
+  $0 prod --backend-only        # Deploy only backend to EC2
+  $0 prod --frontend-only       # Deploy only frontend to EC2
 
 EOF
 }
@@ -191,7 +195,7 @@ deploy_backend_prod() {
     
     check_ec2_connection
     
-    # Check for production .env file
+    # Check for production .env file (needed to copy to EC2)
     if [ ! -f "$BACKEND_DIR/.env.prod" ]; then
         print_error "Production environment file not found: $BACKEND_DIR/.env.prod"
         print_info "Please create .env.prod with AWS RDS DATABASE_URL"
@@ -205,28 +209,31 @@ deploy_backend_prod() {
         exit 1
     fi
     
-    # Copy production .env to .env before syncing
-    print_info "Setting up production environment..."
-    cp "$BACKEND_DIR/.env.prod" "$BACKEND_DIR/.env.deploy"
-    
-    # Copy updated backend files (excluding dev .env, will copy .env.deploy as .env)
-    print_info "Syncing backend code to EC2..."
-    rsync -avz --exclude='venv' --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='.env.prod' --exclude='.env.example' \
-        -e "ssh -i $EC2_KEY" \
-        "$BACKEND_DIR/" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/"
-    
-    # Copy production .env separately
+    # Copy production .env to EC2
     print_info "Deploying production environment configuration..."
-    scp -i "$EC2_KEY" "$BACKEND_DIR/.env.deploy" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/.env"
+    scp -i "$EC2_KEY" "$BACKEND_DIR/.env.prod" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/.env"
     
-    # Clean up temporary file
-    rm -f "$BACKEND_DIR/.env.deploy"
-    
-    # Deploy on EC2 - pass RUN_MIGRATE flag
-    print_info "Configuring backend on EC2..."
-    ssh -i "$EC2_KEY" "$EC2_USER@$EC2_HOST" "RUN_MIGRATE=$RUN_MIGRATE bash -s" << 'EOFBACKEND'
+    # Deploy on EC2 - pull from git and restart service
+    print_info "Pulling latest code from git and configuring backend on EC2..."
+    ssh -i "$EC2_KEY" "$EC2_USER@$EC2_HOST" "RUN_MIGRATE=$RUN_MIGRATE GIT_BRANCH=${GIT_BRANCH:-main} bash -s" << 'EOFBACKEND'
         set -e
-        cd ~/CentimePlatformTestingSuite/backend
+        cd ~/CentimePlatformTestingSuite
+        
+        # Fetch and pull latest code from git
+        echo "Pulling latest code from branch: $GIT_BRANCH"
+        git fetch origin
+        git checkout $GIT_BRANCH
+        git pull origin $GIT_BRANCH
+        
+        echo "✅ Code updated from git"
+        
+        cd backend
+        
+        # Ensure .env file is preserved (it was copied before git pull)
+        if [ ! -f ".env" ]; then
+            echo "❌ .env file missing after git pull!"
+            exit 1
+        fi
         
         # Update environment
         source venv/bin/activate
@@ -489,6 +496,7 @@ main() {
     SKIP_BUILD=false
     SETUP_INFRA=false
     RUN_MIGRATE=false
+    GIT_BRANCH="main"
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -511,6 +519,10 @@ main() {
             --migrate)
                 RUN_MIGRATE=true
                 shift
+                ;;
+            --branch)
+                GIT_BRANCH="$2"
+                shift 2
                 ;;
             --setup-infra)
                 SETUP_INFRA=true
@@ -546,6 +558,7 @@ main() {
     print_info "Environment: $ENVIRONMENT"
     print_info "Backend: $([ "$FRONTEND_ONLY" = true ] && echo "Skip" || echo "Deploy")"
     print_info "Frontend: $([ "$BACKEND_ONLY" = true ] && echo "Skip" || echo "Deploy")"
+    [ "$ENVIRONMENT" = "prod" ] && print_info "Git Branch: $GIT_BRANCH"
     print_info "Migrate: $([ "$RUN_MIGRATE" = true ] && echo "Yes" || echo "No")"
     echo ""
     

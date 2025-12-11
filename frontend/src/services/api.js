@@ -669,6 +669,12 @@ export const featureFilesAPI = {
     });
     return response.data;
   },
+  
+  // Recall feature file (creator only - withdraw from approval)
+  recall: async (id) => {
+    const response = await api.post(`/step-catalog/feature-files/${id}/recall`);
+    return response.data;
+  },
 };
 
 // CSV Workbooks API - For CSV file upload with approval workflow
@@ -742,6 +748,12 @@ export const csvWorkbooksAPI = {
   // Reject workbook (admin only)
   reject: async (id, reason = '') => {
     const response = await api.post(`/csv-workbooks/${id}/reject`, { reason });
+    return response.data;
+  },
+  
+  // Recall workbook (creator only - withdraw from approval)
+  recall: async (id) => {
+    const response = await api.post(`/csv-workbooks/${id}/recall`);
     return response.data;
   },
   

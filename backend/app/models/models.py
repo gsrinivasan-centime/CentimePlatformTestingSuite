@@ -346,6 +346,38 @@ class FeatureFile(Base):
     approver = relationship("User", foreign_keys=[approved_by])
 
 
+class CsvWorkbook(Base):
+    """CSV-based test case workbook with approval workflow"""
+    __tablename__ = "csv_workbooks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    csv_content = Column(Text, nullable=False)  # JSON string of test case rows
+    original_filename = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    module_id = Column(Integer, ForeignKey("modules.id"), nullable=True)
+    status = Column(String(20), default="draft")  # draft, pending_approval, approved, rejected
+    similarity_results = Column(Text, nullable=True)  # JSON string of similarity analysis
+    
+    # Approval workflow
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    submitted_for_approval_at = Column(DateTime, nullable=True)
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    module = relationship("Module", foreign_keys=[module_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    approver = relationship("User", foreign_keys=[approved_by])
+    rejector = relationship("User", foreign_keys=[rejected_by])
+
+
 class Issue(Base):
     __tablename__ = "issues"
     

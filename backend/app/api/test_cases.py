@@ -1105,3 +1105,126 @@ def delete_feature(
         "message": f"Feature '{feature_section}' deleted successfully",
         "updated_test_cases": updated_count
     }
+
+
+@router.post("/import-csv-workbook")
+def import_csv_workbook(
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Import test cases from CSV workbook format.
+    
+    Expects payload with:
+    - test_cases: List of test case objects with fields:
+        - test_id (optional, auto-generated if empty)
+        - title
+        - preconditions
+        - steps_to_reproduce
+        - expected_result
+        - module_id (or module_name for lookup)
+        - tags
+        - scenario_examples (JSON string for data-driven tests)
+    - module_id: Target module ID (overrides individual module_id)
+    """
+    test_cases_data = payload.get('test_cases', [])
+    target_module_id = payload.get('module_id')
+    
+    if not test_cases_data:
+        raise HTTPException(status_code=400, detail="No test cases provided")
+    
+    if not target_module_id:
+        raise HTTPException(status_code=400, detail="Target module_id is required")
+    
+    # Verify module exists
+    module = db.query(Module).filter(Module.id == target_module_id).first()
+    if not module:
+        raise HTTPException(status_code=404, detail=f"Module with id {target_module_id} not found")
+    
+    created_test_cases = []
+    errors = []
+    
+    for idx, tc_data in enumerate(test_cases_data):
+        try:
+            # Determine tag from tags field (default to 'ui')
+            tags = tc_data.get('tags', '')
+            tag = 'ui'  # default
+            if tags:
+                tags_lower = tags.lower()
+                if 'api' in tags_lower:
+                    tag = 'api'
+                elif 'hybrid' in tags_lower:
+                    tag = 'hybrid'
+            
+            # Auto-generate test_id if not provided
+            test_id = tc_data.get('test_id')
+            if not test_id:
+                test_id = generate_test_id(tag, db)
+            else:
+                # Check if test_id already exists
+                existing = db.query(TestCase).filter(TestCase.test_id == test_id).first()
+                if existing:
+                    errors.append({
+                        "row": idx + 1,
+                        "error": f"Test ID '{test_id}' already exists"
+                    })
+                    continue
+            
+            # Create test case
+            db_test_case = TestCase(
+                test_id=test_id,
+                title=tc_data.get('title', ''),
+                description=tc_data.get('title', ''),  # Use title as description if not provided
+                preconditions=tc_data.get('preconditions', ''),
+                steps_to_reproduce=tc_data.get('steps_to_reproduce', ''),
+                expected_result=tc_data.get('expected_result', ''),
+                module_id=target_module_id,
+                sub_module=tc_data.get('sub_module', ''),
+                feature_section=tc_data.get('feature_section', ''),
+                tags=tags,
+                tag=tag,
+                test_type='manual',  # Default to manual
+                automation_status=None,  # None for manual tests (only 'working'/'broken' for automated)
+                scenario_examples=tc_data.get('scenario_examples'),
+                created_by=current_user.id
+            )
+            
+            db.add(db_test_case)
+            db.flush()  # Get the ID without committing
+            
+            created_test_cases.append({
+                "id": db_test_case.id,
+                "test_id": db_test_case.test_id,
+                "title": db_test_case.title
+            })
+            
+        except Exception as e:
+            db.rollback()  # Rollback the failed transaction to continue with next row
+            errors.append({
+                "row": idx + 1,
+                "title": tc_data.get('title', 'Unknown'),
+                "error": str(e)
+            })
+    
+    # Commit all successful test cases
+    try:
+        if created_test_cases:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to commit test cases: {str(e)}")
+    
+    # Schedule async embedding generation for all created test cases
+    if created_test_cases:
+        test_case_ids = [tc["id"] for tc in created_test_cases]
+        background_tasks.add_task(compute_batch_embeddings, test_case_ids)
+    
+    return {
+        "success": True,
+        "created_count": len(created_test_cases),
+        "error_count": len(errors),
+        "created_test_cases": created_test_cases,
+        "errors": errors
+    }

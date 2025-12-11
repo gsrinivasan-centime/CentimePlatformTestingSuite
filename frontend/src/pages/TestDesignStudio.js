@@ -28,9 +28,11 @@ import {
   ListItem,
   ListItemText,
   ListItemButton,
+  ListItemIcon,
   Collapse,
   Fab,
   Badge,
+  Menu,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -57,17 +59,26 @@ import {
   Cancel as CancelIcon,
   CloudUpload as UploadIcon,
   Download as DownloadIcon,
+  TableChart as TableChartIcon,
+  Send as SendIcon,
+  ArrowDropDown as ArrowDropDownIcon,
+  Code as CodeIcon,
+  CompareArrows as CompareArrowsIcon,
 } from '@mui/icons-material';
-import { stepCatalogAPI, featureFilesAPI, modulesAPI, testCasesAPI } from '../services/api';
+import { stepCatalogAPI, featureFilesAPI, modulesAPI, testCasesAPI, csvWorkbooksAPI } from '../services/api';
 import PublishPreviewModal from '../components/PublishPreviewModal';
+import CsvUploadDialog from '../components/CsvUploadDialog';
+import TestCaseDataGrid from '../components/TestCaseDataGrid';
+import SimilarityCheckDialog from '../components/SimilarityCheckDialog';
+import { validateAllRows, createEmptyRow, ROW_TYPES } from '../utils/csvParser';
 import { useAuth } from '../context/AuthContext';
 
 const MAX_FILES_PER_USER = 5;
 
 const TestDesignStudio = () => {
   const { user } = useAuth();
-  // View state
-  const [view, setView] = useState('dashboard'); // 'dashboard' or 'editor'
+  // View state: 'dashboard', 'editor' (feature file), 'view', or 'workbookEditor'
+  const [view, setView] = useState('dashboard');
   
   // Editor state
   const [editorContent, setEditorContent] = useState('');
@@ -130,6 +141,29 @@ const TestDesignStudio = () => {
   const [bulkUploadSubModules, setBulkUploadSubModules] = useState([]);
   const [bulkUploadFeatures, setBulkUploadFeatures] = useState([]);
   
+  // CSV Workbook upload state
+  const [openCsvUploadDialog, setOpenCsvUploadDialog] = useState(false);
+  const [csvWorkbooks, setCsvWorkbooks] = useState([]);
+  const [pendingCsvWorkbooks, setPendingCsvWorkbooks] = useState([]);
+  
+  // Workbook Editor state (full-page editor like feature file IDE)
+  const [currentWorkbook, setCurrentWorkbook] = useState(null);
+  const [workbookRows, setWorkbookRows] = useState([]);
+  const [workbookName, setWorkbookName] = useState('');
+  const [workbookDescription, setWorkbookDescription] = useState('');
+  const [workbookModuleId, setWorkbookModuleId] = useState('');
+  const [workbookValidation, setWorkbookValidation] = useState(null);
+  const [workbookSimilarityDialog, setWorkbookSimilarityDialog] = useState(false);
+  const [workbookSimilarityLoading, setWorkbookSimilarityLoading] = useState(false);
+  const [workbookSimilarityResults, setWorkbookSimilarityResults] = useState(null);
+  
+  // Dropdown menu anchors
+  const [newDesignAnchorEl, setNewDesignAnchorEl] = useState(null);
+  const [importAnchorEl, setImportAnchorEl] = useState(null);
+  
+  // Combined designs count for limit check
+  const totalDesignsCount = featureFiles.length + csvWorkbooks.length;
+  
   // Editor settings with localStorage persistence
   const [editorTheme, setEditorTheme] = useState(() => {
     return localStorage.getItem('testDesignStudio_theme') || 'light';
@@ -152,6 +186,7 @@ const TestDesignStudio = () => {
         loadFeatureFiles(),
         loadModules(),
         loadStats(),
+        loadCsvWorkbooks(),
       ]);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -180,8 +215,27 @@ const TestDesignStudio = () => {
       const drafts = await featureFilesAPI.getAll({ status: 'draft' });
       setFeatureFiles(Array.isArray(drafts) ? drafts : []);
       
-      const uploads = await featureFilesAPI.getAll({ status: 'published' });
-      setRecentUploads(Array.isArray(uploads) ? uploads : []);
+      // Load published feature files with type indicator
+      const publishedFeatures = await featureFilesAPI.getAll({ status: 'published' });
+      const featureUploads = (Array.isArray(publishedFeatures) ? publishedFeatures : []).map(f => ({
+        ...f,
+        fileType: 'feature'
+      }));
+      
+      // Load approved CSV workbooks with type indicator
+      const approvedWorkbooks = await csvWorkbooksAPI.getAll({ status: 'approved' });
+      const workbookUploads = (Array.isArray(approvedWorkbooks) ? approvedWorkbooks : []).map(w => ({
+        ...w,
+        fileType: 'workbook'
+      }));
+      
+      // Merge and sort by date (newest first)
+      const allUploads = [...featureUploads, ...workbookUploads].sort((a, b) => {
+        const dateA = new Date(a.updated_at || a.approved_at || a.created_at);
+        const dateB = new Date(b.updated_at || b.approved_at || b.created_at);
+        return dateB - dateA;
+      });
+      setRecentUploads(allUploads);
       
       // Load pending approval files
       const pending = await featureFilesAPI.getPendingApproval();
@@ -211,6 +265,24 @@ const TestDesignStudio = () => {
     } catch (error) {
       console.error('Error loading stats:', error);
       setStats(null);
+    }
+  };
+
+  const loadCsvWorkbooks = async () => {
+    try {
+      // Load user's draft workbooks
+      const drafts = await csvWorkbooksAPI.getDrafts();
+      setCsvWorkbooks(Array.isArray(drafts) ? drafts : []);
+      
+      // Load pending approval workbooks (for admin view)
+      if (user?.role === 'admin') {
+        const pending = await csvWorkbooksAPI.getPendingApproval();
+        setPendingCsvWorkbooks(Array.isArray(pending) ? pending : []);
+      }
+    } catch (error) {
+      console.error('Error loading CSV workbooks:', error);
+      setCsvWorkbooks([]);
+      setPendingCsvWorkbooks([]);
     }
   };
 
@@ -622,6 +694,436 @@ const TestDesignStudio = () => {
     setConfirmDialogOpen(true);
   };
 
+  // CSV Workbook handlers
+  const handleViewWorkbook = async (workbook) => {
+    // Open workbook in view/edit mode - could navigate to a dedicated page or open a dialog
+    // Open workbook for viewing in DataGrid (full-page editor)
+    // Fetch full workbook content first
+    setLoading(true);
+    try {
+      const fullWorkbook = await csvWorkbooksAPI.getById(workbook.id);
+      setCurrentWorkbook(fullWorkbook);
+      setWorkbookName(fullWorkbook.name || '');
+      setWorkbookDescription(fullWorkbook.description || '');
+      setWorkbookModuleId(fullWorkbook.module_id || '');
+      // Parse content and ensure each row has an id
+      let rows = fullWorkbook.content || [];
+      rows = rows.map((row, index) => ({
+        ...row,
+        id: row.id || `row-${index}-${Date.now()}`,
+      }));
+      setWorkbookRows(rows);
+      setWorkbookValidation(validateAllRows(rows));
+      setView('workbookEditor');
+    } catch (error) {
+      console.error('Error loading workbook:', error);
+      showSnackbar('Error loading workbook', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditWorkbook = async (workbook) => {
+    // Open workbook for editing in DataGrid (full-page editor)
+    // Fetch full workbook content first
+    setLoading(true);
+    try {
+      const fullWorkbook = await csvWorkbooksAPI.getById(workbook.id);
+      setCurrentWorkbook(fullWorkbook);
+      setWorkbookName(fullWorkbook.name || '');
+      setWorkbookDescription(fullWorkbook.description || '');
+      setWorkbookModuleId(fullWorkbook.module_id || '');
+      // Parse content and ensure each row has an id
+      let rows = fullWorkbook.content || [];
+      rows = rows.map((row, index) => ({
+        ...row,
+        id: row.id || `row-${index}-${Date.now()}`,
+      }));
+      setWorkbookRows(rows);
+      setWorkbookValidation(validateAllRows(rows));
+      setView('workbookEditor');
+    } catch (error) {
+      console.error('Error loading workbook:', error);
+      showSnackbar('Error loading workbook', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Start a new workbook from scratch
+  const handleStartNewWorkbook = () => {
+    setCurrentWorkbook(null);
+    setWorkbookName('');
+    setWorkbookDescription('');
+    setWorkbookModuleId('');
+    // Initialize with one empty row
+    const initialRows = [createEmptyRow(1)];
+    setWorkbookRows(initialRows);
+    setWorkbookValidation(null);
+    setView('workbookEditor');
+  };
+
+  // Save workbook (create or update)
+  const handleSaveWorkbook = async (submitForApproval = false) => {
+    if (!workbookName.trim()) {
+      showSnackbar('Please enter a workbook name', 'error');
+      return;
+    }
+    
+    if (!workbookModuleId) {
+      showSnackbar('Please select a module', 'error');
+      return;
+    }
+    
+    if (workbookRows.length === 0) {
+      showSnackbar('Please add at least one test case', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let result;
+      if (currentWorkbook?.id) {
+        // Update existing workbook - use 'content' for update API
+        const updateData = {
+          name: workbookName.trim(),
+          description: workbookDescription.trim() || null,
+          content: workbookRows,
+          module_id: parseInt(workbookModuleId),
+        };
+        result = await csvWorkbooksAPI.update(currentWorkbook.id, updateData);
+        result.id = currentWorkbook.id; // Preserve ID from current workbook
+        showSnackbar(`Workbook "${workbookName}" updated successfully`, 'success');
+      } else {
+        // Create new workbook - use 'csv_content' for create API
+        const createData = {
+          name: workbookName.trim(),
+          description: workbookDescription.trim() || null,
+          csv_content: JSON.stringify(workbookRows),
+          module_id: parseInt(workbookModuleId),
+        };
+        result = await csvWorkbooksAPI.create(createData);
+        setCurrentWorkbook(result);
+        showSnackbar(`Workbook "${workbookName}" created successfully`, 'success');
+      }
+
+      // If submit for approval, trigger similarity analysis
+      if (submitForApproval && result.id) {
+        setWorkbookSimilarityLoading(true);
+        setWorkbookSimilarityDialog(true);
+        
+        try {
+          const similarityData = await csvWorkbooksAPI.analyzeSimilarity(result.id);
+          
+          // Transform backend response
+          const duplicates = [];
+          if (similarityData.results) {
+            similarityData.results.forEach((row) => {
+              if (row.similar_test_cases && row.similar_test_cases.length > 0) {
+                row.similar_test_cases.forEach((similar) => {
+                  duplicates.push({
+                    new_test_case: { 
+                      title: row.title || `Row ${row.row_index + 1}`,
+                      row_index: row.row_index 
+                    },
+                    existing_test_case: {
+                      id: similar.id,
+                      test_id: similar.test_id,
+                      title: similar.title,
+                      module: similar.module,
+                    },
+                    similarity_score: similar.similarity / 100,
+                  });
+                });
+              }
+            });
+          }
+          
+          setWorkbookSimilarityResults({
+            similar_test_cases: duplicates,
+            total_new: similarityData.total_test_cases || workbookRows.length,
+            potential_duplicates: similarityData.potential_duplicates || 0,
+            threshold: similarityData.threshold || 75,
+            results: similarityData.results || [],
+          });
+        } catch (simError) {
+          console.error('Similarity analysis error:', simError);
+          setWorkbookSimilarityResults({ 
+            similar_test_cases: [], 
+            total_new: workbookRows.length,
+            error: 'Could not analyze similarity. You may proceed anyway.'
+          });
+        } finally {
+          setWorkbookSimilarityLoading(false);
+        }
+      }
+
+      await loadCsvWorkbooks();
+    } catch (error) {
+      console.error('Error saving workbook:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error saving workbook',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle similarity dialog confirm (submit for approval)
+  const handleWorkbookSimilarityConfirm = async () => {
+    if (!currentWorkbook?.id) return;
+    
+    setLoading(true);
+    try {
+      await csvWorkbooksAPI.submitForApproval(currentWorkbook.id);
+      showSnackbar('Workbook submitted for approval successfully', 'success');
+      setWorkbookSimilarityDialog(false);
+      setWorkbookSimilarityResults(null);
+      setView('dashboard');
+      await loadCsvWorkbooks();
+    } catch (error) {
+      console.error('Error submitting workbook:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error submitting workbook for approval',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle workbook validation change from DataGrid
+  const handleWorkbookValidationChange = (updatedRows) => {
+    const validation = validateAllRows(updatedRows);
+    setWorkbookValidation(validation);
+    setWorkbookRows(validation.validatedRows);
+  };
+
+  // Back to dashboard from workbook editor
+  const handleBackFromWorkbookEditor = () => {
+    // TODO: Confirm if there are unsaved changes
+    setView('dashboard');
+    setCurrentWorkbook(null);
+    setWorkbookRows([]);
+    setWorkbookName('');
+    setWorkbookDescription('');
+    setWorkbookModuleId('');
+    setWorkbookValidation(null);
+  };
+
+  const handleDeleteWorkbook = async (workbook) => {
+    setConfirmAction(() => async () => {
+      setLoading(true);
+      try {
+        await csvWorkbooksAPI.delete(workbook.id);
+        showSnackbar('Workbook deleted successfully', 'success');
+        // Reload both workbooks and feature files (which populates recentUploads)
+        await loadCsvWorkbooks();
+        await loadFeatureFiles();
+      } catch (error) {
+        console.error('Error deleting workbook:', error);
+        showSnackbar(
+          error.response?.data?.detail || 'Error deleting workbook',
+          'error'
+        );
+      } finally {
+        setLoading(false);
+        setConfirmDialogOpen(false);
+      }
+    });
+    setConfirmDialogOpen(true);
+  };
+
+  const handleSubmitWorkbookForApproval = async (workbook) => {
+    // First fetch full workbook and run similarity analysis
+    setLoading(true);
+    try {
+      const fullWorkbook = await csvWorkbooksAPI.getById(workbook.id);
+      setCurrentWorkbook(fullWorkbook);
+      
+      // Parse content for the similarity dialog
+      let rows = fullWorkbook.content || [];
+      rows = rows.map((row, index) => ({
+        ...row,
+        id: row.id || `row-${index}-${Date.now()}`,
+      }));
+      setWorkbookRows(rows);
+      
+      // Run similarity analysis
+      setWorkbookSimilarityLoading(true);
+      setWorkbookSimilarityDialog(true);
+      
+      try {
+        const similarityData = await csvWorkbooksAPI.analyzeSimilarity(workbook.id);
+        
+        // Transform backend response
+        const duplicates = [];
+        if (similarityData.results) {
+          similarityData.results.forEach((row) => {
+            if (row.similar_test_cases && row.similar_test_cases.length > 0) {
+              row.similar_test_cases.forEach((similar) => {
+                duplicates.push({
+                  new_test_case: { 
+                    title: row.title || `Row ${row.row_index + 1}`,
+                    row_index: row.row_index 
+                  },
+                  existing_test_case: {
+                    id: similar.id,
+                    test_id: similar.test_id,
+                    title: similar.title,
+                    module: similar.module,
+                  },
+                  similarity_score: similar.similarity / 100,
+                });
+              });
+            }
+          });
+        }
+        
+        setWorkbookSimilarityResults({
+          similar_test_cases: duplicates,
+          total_new: similarityData.total_test_cases || rows.length,
+          potential_duplicates: similarityData.potential_duplicates || 0,
+          threshold: similarityData.threshold || 75,
+          results: similarityData.results || [],
+        });
+      } catch (simError) {
+        console.error('Similarity analysis error:', simError);
+        setWorkbookSimilarityResults({ 
+          similar_test_cases: [], 
+          total_new: rows.length,
+          error: 'Could not analyze similarity. You may proceed anyway.'
+        });
+      } finally {
+        setWorkbookSimilarityLoading(false);
+      }
+    } catch (error) {
+      console.error('Error loading workbook for approval:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error loading workbook',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApproveWorkbook = async (workbook) => {
+    setLoading(true);
+    try {
+      const response = await csvWorkbooksAPI.approve(workbook.id);
+      const testCasesCreated = response.test_cases_created || 0;
+      showSnackbar(
+        `Workbook approved! Created ${testCasesCreated} test case(s).`,
+        'success'
+      );
+      await loadCsvWorkbooks();
+    } catch (error) {
+      console.error('Error approving workbook:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error approving workbook',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectWorkbook = async (workbook) => {
+    setLoading(true);
+    try {
+      await csvWorkbooksAPI.reject(workbook.id, 'Needs revision');
+      showSnackbar('Workbook rejected and returned to draft.', 'warning');
+      await loadCsvWorkbooks();
+    } catch (error) {
+      console.error('Error rejecting workbook:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error rejecting workbook',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // View similarity results for reviewers (admins)
+  const handleViewSimilarityResults = async (workbook) => {
+    setLoading(true);
+    try {
+      const fullWorkbook = await csvWorkbooksAPI.getById(workbook.id);
+      setCurrentWorkbook(fullWorkbook);
+      setWorkbookName(fullWorkbook.name || '');
+      
+      // Parse content for the similarity dialog
+      let rows = fullWorkbook.content || [];
+      rows = rows.map((row, index) => ({
+        ...row,
+        id: row.id || `row-${index}-${Date.now()}`,
+      }));
+      setWorkbookRows(rows);
+      
+      // Run similarity analysis
+      setWorkbookSimilarityLoading(true);
+      setWorkbookSimilarityDialog(true);
+      
+      try {
+        const similarityData = await csvWorkbooksAPI.analyzeSimilarity(workbook.id);
+        
+        // Transform backend response
+        const duplicates = [];
+        if (similarityData.results) {
+          similarityData.results.forEach((row) => {
+            if (row.similar_test_cases && row.similar_test_cases.length > 0) {
+              row.similar_test_cases.forEach((similar) => {
+                duplicates.push({
+                  new_test_case: { 
+                    title: row.title || `Row ${row.row_index + 1}`,
+                    row_index: row.row_index 
+                  },
+                  existing_test_case: {
+                    id: similar.id,
+                    test_id: similar.test_id,
+                    title: similar.title,
+                    module: similar.module,
+                  },
+                  similarity_score: similar.similarity / 100,
+                });
+              });
+            }
+          });
+        }
+        
+        setWorkbookSimilarityResults({
+          similar_test_cases: duplicates,
+          total_new: similarityData.total_test_cases || rows.length,
+          potential_duplicates: similarityData.potential_duplicates || 0,
+          threshold: similarityData.threshold || 75,
+          results: similarityData.results || [],
+          isReviewMode: true, // Flag to indicate this is for review only
+        });
+      } catch (simError) {
+        console.error('Similarity analysis error:', simError);
+        setWorkbookSimilarityResults({ 
+          similar_test_cases: [], 
+          total_new: rows.length,
+          error: 'Could not analyze similarity.',
+          isReviewMode: true,
+        });
+      } finally {
+        setWorkbookSimilarityLoading(false);
+      }
+    } catch (error) {
+      console.error('Error loading workbook similarity:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error loading similarity results',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Step catalog functions
   const handleTopSearch = async (query) => {
     setTopSearchQuery(query);
@@ -920,62 +1422,111 @@ const TestDesignStudio = () => {
         Create and manage your BDD feature files with reusable step catalog
       </Typography>
 
-      {/* My Feature Files Section */}
+      {/* Combined My Designs Section */}
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">
-            My Feature Files ({featureFiles.length}/{MAX_FILES_PER_USER})
+            My Designs ({totalDesignsCount}/{MAX_FILES_PER_USER})
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
+            {/* Import Dropdown Button */}
             <Button
               variant="outlined"
               startIcon={<UploadIcon />}
-              onClick={() => setOpenBulkUploadDialog(true)}
-              disabled={loading}
+              endIcon={<ArrowDropDownIcon />}
+              onClick={(e) => setImportAnchorEl(e.currentTarget)}
+              disabled={loading || totalDesignsCount >= MAX_FILES_PER_USER}
             >
-              Bulk Upload
+              Import
             </Button>
+            <Menu
+              anchorEl={importAnchorEl}
+              open={Boolean(importAnchorEl)}
+              onClose={() => setImportAnchorEl(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <MenuItem onClick={() => { setOpenCsvUploadDialog(true); setImportAnchorEl(null); }}>
+                <ListItemIcon><TableChartIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Import CSV Workbook</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { setOpenBulkUploadDialog(true); setImportAnchorEl(null); }}>
+                <ListItemIcon><CodeIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Import Feature File (.feature)</ListItemText>
+              </MenuItem>
+            </Menu>
+
+            {/* New Design Dropdown Button */}
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={handleStartNew}
-              disabled={featureFiles.length >= MAX_FILES_PER_USER || loading}
+              endIcon={<ArrowDropDownIcon />}
+              onClick={(e) => setNewDesignAnchorEl(e.currentTarget)}
+              disabled={loading || totalDesignsCount >= MAX_FILES_PER_USER}
             >
-              Start New Design
+              New Design
             </Button>
+            <Menu
+              anchorEl={newDesignAnchorEl}
+              open={Boolean(newDesignAnchorEl)}
+              onClose={() => setNewDesignAnchorEl(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            >
+              <MenuItem 
+                onClick={() => { handleStartNew(); setNewDesignAnchorEl(null); }}
+              >
+                <ListItemIcon><CodeIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>New Feature File</ListItemText>
+              </MenuItem>
+              <MenuItem onClick={() => { handleStartNewWorkbook(); setNewDesignAnchorEl(null); }}>
+                <ListItemIcon><TableChartIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>New CSV Workbook</ListItemText>
+              </MenuItem>
+            </Menu>
           </Box>
         </Box>
 
-        {featureFiles.length >= MAX_FILES_PER_USER && (
+        {totalDesignsCount >= MAX_FILES_PER_USER && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Maximum {MAX_FILES_PER_USER} files reached. Please delete or publish existing files to create new ones.
+            Maximum {MAX_FILES_PER_USER} designs reached. Please delete or publish existing designs to create new ones.
           </Alert>
         )}
 
-        {featureFiles.length === 0 ? (
+        {totalDesignsCount === 0 ? (
           <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
             <DescriptionIcon sx={{ fontSize: 80, opacity: 0.3, mb: 2 }} />
             <Typography variant="h6" gutterBottom>
-              No feature files yet
+              No designs yet
             </Typography>
             <Typography variant="body2" sx={{ mb: 3 }}>
-              Start creating your first BDD scenario with reusable steps
+              Create a feature file or import a CSV workbook to get started
             </Typography>
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={handleStartNew}
-              disabled={loading}
-            >
-              Create Your First Feature File
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+              <Button
+                variant="outlined"
+                startIcon={<CodeIcon />}
+                onClick={handleStartNew}
+                disabled={loading}
+              >
+                New Feature File
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<TableChartIcon />}
+                onClick={() => setOpenCsvUploadDialog(true)}
+                disabled={loading}
+              >
+                Import CSV
+              </Button>
+            </Box>
           </Box>
         ) : (
           <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
             {/* List Header */}
             <Box sx={{ 
               display: 'grid', 
-              gridTemplateColumns: '2fr 1.5fr 1fr 1fr 200px', 
+              gridTemplateColumns: '80px 2fr 1.5fr 1fr 1fr 180px', 
               gap: 2, 
               p: 1.5, 
               bgcolor: 'grey.100',
@@ -983,27 +1534,29 @@ const TestDesignStudio = () => {
               borderColor: 'divider',
               fontWeight: 'bold'
             }}>
+              <Typography variant="subtitle2" fontWeight="bold">Type</Typography>
               <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
-              <Typography variant="subtitle2" fontWeight="bold">Description</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Description / Module</Typography>
               <Typography variant="subtitle2" fontWeight="bold">Module</Typography>
               <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
               <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
             </Box>
-            {/* List Items */}
+            {/* Combined List Items - Feature Files */}
             {featureFiles.map((file, index) => (
               <Box 
-                key={file.id}
+                key={`feature-${file.id}`}
                 sx={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '2fr 1.5fr 1fr 1fr 200px', 
+                  gridTemplateColumns: '80px 2fr 1.5fr 1fr 1fr 180px', 
                   gap: 2, 
                   p: 1.5, 
                   alignItems: 'center',
-                  borderBottom: index < featureFiles.length - 1 ? '1px solid' : 'none',
+                  borderBottom: '1px solid',
                   borderColor: 'divider',
                   '&:hover': { bgcolor: 'action.hover' }
                 }}
               >
+                <Chip icon={<CodeIcon />} label="Feature" size="small" color="primary" variant="outlined" />
                 <Box>
                   <Typography variant="body2" fontWeight="medium">
                     {file.name}
@@ -1059,6 +1612,73 @@ const TestDesignStudio = () => {
                   )}
                   <Tooltip title="Delete">
                     <IconButton size="small" color="error" onClick={() => handleDeleteFile(file)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Box>
+            ))}
+            {/* Combined List Items - CSV Workbooks */}
+            {csvWorkbooks.map((workbook, index) => (
+              <Box 
+                key={`workbook-${workbook.id}`}
+                sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '80px 2fr 1.5fr 1fr 1fr 180px', 
+                  gap: 2, 
+                  p: 1.5, 
+                  alignItems: 'center',
+                  borderBottom: index < csvWorkbooks.length - 1 ? '1px solid' : 'none',
+                  borderColor: 'divider',
+                  '&:hover': { bgcolor: 'action.hover' }
+                }}
+              >
+                <Chip icon={<TableChartIcon />} label="CSV" size="small" color="secondary" variant="outlined" />
+                <Box>
+                  <Typography variant="body2" fontWeight="medium">
+                    {workbook.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Created: {workbook.created_at ? new Date(workbook.created_at).toLocaleDateString() : '-'}
+                  </Typography>
+                  {workbook.status === 'rejected' && workbook.rejection_reason && (
+                    <Typography variant="caption" color="error.main" display="block">
+                      Rejected: {workbook.rejection_reason}
+                    </Typography>
+                  )}
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }}>
+                  {workbook.description || 'No description'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {workbook.module_name || 'None'}
+                </Typography>
+                <Box>
+                  <Chip 
+                    label={workbook.status === 'draft' ? 'Draft' : workbook.status === 'pending_approval' ? 'Pending' : workbook.status === 'approved' ? 'Approved' : workbook.status === 'rejected' ? 'Rejected' : workbook.status} 
+                    color={workbook.status === 'approved' ? 'success' : workbook.status === 'pending_approval' ? 'warning' : workbook.status === 'rejected' ? 'error' : 'default'} 
+                    size="small" 
+                  />
+                </Box>
+                <Stack direction="row" spacing={0.5} justifyContent="center">
+                  <Tooltip title="View/Edit">
+                    <IconButton size="small" color="primary" onClick={() => handleEditWorkbook(workbook)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  {(workbook.status === 'draft' || workbook.status === 'rejected') && (
+                    <Tooltip title="Submit for Approval">
+                      <IconButton size="small" color="success" onClick={() => handleSubmitWorkbookForApproval(workbook)}>
+                        <SendIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Tooltip title="Delete">
+                    <IconButton size="small" color="error" onClick={() => handleDeleteWorkbook(workbook)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
@@ -1140,18 +1760,18 @@ const TestDesignStudio = () => {
         </Paper>
       )}
 
-      {/* Review Test Cases Section (for admins - shows all pending files) */}
+      {/* Combined Review Section (for admins - shows all pending items) */}
       {user?.role === 'admin' && (
         <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'info.50' }}>
           <Typography variant="h6" gutterBottom>
             <RateReviewIcon sx={{ verticalAlign: 'middle', mr: 1, color: 'info.main' }} />
-            Review Test Cases ({pendingApprovalFiles.length})
+            Pending Review ({pendingApprovalFiles.length + pendingCsvWorkbooks.length})
           </Typography>
 
-          {pendingApprovalFiles.length === 0 ? (
+          {pendingApprovalFiles.length === 0 && pendingCsvWorkbooks.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
               <Typography variant="body2" color="text.secondary">
-                No feature files pending review. When testers submit feature files for approval, they will appear here.
+                No items pending review. When users submit designs for approval, they will appear here.
               </Typography>
             </Box>
           ) : (
@@ -1159,7 +1779,7 @@ const TestDesignStudio = () => {
               {/* List Header */}
               <Box sx={{ 
                 display: 'grid', 
-                gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 180px', 
+                gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 1fr 180px', 
                 gap: 2, 
                 p: 1.5, 
                 bgcolor: 'info.100',
@@ -1167,28 +1787,30 @@ const TestDesignStudio = () => {
                 borderColor: 'info.light',
                 fontWeight: 'bold'
               }}>
+                <Typography variant="subtitle2" fontWeight="bold">Type</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Created By</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Submitted</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
               </Box>
-              {/* List Items */}
+              {/* List Items - Feature Files */}
               {pendingApprovalFiles.map((file, index) => (
                 <Box 
-                  key={file.id}
+                  key={`review-feature-${file.id}`}
                   sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 180px', 
+                    gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 1fr 180px', 
                     gap: 2, 
                     p: 1.5, 
                     alignItems: 'center',
                     bgcolor: 'white',
-                    borderBottom: index < pendingApprovalFiles.length - 1 ? '1px solid' : 'none',
+                    borderBottom: '1px solid',
                     borderColor: 'info.light',
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
+                  <Chip icon={<CodeIcon />} label="Feature" size="small" color="primary" variant="outlined" />
                   <Typography variant="body2" fontWeight="medium">
                     {file.name}
                   </Typography>
@@ -1220,6 +1842,64 @@ const TestDesignStudio = () => {
                   </Stack>
                 </Box>
               ))}
+              {/* List Items - CSV Workbooks */}
+              {pendingCsvWorkbooks.map((workbook, index) => (
+                <Box 
+                  key={`review-workbook-${workbook.id}`}
+                  sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 1fr 180px', 
+                    gap: 2, 
+                    p: 1.5, 
+                    alignItems: 'center',
+                    bgcolor: 'white',
+                    borderBottom: index < pendingCsvWorkbooks.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'info.light',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                >
+                  <Chip icon={<TableChartIcon />} label="CSV" size="small" color="secondary" variant="outlined" />
+                  <Box>
+                    <Typography variant="body2" fontWeight="medium">
+                      {workbook.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {workbook.test_case_count || 0} test cases • {workbook.description || 'No description'}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {workbook.creator_name || workbook.creator_email || 'Unknown'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {workbook.submitted_for_approval_at ? new Date(workbook.submitted_for_approval_at).toLocaleDateString() : '-'}
+                  </Typography>
+                  <Box>
+                    <Chip label="Pending" color="warning" size="small" />
+                  </Box>
+                  <Stack direction="row" spacing={0.5} justifyContent="center">
+                    <Tooltip title="View">
+                      <IconButton size="small" onClick={() => handleViewWorkbook(workbook)}>
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="View Similarity">
+                      <IconButton size="small" color="info" onClick={() => handleViewSimilarityResults(workbook)}>
+                        <CompareArrowsIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Approve">
+                      <IconButton size="small" color="success" onClick={() => handleApproveWorkbook(workbook)}>
+                        <CheckCircleOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Reject">
+                      <IconButton size="small" color="error" onClick={() => handleRejectWorkbook(workbook)}>
+                        <CancelIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              ))}
             </Box>
           )}
         </Paper>
@@ -1229,13 +1909,13 @@ const TestDesignStudio = () => {
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" gutterBottom>
           <CheckCircleIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-          Recently Uploaded ({recentUploads.length})
+          Recently Published ({recentUploads.length})
         </Typography>
 
         {recentUploads.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
             <Typography variant="body2">
-              No published files yet. Publish feature files to see them here.
+              No published files yet. Publish feature files or approve CSV workbooks to see them here.
             </Typography>
           </Box>
         ) : (
@@ -1243,7 +1923,7 @@ const TestDesignStudio = () => {
             {/* List Header */}
             <Box sx={{ 
               display: 'grid', 
-              gridTemplateColumns: '2fr 1.5fr 1fr 150px', 
+              gridTemplateColumns: '2fr 100px 1.5fr 1fr 150px', 
               gap: 2, 
               p: 1.5, 
               bgcolor: 'success.50',
@@ -1252,17 +1932,18 @@ const TestDesignStudio = () => {
               fontWeight: 'bold'
             }}>
               <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
-              <Typography variant="subtitle2" fontWeight="bold">Uploaded</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Type</Typography>
+              <Typography variant="subtitle2" fontWeight="bold">Published</Typography>
               <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
               <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
             </Box>
             {/* List Items */}
             {recentUploads.map((upload, index) => (
               <Box 
-                key={upload.id}
+                key={`${upload.fileType}-${upload.id}`}
                 sx={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '2fr 1.5fr 1fr 150px', 
+                  gridTemplateColumns: '2fr 100px 1.5fr 1fr 150px', 
                   gap: 2, 
                   p: 1.5, 
                   alignItems: 'center',
@@ -1275,25 +1956,35 @@ const TestDesignStudio = () => {
                 <Typography variant="body2" fontWeight="medium">
                   {upload.name}
                 </Typography>
+                <Box>
+                  <Chip 
+                    label={upload.fileType === 'feature' ? 'Feature' : 'CSV'} 
+                    size="small" 
+                    variant="outlined"
+                    color={upload.fileType === 'feature' ? 'primary' : 'secondary'}
+                  />
+                </Box>
                 <Typography variant="body2" color="text.secondary">
-                  {new Date(upload.updated_at || upload.created_at).toLocaleDateString()}
+                  {new Date(upload.updated_at || upload.approved_at || upload.created_at).toLocaleDateString()}
                 </Typography>
                 <Box>
                   <Chip label="Published" color="success" size="small" />
                 </Box>
                 <Stack direction="row" spacing={0.5} justifyContent="center">
                   <Tooltip title="View">
-                    <IconButton size="small" onClick={() => handleViewFile(upload)}>
+                    <IconButton size="small" onClick={() => upload.fileType === 'feature' ? handleViewFile(upload) : handleViewWorkbook(upload)}>
                       <VisibilityIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Restore to Draft">
-                    <IconButton size="small" color="warning" onClick={() => handleRestore(upload)}>
-                      <PublishIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                  {upload.fileType === 'feature' && (
+                    <Tooltip title="Restore to Draft">
+                      <IconButton size="small" color="warning" onClick={() => handleRestore(upload)}>
+                        <PublishIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <Tooltip title="Remove">
-                    <IconButton size="small" color="error" onClick={() => handleDeleteUpload(upload.id)}>
+                    <IconButton size="small" color="error" onClick={() => upload.fileType === 'feature' ? handleDeleteUpload(upload.id) : handleDeleteWorkbook(upload)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
@@ -1744,6 +2435,135 @@ const TestDesignStudio = () => {
     </Box>
   );
 
+  // ========== WORKBOOK EDITOR (Full Page DataGrid) ==========
+  const renderWorkbookEditor = () => {
+    const isReadOnly = currentWorkbook?.status === 'approved' || currentWorkbook?.status === 'pending_approval';
+    // Count only test case rows (excluding PARAMS and DATA rows)
+    const testCaseCount = workbookRows.filter(r => {
+      const rowType = r.rowType || 'test_case';
+      return rowType === ROW_TYPES.TEST_CASE || rowType === 'normal' || rowType === 'test_case';
+    }).length;
+    
+    return (
+      <Box sx={{ height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
+        {/* Top Bar */}
+        <Paper elevation={1} sx={{ p: 2, borderRadius: 0 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item>
+              <Tooltip title="Back to Dashboard">
+                <IconButton onClick={handleBackFromWorkbookEditor} color="primary">
+                  <BackIcon />
+                </IconButton>
+              </Tooltip>
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Workbook Name *"
+                value={workbookName}
+                onChange={(e) => setWorkbookName(e.target.value)}
+                required
+                disabled={isReadOnly}
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Description"
+                value={workbookDescription}
+                onChange={(e) => setWorkbookDescription(e.target.value)}
+                disabled={isReadOnly}
+              />
+            </Grid>
+            <Grid item xs={12} sm={2}>
+              <FormControl fullWidth size="small" required>
+                <InputLabel>Module *</InputLabel>
+                <Select
+                  value={workbookModuleId}
+                  onChange={(e) => setWorkbookModuleId(e.target.value)}
+                  label="Module *"
+                  disabled={isReadOnly}
+                >
+                  <MenuItem value="">Select Module</MenuItem>
+                  {modules.map((module) => (
+                    <MenuItem key={module.id} value={module.id}>
+                      {module.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            {!isReadOnly && (
+              <>
+                <Grid item>
+                  <Button
+                    variant="outlined"
+                    startIcon={<SaveIcon />}
+                    onClick={() => handleSaveWorkbook(false)}
+                    disabled={loading}
+                  >
+                    Save Draft
+                  </Button>
+                </Grid>
+                <Grid item>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<SendIcon />}
+                    onClick={() => handleSaveWorkbook(true)}
+                    disabled={loading || !workbookName.trim() || !workbookModuleId}
+                  >
+                    Save & Submit
+                  </Button>
+                </Grid>
+              </>
+            )}
+            {isReadOnly && (
+              <Grid item>
+                <Chip 
+                  label={currentWorkbook?.status === 'approved' ? 'Approved' : 'Pending Approval'} 
+                  color={currentWorkbook?.status === 'approved' ? 'success' : 'warning'}
+                />
+              </Grid>
+            )}
+          </Grid>
+          
+          {/* Validation Summary */}
+          {workbookValidation && (
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Typography variant="body2">
+                  <strong>Test Cases:</strong> {testCaseCount}
+                </Typography>
+                {workbookValidation.errorCount > 0 && (
+                  <Alert severity="warning" sx={{ py: 0 }}>
+                    {workbookValidation.errorCount} validation error(s)
+                  </Alert>
+                )}
+                {workbookValidation.errorCount === 0 && testCaseCount > 0 && (
+                  <Chip label="All rows valid" color="success" size="small" icon={<CheckCircleIcon />} />
+                )}
+              </Stack>
+            </Box>
+          )}
+        </Paper>
+
+        {/* DataGrid - Full Screen */}
+        <Box sx={{ flexGrow: 1, p: 2 }}>
+          <TestCaseDataGrid
+            rows={workbookRows}
+            setRows={setWorkbookRows}
+            modules={modules}
+            onValidationChange={handleWorkbookValidationChange}
+            readOnly={isReadOnly}
+          />
+        </Box>
+      </Box>
+    );
+  };
+
   // ========== DIALOGS ==========
   const renderDialogs = () => (
     <>
@@ -2182,13 +3002,63 @@ const TestDesignStudio = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* CSV Workbook Upload Dialog */}
+      <CsvUploadDialog
+        open={openCsvUploadDialog}
+        onClose={() => setOpenCsvUploadDialog(false)}
+        onSuccess={(result) => {
+          setSnackbar({
+            open: true,
+            message: `Workbook "${result.name}" saved successfully`,
+            severity: 'success'
+          });
+          setOpenCsvUploadDialog(false);
+          loadCsvWorkbooks(); // Reload workbooks list
+        }}
+      />
+
+      {/* Workbook Similarity Check Dialog (used from dashboard and editor) */}
+      <SimilarityCheckDialog
+        open={workbookSimilarityDialog}
+        onClose={() => {
+          setWorkbookSimilarityDialog(false);
+          setWorkbookSimilarityResults(null);
+        }}
+        similarityResults={workbookSimilarityResults}
+        loading={workbookSimilarityLoading}
+        onConfirm={handleWorkbookSimilarityConfirm}
+        testCases={workbookRows
+          .map((row, idx) => ({ ...row, rowIndex: idx }))
+          .filter(row => {
+            const rowType = row.rowType || 'test_case';
+            return rowType === 'test_case' || rowType === 'normal' || rowType === ROW_TYPES.TEST_CASE;
+          })
+        }
+        itemName={workbookName || 'Workbook'}
+      />
     </>
   );
 
   // ========== MAIN RENDER ==========
+  const renderMainView = () => {
+    switch (view) {
+      case 'dashboard':
+        return renderDashboard();
+      case 'view':
+        return renderViewMode();
+      case 'editor':
+        return renderEditor();
+      case 'workbookEditor':
+        return renderWorkbookEditor();
+      default:
+        return renderDashboard();
+    }
+  };
+
   return (
     <Box>
-      {view === 'dashboard' ? renderDashboard() : view === 'view' ? renderViewMode() : renderEditor()}
+      {renderMainView()}
       {renderDialogs()}
     </Box>
   );

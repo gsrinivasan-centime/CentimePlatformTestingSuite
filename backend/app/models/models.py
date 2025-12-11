@@ -64,6 +64,15 @@ class User(Base):
     is_super_admin = Column(Boolean, default=False)  # Only super admin can modify application settings
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # JIRA OAuth fields (tokens are encrypted)
+    jira_access_token = Column(String, nullable=True)
+    jira_refresh_token = Column(String, nullable=True)
+    jira_token_expires_at = Column(DateTime, nullable=True)
+    jira_cloud_id = Column(String, nullable=True)
+    jira_account_id = Column(String, nullable=True)
+    jira_account_email = Column(String, nullable=True)
+    jira_display_name = Column(String, nullable=True)
+    
     # Relationships
     test_executions = relationship("TestExecution", back_populates="executor")
 

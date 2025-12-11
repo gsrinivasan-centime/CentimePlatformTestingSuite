@@ -21,10 +21,16 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "Centime Test Management"
     EMAIL_VERIFICATION_EXPIRE_HOURS: int = 24
     
-    # JIRA Integration
+    # JIRA Integration (Service Account - for read operations)
     JIRA_SERVER: str = ""
     JIRA_EMAIL: str = ""
     JIRA_API_TOKEN: str = ""
+    
+    # JIRA OAuth 2.0 (3LO) - for user-specific operations like commenting
+    JIRA_OAUTH_CLIENT_ID: str = ""
+    JIRA_OAUTH_CLIENT_SECRET: str = ""
+    JIRA_OAUTH_REDIRECT_URI: str = "http://localhost:3000/jira/callback"
+    TOKEN_ENCRYPTION_KEY: str = ""  # 32-byte Fernet key for encrypting OAuth tokens
 
     # Google Drive Integration (Optional)
     GOOGLE_APPLICATION_CREDENTIALS: str = ""

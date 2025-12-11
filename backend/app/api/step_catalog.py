@@ -1145,6 +1145,37 @@ async def reject_feature_file(
     }
 
 
+@router.post("/feature-files/{file_id}/recall")
+async def recall_feature_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Recall a pending feature file back to draft (only by the original creator)"""
+    db_file = db.query(FeatureFile).filter(FeatureFile.id == file_id).first()
+    if not db_file:
+        raise HTTPException(status_code=404, detail="Feature file not found")
+    
+    # Only the creator can recall their own file
+    if db_file.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can recall this file")
+    
+    if db_file.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="File is not pending approval")
+    
+    # Return to draft status
+    db_file.status = "draft"
+    db_file.submitted_for_approval_at = None
+    
+    db.commit()
+    db.refresh(db_file)
+    
+    return {
+        "message": "File recalled and returned to draft.",
+        "file": db_file
+    }
+
+
 @router.post("/feature-files/{file_id}/restore")
 async def restore_feature_file(
     file_id: int,

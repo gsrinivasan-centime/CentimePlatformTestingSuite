@@ -490,5 +490,315 @@ class JiraService:
         except requests.exceptions.RequestException as e:
             raise ValueError(f"Failed to search users in JIRA: {e}")
 
+    def search_production_tickets(self, jql: str) -> list:
+        """
+        Search production tickets using provided JQL query
+        
+        Args:
+            jql: Complete JQL query string
+            
+        Returns:
+            List of ticket details
+        """
+        if not self.is_configured:
+            raise ValueError(
+                "JIRA integration is not configured. Please set JIRA_SERVER, "
+                "JIRA_EMAIL, and JIRA_API_TOKEN in your .env file."
+            )
+        
+        api_url = f"{self.jira_server}/rest/api/3/search/jql"
+        
+        try:
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params={
+                    'jql': jql,
+                    'maxResults': 100,
+                    'fields': 'summary,status,priority,assignee,created,updated,resolutiondate,labels'
+                },
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                raise ValueError("JIRA authentication failed. Please check your credentials.")
+            elif e.response.status_code == 400:
+                try:
+                    error_detail = e.response.json()
+                    error_messages = error_detail.get('errorMessages', [])
+                    if error_messages:
+                        raise ValueError(f"JIRA error: {', '.join(error_messages)}")
+                except:
+                    pass
+                raise ValueError(f"Invalid JQL query: {jql}")
+            else:
+                raise ValueError(f"JIRA API error: {e}")
+        except requests.exceptions.Timeout:
+            raise ValueError("JIRA API request timed out. Please try again.")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to connect to JIRA: {e}")
+        
+        data = response.json()
+        issues = data.get('issues', [])
+        
+        tickets = []
+        for issue in issues:
+            ticket_key = issue.get('key', '')
+            fields = issue.get('fields', {})
+            
+            tickets.append({
+                'key': ticket_key,
+                'summary': fields.get('summary', ''),
+                'status': fields.get('status', {}).get('name', 'Unknown'),
+                'status_category': fields.get('status', {}).get('statusCategory', {}).get('key', 'undefined'),
+                'priority': fields.get('priority', {}).get('name', 'Medium') if fields.get('priority') else 'Medium',
+                'assignee': fields.get('assignee', {}).get('displayName', 'Unassigned') if fields.get('assignee') else 'Unassigned',
+                'assignee_avatar': fields.get('assignee', {}).get('avatarUrls', {}).get('24x24', '') if fields.get('assignee') else '',
+                'created': fields.get('created', ''),
+                'updated': fields.get('updated', ''),
+                'resolved': fields.get('resolutiondate', ''),
+                'labels': fields.get('labels', []),
+                'jira_url': f"{self.jira_server}/browse/{ticket_key}"
+            })
+        
+        return tickets
+
+    def get_ticket_count(self, jql: str) -> int:
+        """
+        Get count of tickets matching a JQL query
+        
+        Args:
+            jql: JQL query string
+            
+        Returns:
+            Count of matching tickets
+        """
+        if not self.is_configured:
+            raise ValueError("JIRA integration is not configured.")
+        
+        api_url = f"{self.jira_server}/rest/api/3/search/jql"
+        
+        try:
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params={
+                    'jql': jql,
+                    'maxResults': 0  # We only need the count
+                },
+                timeout=15
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            return data.get('total', 0)
+            
+        except Exception:
+            return 0
+
+    def get_production_ticket_details(self, ticket_key: str) -> dict:
+        """
+        Get detailed information for a specific ticket including description in ADF format
+        
+        Args:
+            ticket_key: JIRA ticket key (e.g., CN-1234)
+            
+        Returns:
+            Dict with ticket details including ADF description
+        """
+        if not self.is_configured:
+            raise ValueError("JIRA integration is not configured.")
+        
+        api_url = f"{self.jira_server}/rest/api/3/issue/{ticket_key}"
+        
+        try:
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params={
+                    'fields': 'summary,description,status,priority,assignee,reporter,created,updated,resolutiondate,labels,components,fixVersions,attachment',
+                    'expand': 'renderedFields'
+                },
+                timeout=15
+            )
+            
+            response.raise_for_status()
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                raise ValueError(f"Ticket {ticket_key} not found.")
+            raise ValueError(f"JIRA API error: {e}")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to connect to JIRA: {e}")
+        
+        data = response.json()
+        fields = data.get('fields', {})
+        rendered_fields = data.get('renderedFields', {})
+        
+        # Process attachments
+        attachments = []
+        for att in fields.get('attachment', []):
+            attachments.append({
+                'id': att.get('id'),
+                'filename': att.get('filename', ''),
+                'mimeType': att.get('mimeType', ''),
+                'size': att.get('size', 0),
+                'content': att.get('content', ''),  # Download URL
+                'thumbnail': att.get('thumbnail', ''),  # Thumbnail URL for images
+                'created': att.get('created', ''),
+                'author': att.get('author', {}).get('displayName', 'Unknown') if att.get('author') else 'Unknown'
+            })
+        
+        return {
+            'key': data.get('key', ticket_key),
+            'summary': fields.get('summary', ''),
+            'description_adf': fields.get('description'),  # ADF format for Atlaskit renderer
+            'description_html': rendered_fields.get('description', ''),  # Pre-rendered HTML fallback
+            'status': fields.get('status', {}).get('name', 'Unknown'),
+            'status_category': fields.get('status', {}).get('statusCategory', {}).get('key', 'undefined'),
+            'priority': fields.get('priority', {}).get('name', 'Medium') if fields.get('priority') else 'Medium',
+            'assignee': fields.get('assignee', {}).get('displayName', 'Unassigned') if fields.get('assignee') else 'Unassigned',
+            'assignee_avatar': fields.get('assignee', {}).get('avatarUrls', {}).get('48x48', '') if fields.get('assignee') else '',
+            'reporter': fields.get('reporter', {}).get('displayName', 'Unknown') if fields.get('reporter') else 'Unknown',
+            'reporter_avatar': fields.get('reporter', {}).get('avatarUrls', {}).get('48x48', '') if fields.get('reporter') else '',
+            'created': fields.get('created', ''),
+            'updated': fields.get('updated', ''),
+            'resolved': fields.get('resolutiondate', ''),
+            'labels': fields.get('labels', []),
+            'components': [c.get('name', '') for c in fields.get('components', [])],
+            'fix_versions': [v.get('name', '') for v in fields.get('fixVersions', [])],
+            'attachments': attachments,
+            'jira_url': f"{self.jira_server}/browse/{ticket_key}"
+        }
+
+    def get_ticket_comments(self, ticket_key: str, start_at: int = 0, max_results: int = 10) -> dict:
+        """
+        Get paginated comments for a ticket, ordered by newest first
+        
+        Args:
+            ticket_key: JIRA ticket key (e.g., CN-1234)
+            start_at: Starting index for pagination
+            max_results: Maximum number of comments to return
+            
+        Returns:
+            Dict with total count and list of comments
+        """
+        if not self.is_configured:
+            raise ValueError("JIRA integration is not configured.")
+        
+        api_url = f"{self.jira_server}/rest/api/3/issue/{ticket_key}/comment"
+        
+        try:
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                params={
+                    'startAt': start_at,
+                    'maxResults': max_results,
+                    'orderBy': '-created',  # Newest first
+                    'expand': 'renderedBody'
+                },
+                timeout=15
+            )
+            
+            response.raise_for_status()
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                raise ValueError(f"Ticket {ticket_key} not found.")
+            raise ValueError(f"JIRA API error: {e}")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to connect to JIRA: {e}")
+        
+        data = response.json()
+        comments = data.get('comments', [])
+        
+        formatted_comments = []
+        for comment in comments:
+            author = comment.get('author', {})
+            formatted_comments.append({
+                'id': comment.get('id', ''),
+                'author': author.get('displayName', 'Unknown'),
+                'author_avatar': author.get('avatarUrls', {}).get('48x48', ''),
+                'author_email': author.get('emailAddress', ''),
+                'body_adf': comment.get('body'),  # ADF format
+                'body_html': comment.get('renderedBody', ''),  # Pre-rendered HTML
+                'created': comment.get('created', ''),
+                'updated': comment.get('updated', '')
+            })
+        
+        return {
+            'total': data.get('total', 0),
+            'start_at': data.get('startAt', start_at),
+            'max_results': data.get('maxResults', max_results),
+            'comments': formatted_comments
+        }
+
+    def proxy_image(self, image_url: str) -> tuple:
+        """
+        Proxy a JIRA image/attachment URL with authentication.
+        
+        Args:
+            image_url: The JIRA image URL to fetch
+            
+        Returns:
+            Tuple of (image_bytes, content_type)
+            
+        Raises:
+            ValueError: If JIRA is not configured or image not found
+        """
+        if not self.is_configured:
+            raise ValueError("JIRA integration is not configured.")
+        
+        # Validate that the URL is from our JIRA server for security
+        if not image_url.startswith(self.jira_server):
+            raise ValueError("Invalid image URL - must be from configured JIRA server")
+        
+        try:
+            response = requests.get(
+                image_url,
+                auth=HTTPBasicAuth(self.jira_email, self.jira_api_token),
+                headers={
+                    'Accept': 'image/*,*/*'
+                },
+                timeout=30,
+                stream=True
+            )
+            
+            response.raise_for_status()
+            
+            content_type = response.headers.get('Content-Type', 'image/png')
+            image_data = response.content
+            
+            return image_data, content_type
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                raise ValueError("JIRA authentication failed.")
+            elif e.response.status_code == 404:
+                raise ValueError("Image not found.")
+            raise ValueError(f"Failed to fetch image: {e}")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"Failed to connect to JIRA: {e}")
+
 # Singleton instance
 jira_service = JiraService()

@@ -22,6 +22,7 @@ import Releases from './pages/Releases';
 import Users from './pages/Users';
 import Stories from './pages/Stories';
 import Issues from './pages/Issues';
+import ProductionTickets from './pages/ProductionTickets';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 import ApplicationSettings from './pages/ApplicationSettings';
 
@@ -146,6 +147,16 @@ function AppContent() {
             <ProtectedRoute>
               <Layout>
                 <Issues />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/production-tickets"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <ProductionTickets />
               </Layout>
             </ProtectedRoute>
           }

@@ -592,7 +592,7 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
               <CloseIcon />
             </IconButton>
           </Box>
-          <Typography variant="subtitle1" sx={{ mt: 1 }}>
+          <Typography variant="h6" sx={{ mt: 1, fontWeight: 700, lineHeight: 1.3 }}>
             {details?.summary || ticket.summary}
           </Typography>
         </Box>

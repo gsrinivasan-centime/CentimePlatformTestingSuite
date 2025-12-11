@@ -60,12 +60,13 @@ def create_issue(
     # Generate embedding in background for semantic search
     background_tasks.add_task(compute_issue_embedding, db_issue.id)
     
-    # Send Slack notification if issue is assigned to someone with an email
-    if db_issue.jira_assignee_email:
+    # Send Slack notification if issue is assigned (use name fallback if no email)
+    if db_issue.jira_assignee_id and (db_issue.jira_assignee_email or db_issue.jira_assignee_name):
         background_tasks.add_task(
             send_slack_issue_notification,
             db_issue.id,
-            db_issue.jira_assignee_email,
+            db_issue.jira_assignee_email or "",
+            db_issue.jira_assignee_name or "",
             settings.FRONTEND_URL
         )
     
@@ -144,7 +145,7 @@ def update_issue(
         raise HTTPException(status_code=404, detail="Issue not found")
     
     # Track if assignee is changing for Slack notification
-    old_assignee_email = db_issue.jira_assignee_email
+    old_assignee_id = db_issue.jira_assignee_id
     
     update_data = issue_update.dict(exclude_unset=True)
     
@@ -166,17 +167,22 @@ def update_issue(
     if any(field in update_data for field in embedding_fields):
         background_tasks.add_task(compute_issue_embedding, db_issue.id)
     
-    # Send Slack notification if assignee changed to a new person with an email
-    new_assignee_email = db_issue.jira_assignee_email
-    if new_assignee_email and new_assignee_email != old_assignee_email:
-        background_tasks.add_task(
-            send_slack_issue_notification,
-            db_issue.id,
-            new_assignee_email,
-            settings.FRONTEND_URL
-        )
+    # Send Slack notification if assignee changed (check by ID, use email+name for lookup)
+    new_assignee_id = db_issue.jira_assignee_id
+    print(f"[DEBUG] Old assignee ID: {old_assignee_id}, New assignee ID: {new_assignee_id}")
+    print(f"[DEBUG] New assignee email: {db_issue.jira_assignee_email}, name: {db_issue.jira_assignee_name}")
     
-    return db_issue
+    if new_assignee_id and new_assignee_id != old_assignee_id:
+        # Assignee changed - send notification
+        if db_issue.jira_assignee_email or db_issue.jira_assignee_name:
+            print(f"[DEBUG] Triggering Slack notification for {db_issue.jira_assignee_name} ({db_issue.jira_assignee_email})")
+            background_tasks.add_task(
+                send_slack_issue_notification,
+                db_issue.id,
+                db_issue.jira_assignee_email or "",
+                db_issue.jira_assignee_name or "",
+                settings.FRONTEND_URL
+            )
     
     return db_issue
 

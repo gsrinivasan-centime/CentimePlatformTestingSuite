@@ -34,6 +34,7 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
         assigned_to: '', // Internal user ID (legacy/optional)
         jira_assignee_id: '', // Jira Account ID
         jira_assignee_name: '', // Display name for UI
+        jira_assignee_email: '', // Email for Slack notifications
         video_url: '',
         screenshot_urls: '', // Stored as newline separated string in UI
         reporter_name: '',
@@ -62,6 +63,7 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                     assigned_to: issue.assigned_to || '',
                     jira_assignee_id: issue.jira_assignee_id || '',
                     jira_assignee_name: issue.jira_assignee_id ? 'Loading...' : '',
+                    jira_assignee_email: issue.jira_assignee_email || '',
                     video_url: issue.video_url || '',
                     screenshot_urls: issue.screenshot_urls || '',
                     reporter_name: issue.reporter_name || issue.creator?.full_name || '',
@@ -81,6 +83,7 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                     assigned_to: '',
                     jira_assignee_id: '',
                     jira_assignee_name: '',
+                    jira_assignee_email: '',
                     video_url: '',
                     screenshot_urls: '',
                     reporter_name: user?.full_name || user?.email || 'Unknown',
@@ -101,6 +104,7 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
                 assigned_to: '',
                 jira_assignee_id: '',
                 jira_assignee_name: '',
+                jira_assignee_email: '',
                 video_url: '',
                 screenshot_urls: '',
                 reporter_name: '',
@@ -156,13 +160,15 @@ const IssueDetail = ({ open, onClose, onSave, onDelete, issue, defaultReleaseId,
             setFormData(prev => ({
                 ...prev,
                 jira_assignee_id: newValue.accountId,
-                jira_assignee_name: newValue.displayName
+                jira_assignee_name: newValue.displayName,
+                jira_assignee_email: newValue.emailAddress || ''
             }));
         } else {
             setFormData(prev => ({
                 ...prev,
                 jira_assignee_id: '',
-                jira_assignee_name: ''
+                jira_assignee_name: '',
+                jira_assignee_email: ''
             }));
         }
     };

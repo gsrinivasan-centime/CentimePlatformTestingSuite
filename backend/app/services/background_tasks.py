@@ -219,3 +219,60 @@ def compute_batch_embeddings(entity_type: str, entity_ids: List[int]):
         logger.warning(f"[Embedding Task] Unknown entity type: {entity_type}")
     
     logger.info(f"[Embedding Task] ✅ Completed batch embedding for {len(entity_ids)} {entity_type}(s)")
+
+
+def send_slack_issue_notification(issue_id: int, assignee_email: str, frontend_url: str):
+    """
+    Background task to send Slack DM notification when an issue is assigned.
+    
+    This function runs in a background thread and creates its own database session.
+    It looks up the assignee by email in Slack and sends them a rich DM.
+    
+    Args:
+        issue_id: ID of the issue that was assigned
+        assignee_email: Email address of the assignee (from JIRA user)
+        frontend_url: Base URL of the frontend for building portal links
+    """
+    from app.services.slack_service import slack_service
+    
+    db = SessionLocal()
+    try:
+        from app.models.models import Issue, Release
+        
+        # Fetch issue details
+        issue = db.query(Issue).filter(Issue.id == issue_id).first()
+        if not issue:
+            logger.warning(f"[Slack Notification] Issue {issue_id} not found")
+            return
+        
+        # Get release name if available
+        release_name = None
+        if issue.release_id:
+            release = db.query(Release).filter(Release.id == issue.release_id).first()
+            if release:
+                release_name = release.name
+        
+        # Build portal URL - link to issue within release management
+        portal_url = f"{frontend_url}/releases"
+        if issue.release_id:
+            portal_url = f"{frontend_url}/releases/{issue.release_id}/issues"
+        
+        # Send Slack notification
+        success = slack_service.notify_issue_assigned(
+            assignee_email=assignee_email,
+            issue_title=issue.title,
+            issue_description=issue.description,
+            priority=issue.priority or "Medium",
+            release_name=release_name,
+            portal_url=portal_url
+        )
+        
+        if success:
+            logger.info(f"[Slack Notification] ✅ Sent notification for issue {issue_id} to {assignee_email}")
+        else:
+            logger.warning(f"[Slack Notification] Failed to notify {assignee_email} for issue {issue_id}")
+            
+    except Exception as e:
+        logger.error(f"[Slack Notification] Error sending notification for issue {issue_id}: {e}")
+    finally:
+        db.close()

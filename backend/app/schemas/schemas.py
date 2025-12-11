@@ -563,6 +563,7 @@ class IssueBase(BaseModel):
     video_url: Optional[str] = None
     screenshot_urls: Optional[str] = None
     jira_assignee_id: Optional[str] = None
+    jira_assignee_email: Optional[str] = None
     reporter_name: Optional[str] = None
     jira_story_id: Optional[str] = None
 
@@ -581,6 +582,7 @@ class IssueUpdate(BaseModel):
     assigned_to: Optional[int] = None
     jira_assignee_id: Optional[str] = None
     jira_assignee_name: Optional[str] = None
+    jira_assignee_email: Optional[str] = None
     jira_story_id: Optional[str] = None
     closed_at: Optional[datetime] = None
 

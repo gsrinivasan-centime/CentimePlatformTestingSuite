@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # Google Gemini API for Smart Search
     GOOGLE_API_KEY: str = ""  # Gemini API key for LLM-powered search
     
+    # Slack Integration
+    SLACK_BOT_TOKEN: str = ""  # Slack Bot token for notifications (xoxb-...)
+    
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     
     @property

@@ -1,0 +1,303 @@
+"""
+Slack Integration Service
+Handles sending DM notifications to users via Slack Bot API
+"""
+import os
+import logging
+import requests
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+class SlackService:
+    """Service for sending Slack notifications via Bot API"""
+    
+    def __init__(self):
+        self.bot_token = os.getenv('SLACK_BOT_TOKEN', '')
+        self.is_configured = bool(self.bot_token)
+        self.base_url = "https://slack.com/api"
+        
+    def _get_headers(self) -> Dict[str, str]:
+        """Get authorization headers for Slack API requests"""
+        return {
+            "Authorization": f"Bearer {self.bot_token}",
+            "Content-Type": "application/json"
+        }
+    
+    def lookup_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Look up a Slack user by their email address
+        
+        Args:
+            email: User's email address
+            
+        Returns:
+            User object if found, None otherwise
+        """
+        if not self.is_configured:
+            logger.warning("Slack is not configured - SLACK_BOT_TOKEN not set")
+            return None
+            
+        try:
+            response = requests.get(
+                f"{self.base_url}/users.lookupByEmail",
+                headers=self._get_headers(),
+                params={"email": email}
+            )
+            
+            data = response.json()
+            
+            if data.get("ok"):
+                return data.get("user")
+            else:
+                error = data.get("error", "Unknown error")
+                if error == "users_not_found":
+                    logger.info(f"[Slack] User with email {email} not found in Slack workspace")
+                else:
+                    logger.warning(f"[Slack] Failed to lookup user by email: {error}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[Slack] Error looking up user by email {email}: {e}")
+            return None
+    
+    def open_dm_channel(self, user_id: str) -> Optional[str]:
+        """
+        Open a DM channel with a user
+        
+        Args:
+            user_id: Slack user ID
+            
+        Returns:
+            Channel ID if successful, None otherwise
+        """
+        if not self.is_configured:
+            return None
+            
+        try:
+            response = requests.post(
+                f"{self.base_url}/conversations.open",
+                headers=self._get_headers(),
+                json={"users": user_id}
+            )
+            
+            data = response.json()
+            
+            if data.get("ok"):
+                return data.get("channel", {}).get("id")
+            else:
+                logger.warning(f"[Slack] Failed to open DM channel: {data.get('error')}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[Slack] Error opening DM channel: {e}")
+            return None
+    
+    def send_message(self, channel_id: str, text: str, blocks: Optional[list] = None) -> bool:
+        """
+        Send a message to a Slack channel
+        
+        Args:
+            channel_id: Channel or DM channel ID
+            text: Fallback text for notifications
+            blocks: Rich message blocks (optional)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_configured:
+            return False
+            
+        try:
+            payload = {
+                "channel": channel_id,
+                "text": text
+            }
+            
+            if blocks:
+                payload["blocks"] = blocks
+                
+            response = requests.post(
+                f"{self.base_url}/chat.postMessage",
+                headers=self._get_headers(),
+                json=payload
+            )
+            
+            data = response.json()
+            
+            if data.get("ok"):
+                logger.info(f"[Slack] ✅ Message sent to channel {channel_id}")
+                return True
+            else:
+                logger.warning(f"[Slack] Failed to send message: {data.get('error')}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"[Slack] Error sending message: {e}")
+            return False
+    
+    def send_dm(self, user_id: str, text: str, blocks: Optional[list] = None) -> bool:
+        """
+        Send a direct message to a Slack user
+        
+        Args:
+            user_id: Slack user ID
+            text: Fallback text for notifications
+            blocks: Rich message blocks (optional)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        channel_id = self.open_dm_channel(user_id)
+        if not channel_id:
+            return False
+            
+        return self.send_message(channel_id, text, blocks)
+    
+    def notify_issue_assigned(
+        self,
+        assignee_email: str,
+        issue_title: str,
+        issue_description: Optional[str],
+        priority: str,
+        release_name: Optional[str],
+        portal_url: str
+    ) -> bool:
+        """
+        Send a DM notification when an issue is assigned to a user
+        
+        Args:
+            assignee_email: Email address of the assignee
+            issue_title: Title of the issue
+            issue_description: Description of the issue (will be truncated)
+            priority: Issue priority (Critical, High, Medium, Low)
+            release_name: Name of the release (if applicable)
+            portal_url: URL to view the issue in the portal
+            
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        if not self.is_configured:
+            logger.warning("[Slack] Cannot send notification - Slack not configured")
+            return False
+            
+        # Look up user by email
+        user = self.lookup_user_by_email(assignee_email)
+        if not user:
+            logger.warning(f"[Slack] Cannot notify - user with email {assignee_email} not found")
+            return False
+            
+        slack_user_id = user.get("id")
+        user_name = user.get("real_name") or user.get("name", "there")
+        
+        # Truncate description if too long
+        description_summary = ""
+        if issue_description:
+            description_summary = issue_description[:200]
+            if len(issue_description) > 200:
+                description_summary += "..."
+        
+        # Priority emoji mapping
+        priority_emoji = {
+            "Critical": "🔴",
+            "High": "🟠",
+            "Medium": "🟡",
+            "Low": "🟢"
+        }.get(priority, "⚪")
+        
+        # Build rich message blocks
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🎫 New Issue Assigned to You",
+                    "emoji": True
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Hi {user_name}! You've been assigned a new issue:"
+                }
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Title:*\n{issue_title}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Priority:*\n{priority_emoji} {priority}"
+                    }
+                ]
+            }
+        ]
+        
+        # Add release info if available
+        if release_name:
+            blocks.append({
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Release:*\n{release_name}"
+                    }
+                ]
+            })
+        
+        # Add description if available
+        if description_summary:
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Description:*\n{description_summary}"
+                }
+            })
+        
+        # Add divider and action button
+        blocks.extend([
+            {
+                "type": "divider"
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View Issue in Portal",
+                            "emoji": True
+                        },
+                        "url": portal_url,
+                        "style": "primary"
+                    }
+                ]
+            }
+        ])
+        
+        # Fallback text for notifications
+        fallback_text = f"🎫 New Issue Assigned: {issue_title} ({priority})"
+        
+        # Send DM
+        success = self.send_dm(slack_user_id, fallback_text, blocks)
+        
+        if success:
+            logger.info(f"[Slack] ✅ Sent issue assignment notification to {assignee_email}")
+        else:
+            logger.warning(f"[Slack] Failed to send issue assignment notification to {assignee_email}")
+            
+        return success
+
+
+# Singleton instance
+slack_service = SlackService()

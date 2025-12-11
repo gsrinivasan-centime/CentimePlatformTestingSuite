@@ -55,13 +55,15 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap }
     const handleAssigneeChange = async (newAssigneeId) => {
         try {
             setJiraAssigneeId(newAssigneeId);
-            // Find the selected user to get their display name
+            // Find the selected user to get their display name and email
             const selectedUser = jiraUsers.find(user => user.accountId === newAssigneeId);
             const assigneeName = selectedUser ? selectedUser.displayName : null;
+            const assigneeEmail = selectedUser ? selectedUser.emailAddress : null;
             
             await onUpdate(issue.id, { 
                 jira_assignee_id: newAssigneeId || null,
-                jira_assignee_name: assigneeName
+                jira_assignee_name: assigneeName,
+                jira_assignee_email: assigneeEmail
             });
         } catch (error) {
             setJiraAssigneeId(issue.jira_assignee_id); // Revert on error

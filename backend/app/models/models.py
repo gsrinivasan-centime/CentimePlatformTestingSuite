@@ -402,6 +402,7 @@ class Issue(Base):
     screenshot_urls = Column(Text, nullable=True)  # JSON string or comma-separated
     jira_assignee_id = Column(String(100), nullable=True)
     jira_assignee_name = Column(String(255), nullable=True)
+    jira_assignee_email = Column(String(255), nullable=True)
     reporter_name = Column(String(100), nullable=True)
     jira_story_id = Column(String(50), nullable=True)
     

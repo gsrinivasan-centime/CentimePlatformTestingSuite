@@ -64,6 +64,7 @@ import {
   ArrowDropDown as ArrowDropDownIcon,
   Code as CodeIcon,
   CompareArrows as CompareArrowsIcon,
+  Undo as UndoIcon,
 } from '@mui/icons-material';
 import { stepCatalogAPI, featureFilesAPI, modulesAPI, testCasesAPI, csvWorkbooksAPI } from '../services/api';
 import PublishPreviewModal from '../components/PublishPreviewModal';
@@ -274,11 +275,10 @@ const TestDesignStudio = () => {
       const drafts = await csvWorkbooksAPI.getDrafts();
       setCsvWorkbooks(Array.isArray(drafts) ? drafts : []);
       
-      // Load pending approval workbooks (for admin view)
-      if (user?.role === 'admin') {
-        const pending = await csvWorkbooksAPI.getPendingApproval();
-        setPendingCsvWorkbooks(Array.isArray(pending) ? pending : []);
-      }
+      // Load pending approval workbooks (for both testers and admins)
+      // Backend returns: testers see their own, admins see all
+      const pending = await csvWorkbooksAPI.getPendingApproval();
+      setPendingCsvWorkbooks(Array.isArray(pending) ? pending : []);
     } catch (error) {
       console.error('Error loading CSV workbooks:', error);
       setCsvWorkbooks([]);
@@ -1047,6 +1047,42 @@ const TestDesignStudio = () => {
     }
   };
 
+  // Recall feature file (withdraw from approval)
+  const handleRecallFeatureFile = async (file) => {
+    setLoading(true);
+    try {
+      await featureFilesAPI.recall(file.id);
+      showSnackbar('Feature file recalled and returned to draft.', 'success');
+      await loadFeatureFiles();
+    } catch (error) {
+      console.error('Error recalling feature file:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error recalling feature file',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Recall workbook (withdraw from approval)
+  const handleRecallWorkbook = async (workbook) => {
+    setLoading(true);
+    try {
+      await csvWorkbooksAPI.recall(workbook.id);
+      showSnackbar('Workbook recalled and returned to draft.', 'success');
+      await loadCsvWorkbooks();
+    } catch (error) {
+      console.error('Error recalling workbook:', error);
+      showSnackbar(
+        error.response?.data?.detail || 'Error recalling workbook',
+        'error'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // View similarity results for reviewers (admins)
   const handleViewSimilarityResults = async (workbook) => {
     setLoading(true);
@@ -1419,7 +1455,7 @@ const TestDesignStudio = () => {
         Test Design Studio
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-        Create and manage your BDD feature files with reusable step catalog
+        Create and manage test cases using BDD feature files or CSV workbooks with AI-powered similarity detection
       </Typography>
 
       {/* Combined My Designs Section */}
@@ -1689,18 +1725,18 @@ const TestDesignStudio = () => {
         )}
       </Paper>
 
-      {/* Sent for Approval Section (for testers - shows their own pending files) */}
+      {/* Sent for Approval Section (for testers - shows their own pending files and workbooks) */}
       {user?.role !== 'admin' && (
         <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: 'warning.50' }}>
           <Typography variant="h6" gutterBottom>
             <HourglassEmptyIcon sx={{ verticalAlign: 'middle', mr: 1, color: 'warning.main' }} />
-            Sent for Approval ({pendingApprovalFiles.length})
+            Sent for Approval ({pendingApprovalFiles.length + pendingCsvWorkbooks.length})
           </Typography>
 
-          {pendingApprovalFiles.length === 0 ? (
+          {pendingApprovalFiles.length === 0 && pendingCsvWorkbooks.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
               <Typography variant="body2" color="text.secondary">
-                No feature files pending approval. When you submit a feature file for publishing, it will appear here.
+                No items pending approval. When you submit feature files or CSV workbooks for publishing, they will appear here.
               </Typography>
             </Box>
           ) : (
@@ -1708,7 +1744,7 @@ const TestDesignStudio = () => {
               {/* List Header */}
               <Box sx={{ 
                 display: 'grid', 
-                gridTemplateColumns: '2fr 1.5fr 1fr 100px', 
+                gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 150px', 
                 gap: 2, 
                 p: 1.5, 
                 bgcolor: 'warning.100',
@@ -1716,27 +1752,29 @@ const TestDesignStudio = () => {
                 borderColor: 'warning.light',
                 fontWeight: 'bold'
               }}>
+                <Typography variant="subtitle2" fontWeight="bold">Type</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Name</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Submitted</Typography>
                 <Typography variant="subtitle2" fontWeight="bold">Status</Typography>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ textAlign: 'center' }}>Actions</Typography>
               </Box>
-              {/* List Items */}
+              {/* List Items - Feature Files */}
               {pendingApprovalFiles.map((file, index) => (
                 <Box 
-                  key={file.id}
+                  key={`tester-feature-${file.id}`}
                   sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '2fr 1.5fr 1fr 100px', 
+                    gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 150px', 
                     gap: 2, 
                     p: 1.5, 
                     alignItems: 'center',
                     bgcolor: 'white',
-                    borderBottom: index < pendingApprovalFiles.length - 1 ? '1px solid' : 'none',
+                    borderBottom: '1px solid',
                     borderColor: 'warning.light',
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
+                  <Chip icon={<CodeIcon />} label="Feature" size="small" color="primary" variant="outlined" />
                   <Typography variant="body2" fontWeight="medium">
                     {file.name}
                   </Typography>
@@ -1744,12 +1782,67 @@ const TestDesignStudio = () => {
                     {file.submitted_for_approval_at ? new Date(file.submitted_for_approval_at).toLocaleDateString() : '-'}
                   </Typography>
                   <Box>
-                    <Chip label="Pending Approval" color="warning" size="small" />
+                    <Chip label="Pending" color="warning" size="small" />
                   </Box>
                   <Stack direction="row" spacing={0.5} justifyContent="center">
                     <Tooltip title="View">
                       <IconButton size="small" onClick={() => handleViewFile(file)}>
                         <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Recall">
+                      <IconButton size="small" color="secondary" onClick={() => handleRecallFeatureFile(file)}>
+                        <UndoIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              ))}
+              {/* List Items - CSV Workbooks */}
+              {pendingCsvWorkbooks.map((workbook, index) => (
+                <Box 
+                  key={`tester-workbook-${workbook.id}`}
+                  sx={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '80px 1.5fr 1.5fr 1fr 150px', 
+                    gap: 2, 
+                    p: 1.5, 
+                    alignItems: 'center',
+                    bgcolor: 'white',
+                    borderBottom: index < pendingCsvWorkbooks.length - 1 ? '1px solid' : 'none',
+                    borderColor: 'warning.light',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                >
+                  <Chip icon={<TableChartIcon />} label="CSV" size="small" color="secondary" variant="outlined" />
+                  <Box>
+                    <Typography variant="body2" fontWeight="medium">
+                      {workbook.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {workbook.test_case_count || 0} test cases
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {workbook.submitted_for_approval_at ? new Date(workbook.submitted_for_approval_at).toLocaleDateString() : '-'}
+                  </Typography>
+                  <Box>
+                    <Chip label="Pending" color="warning" size="small" />
+                  </Box>
+                  <Stack direction="row" spacing={0.5} justifyContent="center">
+                    <Tooltip title="View">
+                      <IconButton size="small" onClick={() => handleViewWorkbook(workbook)}>
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="View Similarity">
+                      <IconButton size="small" color="info" onClick={() => handleViewSimilarityResults(workbook)}>
+                        <CompareArrowsIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Recall">
+                      <IconButton size="small" color="secondary" onClick={() => handleRecallWorkbook(workbook)}>
+                        <UndoIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                   </Stack>

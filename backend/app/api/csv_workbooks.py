@@ -103,13 +103,20 @@ async def get_pending_approval_workbooks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all workbooks pending approval (admin only)"""
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Get workbooks pending approval
     
-    workbooks = db.query(CsvWorkbook).filter(
+    - Admins: See all pending workbooks from all users
+    - Testers: See only their own pending workbooks
+    """
+    query = db.query(CsvWorkbook).filter(
         CsvWorkbook.status == "pending_approval"
-    ).order_by(CsvWorkbook.submitted_for_approval_at).all()
+    )
+    
+    # Filter by creator for non-admin users
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(CsvWorkbook.created_by == current_user.id)
+    
+    workbooks = query.order_by(CsvWorkbook.submitted_for_approval_at).all()
     
     return [{
         "id": wb.id,
@@ -120,6 +127,7 @@ async def get_pending_approval_workbooks(
         "test_case_count": count_test_cases(wb.csv_content),
         "created_by": wb.created_by,
         "creator_name": wb.creator.full_name if wb.creator else None,
+        "creator_email": wb.creator.email if wb.creator else None,
         "submitted_for_approval_at": wb.submitted_for_approval_at.isoformat() if wb.submitted_for_approval_at else None,
         "has_similarity_results": wb.similarity_results is not None,
     } for wb in workbooks]
@@ -644,4 +652,35 @@ async def reject_workbook(
         "status": workbook.status,
         "message": "Workbook rejected",
         "reason": reason
+    }
+
+
+@router.post("/{workbook_id}/recall")
+async def recall_workbook(
+    workbook_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Recall a pending workbook back to draft (only by the original creator)"""
+    workbook = db.query(CsvWorkbook).filter(CsvWorkbook.id == workbook_id).first()
+    if not workbook:
+        raise HTTPException(status_code=404, detail="Workbook not found")
+    
+    # Only the creator can recall their own workbook
+    if workbook.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the creator can recall this workbook")
+    
+    if workbook.status != "pending_approval":
+        raise HTTPException(status_code=400, detail="Workbook is not pending approval")
+    
+    # Return to draft status
+    workbook.status = "draft"
+    workbook.submitted_for_approval_at = None
+    
+    db.commit()
+    
+    return {
+        "id": workbook.id,
+        "status": workbook.status,
+        "message": "Workbook recalled and returned to draft"
     }

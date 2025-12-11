@@ -555,7 +555,7 @@ const ProductionTickets = () => {
       {/* Tickets Table */}
       <Paper elevation={2}>
         <TableContainer>
-          <Table size="small" sx={{ minWidth: 1000 }}>
+          <Table size="small" sx={{ minWidth: 1000, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
                 <ResizableTableCell minWidth={100} initialWidth={120} isHeader>JIRA ID</ResizableTableCell>

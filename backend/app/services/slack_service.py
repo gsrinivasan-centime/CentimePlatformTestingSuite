@@ -235,9 +235,9 @@ class SlackService:
         assignee_email: Optional[str],
         assignee_name: Optional[str],
         issue_title: str,
-        issue_description: Optional[str],
+        issue_id: int,
         priority: str,
-        release_name: Optional[str],
+        reporter_name: Optional[str],
         portal_url: str
     ) -> bool:
         """
@@ -247,14 +247,13 @@ class SlackService:
             assignee_email: Email address of the assignee (may be empty)
             assignee_name: Display name of the assignee (used for fallback lookup)
             issue_title: Title of the issue
-            issue_description: Description of the issue (will be truncated)
+            issue_id: ID of the issue (used for display)
             priority: Issue priority (Critical, High, Medium, Low)
-            release_name: Name of the release (if applicable)
-            portal_url: URL to view the issue in the portal
+            reporter_name: Name of the person who reported the issue
+            portal_url: URL to view the issue in the portal (direct link)
             
         Returns:
-            True if notification sent successfully, False otherwise
-        """
+            True if notification sent successfully, False otherwise"""
         if not self.is_configured:
             logger.warning("[Slack] Cannot send notification - Slack not configured")
             return False
@@ -278,13 +277,6 @@ class SlackService:
             
         slack_user_id = user.get("id")
         user_name = user.get("real_name") or user.get("name", "there")
-        
-        # Truncate description if too long
-        description_summary = ""
-        if issue_description:
-            description_summary = issue_description[:200]
-            if len(issue_description) > 200:
-                description_summary += "..."
         
         # Priority emoji mapping
         priority_emoji = {
@@ -316,37 +308,28 @@ class SlackService:
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*Title:*\n{issue_title}"
+                        "text": f"*Issue ID:*\n#{issue_id}"
                     },
                     {
                         "type": "mrkdwn",
                         "text": f"*Priority:*\n{priority_emoji} {priority}"
                     }
                 ]
-            }
-        ]
-        
-        # Add release info if available
-        if release_name:
-            blocks.append({
+            },
+            {
                 "type": "section",
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*Release:*\n{release_name}"
+                        "text": f"*Title:*\n{issue_title}"
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Reporter:*\n{reporter_name or 'Not specified'}"
                     }
                 ]
-            })
-        
-        # Add description if available
-        if description_summary:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Description:*\n{description_summary}"
-                }
-            })
+            }
+        ]
         
         # Add divider and action button
         blocks.extend([

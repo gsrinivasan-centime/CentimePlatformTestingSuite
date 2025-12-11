@@ -31,7 +31,10 @@ def compute_test_case_embedding(test_case_id: int):
     Background task to compute/update embedding for a single test case.
     
     This function runs in a background thread and creates its own database session.
+    Uses raw SQL for storing embedding to handle pgvector type casting correctly.
     """
+    from sqlalchemy import text
+    
     db = SessionLocal()
     try:
         from app.models.models import TestCase, Module
@@ -50,7 +53,7 @@ def compute_test_case_embedding(test_case_id: int):
         
         # Prepare text for embedding
         embedding_service = get_embedding_service()
-        text = embedding_service.prepare_text_for_embedding(
+        text_content = embedding_service.prepare_text_for_embedding(
             title=test_case.title,
             steps=test_case.steps_to_reproduce,
             tag=test_case.tag.value if test_case.tag else None,
@@ -60,14 +63,28 @@ def compute_test_case_embedding(test_case_id: int):
             expected_result=test_case.expected_result
         )
         
-        if text:
+        if text_content:
             # Generate embedding
-            embedding = embedding_service.generate_embedding(text, DEFAULT_MODEL)
+            embedding = embedding_service.generate_embedding(text_content, DEFAULT_MODEL)
             
             if embedding:
-                # Store embedding in database
-                test_case.embedding = embedding
-                test_case.embedding_model = DEFAULT_MODEL  # Track which model was used
+                # Store embedding using raw SQL with proper pgvector casting
+                # Convert embedding list to string format: '[0.1, 0.2, ...]'
+                embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+                
+                # Use raw SQL with ::vector cast to properly store pgvector data
+                # NOTE: We embed the vector string directly in SQL because SQLAlchemy's
+                # :param binding conflicts with PostgreSQL's :: cast operator
+                sql = text(f"""
+                    UPDATE test_cases 
+                    SET embedding = '{embedding_str}'::vector(384),
+                        embedding_model = :model
+                    WHERE id = :id
+                """)
+                db.execute(sql, {
+                    'model': DEFAULT_MODEL,
+                    'id': test_case_id
+                })
                 db.commit()
                 logger.info(f"[Embedding Task] ✅ Generated embedding for test case {test_case_id}: '{test_case.title[:50]}...'")
             else:
@@ -141,9 +158,24 @@ def compute_issue_embedding(issue_id: int):
             embedding = embedding_service.generate_embedding(text, DEFAULT_MODEL)
             
             if embedding:
-                # Store embedding in database
-                issue.embedding = embedding
-                issue.embedding_model = DEFAULT_MODEL
+                # Store embedding using raw SQL with proper pgvector casting
+                # Convert embedding list to string format: '[0.1, 0.2, ...]'
+                from sqlalchemy import text as sql_text
+                embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+                
+                # Use raw SQL with ::vector cast to properly store pgvector data
+                # NOTE: We embed the vector string directly in SQL because SQLAlchemy's
+                # :param binding conflicts with PostgreSQL's :: cast operator
+                sql = sql_text(f"""
+                    UPDATE issues 
+                    SET embedding = '{embedding_str}'::vector(384),
+                        embedding_model = :model
+                    WHERE id = :id
+                """)
+                db.execute(sql, {
+                    'model': DEFAULT_MODEL,
+                    'id': issue_id
+                })
                 db.commit()
                 logger.info(f"[Embedding Task] ✅ Generated embedding for issue {issue_id}: '{issue.title[:50]}...'")
             else:

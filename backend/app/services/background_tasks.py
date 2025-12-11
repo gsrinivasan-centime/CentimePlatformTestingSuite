@@ -240,7 +240,7 @@ def send_slack_issue_notification(issue_id: int, assignee_email: str, assignee_n
     
     db = SessionLocal()
     try:
-        from app.models.models import Issue, Release
+        from app.models.models import Issue
         
         # Fetch issue details
         issue = db.query(Issue).filter(Issue.id == issue_id).first()
@@ -248,26 +248,22 @@ def send_slack_issue_notification(issue_id: int, assignee_email: str, assignee_n
             logger.warning(f"[Slack Notification] Issue {issue_id} not found")
             return
         
-        # Get release name if available
-        release_name = None
+        # Build portal URL - direct link to the release page with issues tab
+        # Format: /releases/{release_id}?tab=issues
         if issue.release_id:
-            release = db.query(Release).filter(Release.id == issue.release_id).first()
-            if release:
-                release_name = release.name
-        
-        # Build portal URL - link to issue within release management
-        portal_url = f"{frontend_url}/releases"
-        if issue.release_id:
-            portal_url = f"{frontend_url}/releases/{issue.release_id}/issues"
+            portal_url = f"{frontend_url}/releases/{issue.release_id}?tab=issues"
+        else:
+            # Fallback to issues page
+            portal_url = f"{frontend_url}/issues"
         
         # Send Slack notification (will try email first, then name lookup)
         success = slack_service.notify_issue_assigned(
             assignee_email=assignee_email,
             assignee_name=assignee_name,
             issue_title=issue.title,
-            issue_description=issue.description,
+            issue_id=issue.id,
             priority=issue.priority or "Medium",
-            release_name=release_name,
+            reporter_name=issue.reporter_name,
             portal_url=portal_url
         )
         

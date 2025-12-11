@@ -221,19 +221,22 @@ def compute_batch_embeddings(entity_type: str, entity_ids: List[int]):
     logger.info(f"[Embedding Task] ✅ Completed batch embedding for {len(entity_ids)} {entity_type}(s)")
 
 
-def send_slack_issue_notification(issue_id: int, assignee_email: str, frontend_url: str):
+def send_slack_issue_notification(issue_id: int, assignee_email: str, assignee_name: str, frontend_url: str):
     """
     Background task to send Slack DM notification when an issue is assigned.
     
     This function runs in a background thread and creates its own database session.
-    It looks up the assignee by email in Slack and sends them a rich DM.
+    It looks up the assignee by email (or name as fallback) in Slack and sends them a rich DM.
     
     Args:
         issue_id: ID of the issue that was assigned
-        assignee_email: Email address of the assignee (from JIRA user)
+        assignee_email: Email address of the assignee (may be empty)
+        assignee_name: Display name of the assignee (used for fallback lookup)
         frontend_url: Base URL of the frontend for building portal links
     """
     from app.services.slack_service import slack_service
+    
+    logger.info(f"[Slack Notification] Starting notification for issue {issue_id}, email: {assignee_email}, name: {assignee_name}")
     
     db = SessionLocal()
     try:
@@ -257,9 +260,10 @@ def send_slack_issue_notification(issue_id: int, assignee_email: str, frontend_u
         if issue.release_id:
             portal_url = f"{frontend_url}/releases/{issue.release_id}/issues"
         
-        # Send Slack notification
+        # Send Slack notification (will try email first, then name lookup)
         success = slack_service.notify_issue_assigned(
             assignee_email=assignee_email,
+            assignee_name=assignee_name,
             issue_title=issue.title,
             issue_description=issue.description,
             priority=issue.priority or "Medium",
@@ -268,9 +272,9 @@ def send_slack_issue_notification(issue_id: int, assignee_email: str, frontend_u
         )
         
         if success:
-            logger.info(f"[Slack Notification] ✅ Sent notification for issue {issue_id} to {assignee_email}")
+            logger.info(f"[Slack Notification] ✅ Sent notification for issue {issue_id} to {assignee_name} ({assignee_email})")
         else:
-            logger.warning(f"[Slack Notification] Failed to notify {assignee_email} for issue {issue_id}")
+            logger.warning(f"[Slack Notification] Failed to notify {assignee_name} ({assignee_email}) for issue {issue_id}")
             
     except Exception as e:
         logger.error(f"[Slack Notification] Error sending notification for issue {issue_id}: {e}")

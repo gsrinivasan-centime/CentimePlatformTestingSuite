@@ -41,6 +41,10 @@ class SlackService:
         if not self.is_configured:
             logger.warning("Slack is not configured - SLACK_BOT_TOKEN not set")
             return None
+        
+        if not email:
+            logger.warning("[Slack] No email provided for user lookup")
+            return None
             
         try:
             response = requests.get(
@@ -63,6 +67,74 @@ class SlackService:
                 
         except Exception as e:
             logger.error(f"[Slack] Error looking up user by email {email}: {e}")
+            return None
+    
+    def lookup_user_by_name(self, display_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Look up a Slack user by their display name (fuzzy match).
+        Falls back to searching all users and matching by name.
+        
+        Args:
+            display_name: User's display name from JIRA
+            
+        Returns:
+            User object if found, None otherwise
+        """
+        if not self.is_configured or not display_name:
+            return None
+            
+        try:
+            # Get all users from Slack workspace
+            response = requests.get(
+                f"{self.base_url}/users.list",
+                headers=self._get_headers(),
+                params={"limit": 500}
+            )
+            
+            data = response.json()
+            
+            if not data.get("ok"):
+                logger.warning(f"[Slack] Failed to list users: {data.get('error')}")
+                return None
+            
+            members = data.get("members", [])
+            display_name_lower = display_name.lower().strip()
+            
+            # Try exact match first on real_name or display_name
+            for member in members:
+                if member.get("deleted") or member.get("is_bot"):
+                    continue
+                    
+                profile = member.get("profile", {})
+                real_name = (profile.get("real_name") or "").lower().strip()
+                slack_display_name = (profile.get("display_name") or "").lower().strip()
+                
+                if real_name == display_name_lower or slack_display_name == display_name_lower:
+                    logger.info(f"[Slack] Found user by exact name match: {display_name}")
+                    return member
+            
+            # Try partial match (first + last name)
+            name_parts = display_name_lower.split()
+            if len(name_parts) >= 2:
+                first_name = name_parts[0]
+                last_name = name_parts[-1]
+                
+                for member in members:
+                    if member.get("deleted") or member.get("is_bot"):
+                        continue
+                        
+                    profile = member.get("profile", {})
+                    real_name = (profile.get("real_name") or "").lower()
+                    
+                    if first_name in real_name and last_name in real_name:
+                        logger.info(f"[Slack] Found user by partial name match: {display_name} -> {profile.get('real_name')}")
+                        return member
+            
+            logger.info(f"[Slack] No user found matching name: {display_name}")
+            return None
+                
+        except Exception as e:
+            logger.error(f"[Slack] Error looking up user by name {display_name}: {e}")
             return None
     
     def open_dm_channel(self, user_id: str) -> Optional[str]:
@@ -160,7 +232,8 @@ class SlackService:
     
     def notify_issue_assigned(
         self,
-        assignee_email: str,
+        assignee_email: Optional[str],
+        assignee_name: Optional[str],
         issue_title: str,
         issue_description: Optional[str],
         priority: str,
@@ -171,7 +244,8 @@ class SlackService:
         Send a DM notification when an issue is assigned to a user
         
         Args:
-            assignee_email: Email address of the assignee
+            assignee_email: Email address of the assignee (may be empty)
+            assignee_name: Display name of the assignee (used for fallback lookup)
             issue_title: Title of the issue
             issue_description: Description of the issue (will be truncated)
             priority: Issue priority (Critical, High, Medium, Low)
@@ -184,11 +258,22 @@ class SlackService:
         if not self.is_configured:
             logger.warning("[Slack] Cannot send notification - Slack not configured")
             return False
+        
+        user = None
+        
+        # Try email lookup first if email is available
+        if assignee_email:
+            user = self.lookup_user_by_email(assignee_email)
+            if user:
+                logger.info(f"[Slack] Found user by email: {assignee_email}")
+        
+        # Fallback to name-based lookup if email not available or not found
+        if not user and assignee_name:
+            logger.info(f"[Slack] Email lookup failed, trying name lookup for: {assignee_name}")
+            user = self.lookup_user_by_name(assignee_name)
             
-        # Look up user by email
-        user = self.lookup_user_by_email(assignee_email)
         if not user:
-            logger.warning(f"[Slack] Cannot notify - user with email {assignee_email} not found")
+            logger.warning(f"[Slack] Cannot notify - user not found (email: {assignee_email}, name: {assignee_name})")
             return False
             
         slack_user_id = user.get("id")

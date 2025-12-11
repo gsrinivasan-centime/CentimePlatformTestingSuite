@@ -515,6 +515,7 @@ const IssueRow = ({ issue, onEdit, onDelete, onUpdate, jiraUsers, jiraUsersMap, 
 
 const IssueList = ({ 
     onEdit, 
+    onDelete: onDeleteCallback,  // Callback after successful deletion
     refreshTrigger, 
     issues: externalIssues,  // Issues passed from parent (optional)
     loading: externalLoading,  // Loading state from parent (optional)
@@ -610,6 +611,10 @@ const IssueList = ({
             try {
                 await issueService.delete(issueId);
                 setIssues(issues.filter(issue => issue.id !== issueId));
+                // Notify parent to refresh stats
+                if (onDeleteCallback) {
+                    onDeleteCallback(issueId);
+                }
             } catch (error) {
                 console.error('Error deleting issue:', error);
                 alert('Failed to delete issue');

@@ -195,23 +195,20 @@ deploy_backend_prod() {
     
     check_ec2_connection
     
-    # Check for production .env file (needed to copy to EC2)
-    if [ ! -f "$BACKEND_DIR/.env.prod" ]; then
-        print_error "Production environment file not found: $BACKEND_DIR/.env.prod"
-        print_info "Please create .env.prod with AWS RDS DATABASE_URL"
+    # NOTE: .env file is managed directly on EC2 server
+    # Do NOT copy local .env.prod to EC2 - it may have stale credentials
+    # If you need to update EC2 .env, SSH to the server and edit it manually:
+    #   ssh -i ~/.ssh/centime-qa-portal-ec2-key.pem ubuntu@18.191.180.118
+    #   nano ~/CentimePlatformTestingSuite/backend/.env
+    
+    # Verify .env exists on EC2
+    print_info "Verifying .env file exists on EC2..."
+    if ! ssh -i "$EC2_KEY" "$EC2_USER@$EC2_HOST" "test -f $EC2_BACKEND_PATH/.env"; then
+        print_error ".env file not found on EC2 at $EC2_BACKEND_PATH/.env"
+        print_info "Please create the .env file directly on the EC2 server"
         exit 1
     fi
-    
-    # Verify production .env has AWS RDS (not Supabase)
-    if grep -q "supabase" "$BACKEND_DIR/.env.prod"; then
-        print_error "Production .env.prod appears to point to Supabase!"
-        print_error "Please update DATABASE_URL to use AWS RDS"
-        exit 1
-    fi
-    
-    # Copy production .env to EC2
-    print_info "Deploying production environment configuration..."
-    scp -i "$EC2_KEY" "$BACKEND_DIR/.env.prod" "$EC2_USER@$EC2_HOST:$EC2_BACKEND_PATH/.env"
+    print_success ".env file exists on EC2"
     
     # Deploy on EC2 - pull from git and restart service
     print_info "Pulling latest code from git and configuring backend on EC2..."

@@ -116,6 +116,12 @@ const Issues = () => {
         setRefreshTrigger(prev => prev + 1);
     };
 
+    const handleDeleteIssue = () => {
+        // Refresh stats after issue deletion
+        setRefreshTrigger(prev => prev + 1);
+        showSuccess('Issue deleted successfully');
+    };
+
     return (
         <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
@@ -194,6 +200,7 @@ const Issues = () => {
             <Paper elevation={2} sx={{ p: 2 }}>
                 <IssueList
                     onEdit={handleEditClick}
+                    onDelete={handleDeleteIssue}
                     refreshTrigger={refreshTrigger}
                 />
             </Paper>

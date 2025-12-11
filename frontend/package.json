@@ -20,6 +20,7 @@
     "react-dom": "^18.2.0",
     "react-draft-wysiwyg": "^1.15.0",
     "react-dropzone": "^14.2.3",
+    "react-mentions": "^4.4.10",
     "react-router-dom": "^6.20.1",
     "react-scripts": "5.0.1",
     "recharts": "^2.10.3"

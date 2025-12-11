@@ -30,6 +30,7 @@ import {
   Skeleton,
   Alert,
   Stack,
+  Button,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -40,10 +41,14 @@ import {
   HourglassEmpty as HourglassIcon,
   PlayCircle as PlayCircleIcon,
   Clear as ClearIcon,
+  Link as LinkIcon,
+  CheckCircleOutline as ConnectedIcon,
 } from '@mui/icons-material';
 import { useToast } from '../context/ToastContext';
 import productionTicketsAPI from '../services/productionTicketsService';
+import jiraAPI from '../services/jiraService';
 import TicketDetailPanel from '../components/TicketDetailPanel.js';
+import JiraConnectDialog from '../components/JiraConnectDialog';
 import ResizableTableCell from '../components/ResizableTableCell';
 import FilterBar from '../components/FilterBar';
 import FilterPresets from '../components/FilterPresets';
@@ -130,6 +135,35 @@ const ProductionTickets = () => {
   // Detail panel
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  
+  // JIRA OAuth state
+  const [jiraConnectDialogOpen, setJiraConnectDialogOpen] = useState(false);
+  const [jiraConnectionStatus, setJiraConnectionStatus] = useState(null);
+
+  // Check JIRA connection status on mount
+  useEffect(() => {
+    checkJiraConnection();
+    
+    // Listen for openJiraConnect event from TicketDetailPanel
+    const handleOpenJiraConnect = () => {
+      setJiraConnectDialogOpen(true);
+    };
+    window.addEventListener('openJiraConnect', handleOpenJiraConnect);
+    return () => window.removeEventListener('openJiraConnect', handleOpenJiraConnect);
+  }, []);
+
+  const checkJiraConnection = async () => {
+    try {
+      const status = await jiraAPI.getConnectionStatus();
+      setJiraConnectionStatus(status);
+    } catch (err) {
+      setJiraConnectionStatus({ connected: false, configured: false });
+    }
+  };
+
+  const handleJiraConnectionChange = (connected) => {
+    checkJiraConnection();
+  };
 
   // Initialize filters from URL or localStorage on mount
   useEffect(() => {
@@ -370,6 +404,28 @@ const ProductionTickets = () => {
           </Typography>
         </Box>
         <Box display="flex" alignItems="center" gap={2}>
+          {/* JIRA Connection Status */}
+          {jiraConnectionStatus?.configured && (
+            <Tooltip title={
+              jiraConnectionStatus?.connected 
+                ? `Connected as ${jiraConnectionStatus.display_name || 'JIRA User'}` 
+                : 'Connect your JIRA account to post comments'
+            }>
+              <Button
+                variant={jiraConnectionStatus?.connected ? "outlined" : "contained"}
+                size="small"
+                color={jiraConnectionStatus?.connected ? "success" : "primary"}
+                startIcon={jiraConnectionStatus?.connected ? <ConnectedIcon /> : <LinkIcon />}
+                onClick={() => setJiraConnectDialogOpen(true)}
+                sx={{ textTransform: 'none' }}
+              >
+                {jiraConnectionStatus?.connected 
+                  ? (jiraConnectionStatus.display_name || 'JIRA Connected')
+                  : 'Connect JIRA'
+                }
+              </Button>
+            </Tooltip>
+          )}
           {cacheInfo.cache_updated_at && (
             <Chip
               icon={<ScheduleIcon />}
@@ -702,6 +758,13 @@ const ProductionTickets = () => {
         open={panelOpen}
         onClose={handlePanelClose}
         ticket={selectedTicket}
+      />
+
+      {/* JIRA Connect Dialog */}
+      <JiraConnectDialog
+        open={jiraConnectDialogOpen}
+        onClose={() => setJiraConnectDialogOpen(false)}
+        onConnectionChange={handleJiraConnectionChange}
       />
     </>
   );

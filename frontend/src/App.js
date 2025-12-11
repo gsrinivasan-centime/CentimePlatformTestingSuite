@@ -23,6 +23,7 @@ import Users from './pages/Users';
 import Stories from './pages/Stories';
 import Issues from './pages/Issues';
 import ProductionTickets from './pages/ProductionTickets';
+import JiraCallback from './pages/JiraCallback';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 import ApplicationSettings from './pages/ApplicationSettings';
 
@@ -61,6 +62,7 @@ function AppContent() {
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/jira/callback" element={<JiraCallback />} />
         <Route
           path="/dashboard"
           element={

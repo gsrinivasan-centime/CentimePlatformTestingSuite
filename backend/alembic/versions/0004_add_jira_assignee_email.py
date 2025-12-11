@@ -1,7 +1,7 @@
 """add jira_assignee_email to issues
 
 Revision ID: 0004_add_jira_assignee_email
-Revises: 0002_csv_workbook
+Revises: 0003_jira_oauth
 Create Date: 2024-12-11
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '0004_add_jira_assignee_email'
-down_revision = '0002_csv_workbook'
+down_revision = '0003_jira_oauth'
 branch_labels = None
 depends_on = None
 

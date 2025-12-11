@@ -396,6 +396,12 @@ export const testCasesAPI = {
     });
     return response.data;
   },
+
+  // NEW: Import test cases from CSV workbook
+  importCsvWorkbook: async (payload) => {
+    const response = await api.post('/test-cases/import-csv-workbook', payload);
+    return response.data;
+  },
 };
 
 // Releases API
@@ -661,6 +667,87 @@ export const featureFilesAPI = {
     const response = await api.post(`/step-catalog/feature-files/${id}/reject`, {
       reason
     });
+    return response.data;
+  },
+};
+
+// CSV Workbooks API - For CSV file upload with approval workflow
+export const csvWorkbooksAPI = {
+  // Get all workbooks (with optional status filter)
+  getAll: async (params = {}) => {
+    const response = await api.get('/csv-workbooks', { params });
+    return response.data;
+  },
+  
+  // Get user's draft workbooks
+  getDrafts: async () => {
+    const response = await api.get('/csv-workbooks/drafts');
+    return response.data;
+  },
+  
+  // Get pending approval workbooks
+  getPendingApproval: async () => {
+    const response = await api.get('/csv-workbooks/pending-approval');
+    return response.data;
+  },
+  
+  // Create new workbook (from CSV upload or blank)
+  create: async (data) => {
+    const response = await api.post('/csv-workbooks', data);
+    return response.data;
+  },
+  
+  // Get workbook by ID
+  getById: async (id) => {
+    const response = await api.get(`/csv-workbooks/${id}`);
+    return response.data;
+  },
+  
+  // Update workbook
+  update: async (id, data) => {
+    const response = await api.put(`/csv-workbooks/${id}`, data);
+    return response.data;
+  },
+  
+  // Delete workbook
+  delete: async (id) => {
+    const response = await api.delete(`/csv-workbooks/${id}`);
+    return response.data;
+  },
+  
+  // Submit workbook for approval
+  submitForApproval: async (id) => {
+    const response = await api.post(`/csv-workbooks/${id}/submit-for-approval`);
+    return response.data;
+  },
+  
+  // Analyze similarity (preview duplicates)
+  analyzeSimilarity: async (id) => {
+    const response = await api.post(`/csv-workbooks/${id}/analyze-similarity`);
+    return response.data;
+  },
+  
+  // Preview publish (see what test cases will be created)
+  previewPublish: async (id) => {
+    const response = await api.get(`/csv-workbooks/${id}/preview-publish`);
+    return response.data;
+  },
+  
+  // Approve workbook (admin only)
+  approve: async (id) => {
+    const response = await api.post(`/csv-workbooks/${id}/approve`);
+    return response.data;
+  },
+  
+  // Reject workbook (admin only)
+  reject: async (id, reason = '') => {
+    const response = await api.post(`/csv-workbooks/${id}/reject`, { reason });
+    return response.data;
+  },
+  
+  // Confirm publish (create test cases)
+  confirmPublish: async (id) => {
+    const response = await api.post(`/csv-workbooks/${id}/confirm-publish`);
     return response.data;
   },
 };

@@ -39,6 +39,7 @@ import {
   Search as SearchIcon,
   Close as CloseIcon,
   BugReport as BugIcon,
+  ConfirmationNumber as TicketIcon,
   Description as StoryIcon,
   Rocket as ReleaseIcon,
   GridView as ModulesIcon,
@@ -56,6 +57,7 @@ const quickSearchOptions = [
   { label: 'Test Cases', path: '/test-cases', icon: AssignmentIcon, keywords: ['test', 'case', 'tc', 'tests'] },
   { label: 'Test Design Studio', path: '/test-design-studio', icon: PlayArrowIcon, keywords: ['design', 'studio', 'create', 'new test', 'write test', 'bdd', 'gherkin'] },
   { label: 'Issues', path: '/issues', icon: BugIcon, keywords: ['issue', 'bug', 'defect', 'problem'] },
+  { label: 'Production Tickets', path: '/production-tickets', icon: TicketIcon, keywords: ['production', 'prod', 'ticket', 'jira', 'CN-', 'BO'] },
   { label: 'Stories', path: '/stories', icon: StoryIcon, keywords: ['story', 'stories', 'jira', 'user story'] },
   { label: 'Releases', path: '/releases', icon: ReleaseIcon, keywords: ['release', 'version', 'deploy'] },
   { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon, keywords: ['dashboard', 'home', 'overview'] },
@@ -305,6 +307,7 @@ const Layout = ({ children }) => {
     { text: 'Releases', icon: <LocalOfferIcon />, path: '/releases' },
     { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
     { text: 'Execute Tests', icon: <PlayArrowIcon />, path: '/executions' },
+    { text: 'Production Tickets', icon: <TicketIcon />, path: '/production-tickets' },
     { text: 'Users', icon: <PeopleIcon />, path: '/users' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];

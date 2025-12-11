@@ -11,7 +11,7 @@ const ResizableTableCell = ({
 }) => {
   const [width, setWidth] = useState(initialWidth);
   const [isResizing, setIsResizing] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
+  const [isHandleHovering, setIsHandleHovering] = useState(false);
   const cellRef = useRef(null);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -52,8 +52,6 @@ const ResizableTableCell = ({
       ref={cellRef}
       align={align}
       {...props}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => setIsHovering(false)}
       sx={{
         ...props.sx,
         width: `${width}px`,
@@ -65,12 +63,13 @@ const ResizableTableCell = ({
         textOverflow: 'ellipsis',
         padding: '6px 16px',
         userSelect: isResizing ? 'none' : 'auto',
+        boxSizing: 'border-box',
         ...(isHeader && {
           backgroundColor: 'action.hover',
           fontWeight: 600,
           borderBottom: '2px solid',
           borderBottomColor: 'primary.main',
-          borderRight: (isHovering || isResizing) ? '2px solid rgba(25, 118, 210, 0.3)' : 'none',
+          overflow: 'visible', // Allow resize handle to extend outside
         }),
       }}
     >
@@ -78,27 +77,33 @@ const ResizableTableCell = ({
       {isHeader && (
         <div
           onMouseDown={handleMouseDown}
+          onMouseEnter={() => setIsHandleHovering(true)}
+          onMouseLeave={() => setIsHandleHovering(false)}
           style={{
             position: 'absolute',
-            right: 0,
+            right: -4,
             top: 0,
             bottom: 0,
-            width: '8px',
+            width: '12px',
             cursor: 'col-resize',
             userSelect: 'none',
-            borderRight: (isHovering || isResizing) ? '3px solid #1976d2' : 'none',
-            backgroundColor: isResizing ? 'rgba(25, 118, 210, 0.1)' : 'transparent',
-            transition: 'border-right 0.2s ease, background-color 0.2s ease',
+            backgroundColor: isResizing ? 'rgba(25, 118, 210, 0.2)' : 'transparent',
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
-          onMouseEnter={(e) => {
-            e.target.style.backgroundColor = 'rgba(25, 118, 210, 0.15)';
-          }}
-          onMouseLeave={(e) => {
-            if (!isResizing) {
-              e.target.style.backgroundColor = 'transparent';
-            }
-          }}
-        />
+        >
+          <div
+            style={{
+              width: '3px',
+              height: '60%',
+              backgroundColor: (isHandleHovering || isResizing) ? '#1976d2' : 'rgba(0,0,0,0.15)',
+              borderRadius: '2px',
+              transition: 'background-color 0.15s ease',
+            }}
+          />
+        </div>
       )}
     </TableCell>
   );

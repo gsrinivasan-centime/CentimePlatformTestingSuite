@@ -58,6 +58,7 @@ const intentIcons = {
 const quickSearchOptions = [
   { label: 'Test Cases', path: '/test-cases', icon: TestCaseIcon, keywords: ['test', 'case', 'tc', 'tests'] },
   { label: 'Issues', path: '/issues', icon: BugIcon, keywords: ['issue', 'bug', 'defect', 'problem'] },
+  { label: 'Production Tickets', path: '/production-tickets', icon: BugIcon, keywords: ['production', 'prod', 'ticket', 'jira', 'CN-', 'BO', 'prod ticket'] },
   { label: 'Stories', path: '/stories', icon: StoryIcon, keywords: ['story', 'stories', 'jira', 'user story'] },
   { label: 'Releases', path: '/releases', icon: ReleaseIcon, keywords: ['release', 'version', 'deploy'] },
   { label: 'Dashboard', path: '/dashboard', icon: DashboardIcon, keywords: ['dashboard', 'home', 'overview'] },

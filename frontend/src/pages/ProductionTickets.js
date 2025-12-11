@@ -155,7 +155,25 @@ const ProductionTickets = () => {
   const checkJiraConnection = async () => {
     try {
       const status = await jiraAPI.getConnectionStatus();
-      setJiraConnectionStatus(status);
+      
+      // If connected but token is expired, try to auto-refresh
+      if (status.connected && status.expired) {
+        console.log('JIRA token expired, attempting auto-refresh...');
+        try {
+          await jiraAPI.refreshToken();
+          // Re-check status after refresh
+          const refreshedStatus = await jiraAPI.getConnectionStatus();
+          setJiraConnectionStatus(refreshedStatus);
+          if (!refreshedStatus.expired) {
+            console.log('JIRA token refreshed successfully');
+          }
+        } catch (refreshErr) {
+          console.error('Auto-refresh failed:', refreshErr);
+          setJiraConnectionStatus(status);
+        }
+      } else {
+        setJiraConnectionStatus(status);
+      }
     } catch (err) {
       setJiraConnectionStatus({ connected: false, configured: false });
     }

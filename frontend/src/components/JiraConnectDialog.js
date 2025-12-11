@@ -97,6 +97,26 @@ const JiraConnectDialog = ({ open, onClose, onConnectionChange }) => {
     }
   };
 
+  const handleRefreshToken = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Try to refresh the token
+      await jiraAPI.refreshToken();
+      // Fetch updated status
+      const status = await jiraAPI.getConnectionStatus();
+      setConnectionStatus(status);
+      if (onConnectionChange) onConnectionChange(true);
+    } catch (err) {
+      // If refresh fails, show error but still fetch status
+      setError(err.response?.data?.detail || 'Failed to refresh token. Please reconnect to JIRA.');
+      const status = await jiraAPI.getConnectionStatus();
+      setConnectionStatus(status);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleConnect = async () => {
     setConnecting(true);
     setError(null);
@@ -295,11 +315,11 @@ const JiraConnectDialog = ({ open, onClose, onConnectionChange }) => {
         {connectionStatus?.connected ? (
           <>
             <Button 
-              onClick={fetchConnectionStatus} 
+              onClick={handleRefreshToken} 
               startIcon={<RefreshIcon />}
               disabled={loading}
             >
-              Refresh Status
+              Refresh Token
             </Button>
             <Button
               variant="outlined"

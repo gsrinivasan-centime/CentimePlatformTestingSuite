@@ -20,6 +20,10 @@ import {
   CardActionArea,
   Dialog,
   DialogContent,
+  Button,
+  CircularProgress,
+  Snackbar,
+  Tooltip,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -30,8 +34,12 @@ import {
   AttachFile as AttachFileIcon,
   Image as ImageIcon,
   InsertDriveFile as FileIcon,
+  Send as SendIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 import productionTicketsAPI from '../services/productionTicketsService';
+import jiraAPI from '../services/jiraService';
+import MentionInput, { parseMentions } from './MentionInput';
 
 // Status color mapping
 const statusColors = {
@@ -448,6 +456,16 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
   const [commentsPage, setCommentsPage] = useState(0);
   const [commentsPerPage, setCommentsPerPage] = useState(10);
   
+  // Comment form state
+  const [newComment, setNewComment] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState(null);
+  const [commentSuccess, setCommentSuccess] = useState(false);
+  
+  // JIRA connection state
+  const [jiraConnected, setJiraConnected] = useState(null); // null = loading, true/false = known
+  const [jiraUserName, setJiraUserName] = useState('');
+  
   // Image preview state
   const [previewImage, setPreviewImage] = useState(null);
   
@@ -518,8 +536,62 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
       setDetails(null);
       setComments([]);
       setCommentsPage(0);
+      setNewComment('');
+      setCommentError(null);
     }
   }, [open]);
+
+  // Check JIRA connection status when panel opens
+  useEffect(() => {
+    if (open) {
+      checkJiraConnection();
+    }
+  }, [open]);
+
+  const checkJiraConnection = async () => {
+    try {
+      const status = await jiraAPI.getConnectionStatus();
+      setJiraConnected(status.connected);
+      setJiraUserName(status.display_name || '');
+    } catch (err) {
+      setJiraConnected(false);
+    }
+  };
+
+  // Handle comment submission with @mentions
+  const handleSubmitComment = async () => {
+    if (!newComment.trim() || !ticket?.key) return;
+    
+    setSubmittingComment(true);
+    setCommentError(null);
+    
+    try {
+      // Parse mentions from the comment text (extracts @[Name](id) markers)
+      const mentions = parseMentions(newComment);
+      
+      // Send comment with mentions array
+      await jiraAPI.addComment(ticket.key, newComment.trim(), mentions);
+      setNewComment('');
+      setCommentSuccess(true);
+      // Refresh comments list
+      await fetchComments();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || 'Failed to post comment';
+      setCommentError(errorMsg);
+      
+      // If it's an auth error, refresh connection status
+      if (err.response?.status === 403 || err.response?.status === 401) {
+        checkJiraConnection();
+      }
+    } finally {
+      setSubmittingComment(false);
+    }
+  };
+
+  // Handle mention input change
+  const handleCommentChange = (newValue, plainText, mentions) => {
+    setNewComment(newValue);
+  };
 
   // Handle pagination
   const handleCommentsPageChange = (event, newPage) => {
@@ -790,6 +862,81 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
             </Typography>
           </Box>
 
+          {/* Add Comment Form */}
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              p: 2, 
+              mb: 2, 
+              bgcolor: jiraConnected ? 'background.paper' : 'action.disabledBackground' 
+            }}
+          >
+            {jiraConnected === null ? (
+              <Box display="flex" alignItems="center" gap={1}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  Checking JIRA connection...
+                </Typography>
+              </Box>
+            ) : jiraConnected ? (
+              <>
+                <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                  <Avatar sx={{ width: 24, height: 24, fontSize: '0.75rem', bgcolor: 'primary.main' }}>
+                    {jiraUserName?.charAt(0) || 'J'}
+                  </Avatar>
+                  <Typography variant="caption" color="text.secondary">
+                    Commenting as <strong>{jiraUserName}</strong> • Type <strong>@</strong> to mention someone
+                  </Typography>
+                </Box>
+                <MentionInput
+                  value={newComment}
+                  onChange={handleCommentChange}
+                  placeholder="Write a comment... Type @ to mention someone"
+                  disabled={submittingComment}
+                  rows={3}
+                  sx={{ mb: 1.5 }}
+                />
+                {commentError && (
+                  <Alert severity="error" sx={{ mb: 1.5 }} onClose={() => setCommentError(null)}>
+                    {commentError}
+                  </Alert>
+                )}
+                <Box display="flex" justifyContent="flex-end">
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={handleSubmitComment}
+                    disabled={!newComment.trim() || submittingComment}
+                    startIcon={submittingComment ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
+                  >
+                    {submittingComment ? 'Posting...' : 'Post Comment'}
+                  </Button>
+                </Box>
+              </>
+            ) : (
+              <Box textAlign="center" py={1}>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Connect your JIRA account to post comments
+                </Typography>
+                <Tooltip title="Click to open JIRA connection settings">
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<LinkIcon />}
+                    onClick={() => {
+                      // Emit event to parent to open JIRA connect dialog
+                      if (window.dispatchEvent) {
+                        window.dispatchEvent(new CustomEvent('openJiraConnect'));
+                      }
+                    }}
+                  >
+                    Connect JIRA Account
+                  </Button>
+                </Tooltip>
+              </Box>
+            )}
+          </Paper>
+
           {commentsLoading ? (
             <Box>
               {[...Array(3)].map((_, i) => (
@@ -886,6 +1033,15 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
           )}
         </DialogContent>
       </Dialog>
+      
+      {/* Comment Success Snackbar */}
+      <Snackbar
+        open={commentSuccess}
+        autoHideDuration={3000}
+        onClose={() => setCommentSuccess(false)}
+        message="Comment posted successfully!"
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Drawer>
   );
 };

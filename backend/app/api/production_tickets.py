@@ -1,12 +1,15 @@
 """
 Production Tickets API
 Fetches production tickets from JIRA (CN-XXXX with "BO" label) - read-only, no local storage
+User-authenticated operations (like commenting) use JIRA OAuth
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from typing import Optional, List
 from datetime import datetime, timedelta
 from cachetools import TTLCache
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 import threading
 import base64
 import urllib.parse
@@ -14,6 +17,8 @@ import urllib.parse
 from app.api.auth import get_current_user
 from app.models.models import User
 from app.services.jira_service import jira_service
+from app.services.jira_oauth_service import jira_oauth_service
+from app.core.database import get_db
 
 router = APIRouter()
 
@@ -287,6 +292,25 @@ async def proxy_jira_image(
         raise HTTPException(status_code=500, detail=f"Failed to fetch image: {str(e)}")
 
 
+@router.get("/search-users")
+def search_jira_users(
+    query: str = "",
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Search for users in JIRA for @mention autocomplete
+    If no query provided, returns all users (up to 50)
+    """
+    try:
+        search_query = query if query else ""
+        users = jira_service.search_users(search_query)
+        return users
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch JIRA users: {str(e)}")
+
+
 @router.get("/{ticket_key}")
 async def get_ticket_details(
     ticket_key: str,
@@ -381,4 +405,98 @@ async def refresh_cache(
         cache_metadata["last_updated"] = None
     
     return {"message": "Cache cleared successfully", "cleared_at": datetime.now().isoformat()}
+
+
+# Pydantic model for mention in comments
+class MentionData(BaseModel):
+    id: str  # JIRA accountId
+    display: str  # Display name
+
+# Pydantic model for comment creation
+class CommentCreate(BaseModel):
+    body: str
+    mentions: Optional[List[MentionData]] = None  # List of mentioned users
+
+
+@router.post("/{ticket_key}/comments")
+async def add_ticket_comment(
+    ticket_key: str,
+    comment: CommentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add a comment to a JIRA ticket using the user's OAuth credentials
+    
+    The comment will be posted under the user's JIRA account name.
+    Requires the user to have connected their JIRA account via OAuth.
+    """
+    # Check if user has JIRA OAuth connected
+    if not current_user.jira_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to connect your JIRA account to post comments. Click 'Connect JIRA' to authenticate."
+        )
+    
+    if not current_user.jira_cloud_id:
+        raise HTTPException(
+            status_code=403,
+            detail="JIRA cloud site not configured. Please reconnect your JIRA account."
+        )
+    
+    if not comment.body or not comment.body.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Comment body cannot be empty"
+        )
+    
+    try:
+        # Ensure token is valid (auto-refresh if needed)
+        access_token = jira_oauth_service.ensure_valid_token(current_user, db)
+        
+        # Convert mentions to list of dicts if provided
+        mentions_list = None
+        if comment.mentions:
+            mentions_list = [{"id": m.id, "display": m.display} for m in comment.mentions]
+        
+        # Add the comment with @mentions
+        result = jira_oauth_service.add_comment(
+            access_token=access_token,
+            cloud_id=current_user.jira_cloud_id,
+            issue_key=ticket_key,
+            comment_body=comment.body.strip(),
+            mentions=mentions_list
+        )
+        
+        # Clear comments cache for this ticket
+        with cache_lock:
+            keys_to_remove = [k for k in comments_cache.keys() if k.startswith(f"comments:{ticket_key}:")]
+            for key in keys_to_remove:
+                del comments_cache[key]
+        
+        # Return the created comment info
+        return {
+            "success": True,
+            "comment": {
+                "id": result.get("id"),
+                "author": current_user.jira_display_name or current_user.full_name,
+                "author_email": current_user.jira_account_email,
+                "body": comment.body.strip(),
+                "created": result.get("created"),
+            },
+            "message": "Comment added successfully"
+        }
+        
+    except ValueError as e:
+        # Token expired or invalid
+        raise HTTPException(
+            status_code=401,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to add comment: {str(e)}"
+        )
+
 

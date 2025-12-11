@@ -303,11 +303,11 @@ const Layout = ({ children }) => {
     { text: 'Test Design Studio', icon: <PlayArrowIcon />, path: '/test-design-studio' },
     { text: 'Test Cases', icon: <AssignmentIcon />, path: '/test-cases' },
     { text: 'Stories', icon: <AssignmentIcon />, path: '/stories' },
-    { text: 'Production Tickets', icon: <TicketIcon />, path: '/production-tickets' },
     { text: 'Modules', icon: <AccountTreeIcon />, path: '/modules' },
     { text: 'Releases', icon: <LocalOfferIcon />, path: '/releases' },
     { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
     { text: 'Execute Tests', icon: <PlayArrowIcon />, path: '/executions' },
+    { text: 'Production Tickets', icon: <TicketIcon />, path: '/production-tickets' },
     { text: 'Users', icon: <PeopleIcon />, path: '/users' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];

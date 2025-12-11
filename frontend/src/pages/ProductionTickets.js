@@ -58,6 +58,8 @@ import {
 // Status color mapping
 const statusColors = {
   'Open': 'error',
+  'Work in progress': 'info',
+  'Work In Progress': 'info',
   'In Progress': 'info',
   'Pending Verification': 'warning',
   'Closed': 'success',
@@ -303,7 +305,11 @@ const ProductionTickets = () => {
   // Compute dynamic stats based on filtered tickets
   const filteredStats = useMemo(() => {
     const open = filteredTickets.filter(t => t.status === 'Open').length;
-    const inProgress = filteredTickets.filter(t => t.status === 'In Progress').length;
+    const inProgress = filteredTickets.filter(t => 
+      t.status === 'Work in progress' || 
+      t.status === 'Work In Progress' || 
+      t.status === 'In Progress'
+    ).length;
     const pendingVerification = filteredTickets.filter(t => t.status === 'Pending Verification').length;
     
     // Closed this month calculation
@@ -328,7 +334,7 @@ const ProductionTickets = () => {
       icon: <BugIcon sx={{ fontSize: 40, color: '#d32f2f', opacity: 0.6 }} />,
     },
     {
-      title: 'In Progress',
+      title: 'Work In Progress',
       count: filteredStats.inProgress,
       color: '#1976d2',
       bgColor: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',

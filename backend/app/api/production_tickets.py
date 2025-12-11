@@ -36,7 +36,8 @@ def get_jql_for_status(status: str) -> str:
     """Convert status filter to JIRA JQL status condition"""
     status_mapping = {
         "open": '"Open"',
-        "in_progress": '"In Progress"',
+        "in_progress": '"Work In Progress"',
+        "work_in_progress": '"Work In Progress"',
         "pending_verification": '"Pending Verification"',
         "closed": '"Closed"'
     }

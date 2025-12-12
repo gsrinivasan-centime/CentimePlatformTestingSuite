@@ -4,9 +4,9 @@ from datetime import datetime
 from enum import Enum
 
 class UserRole(str, Enum):
-    ADMIN = "admin"
-    TESTER = "tester"
-    DEVELOPER = "developer"
+    ADMIN = "ADMIN"
+    TESTER = "TESTER"
+    DEVELOPER = "DEVELOPER"
 
 class TestType(str, Enum):
     MANUAL = "manual"

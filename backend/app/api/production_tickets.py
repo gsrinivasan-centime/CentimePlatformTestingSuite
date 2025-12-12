@@ -13,12 +13,15 @@ from pydantic import BaseModel
 import threading
 import base64
 import urllib.parse
+import logging
 
 from app.api.auth import get_current_user
 from app.models.models import User
 from app.services.jira_service import jira_service
 from app.services.jira_oauth_service import jira_oauth_service
 from app.core.database import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -309,6 +312,199 @@ def search_jira_users(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch JIRA users: {str(e)}")
+
+
+# Pydantic model for transition request
+class TransitionRequest(BaseModel):
+    transition_id: str
+
+
+# Pydantic model for assignee update
+class AssigneeUpdate(BaseModel):
+    account_id: Optional[str] = None  # None to unassign
+
+
+@router.get("/{ticket_key}/transitions")
+async def get_ticket_transitions(
+    ticket_key: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get available status transitions for a ticket based on user's JIRA permissions.
+    
+    Returns the list of valid status transitions the user can perform on this issue.
+    Requires the user to have connected their JIRA account via OAuth.
+    """
+    # Check if user has JIRA OAuth connected
+    if not current_user.jira_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to connect your JIRA account to view transitions."
+        )
+    
+    if not current_user.jira_cloud_id:
+        raise HTTPException(
+            status_code=403,
+            detail="JIRA cloud site not configured. Please reconnect your JIRA account."
+        )
+    
+    try:
+        access_token = jira_oauth_service.ensure_valid_token(current_user, db)
+        transitions = jira_oauth_service.get_issue_transitions(
+            access_token=access_token,
+            cloud_id=current_user.jira_cloud_id,
+            issue_key=ticket_key
+        )
+        
+        return {"transitions": transitions}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting transitions: {str(e)}")
+        raise HTTPException(status_code=403, detail="You don't have permission to view or modify the status of this issue. Please check your JIRA permissions.")
+
+
+@router.post("/{ticket_key}/transitions")
+async def transition_ticket(
+    ticket_key: str,
+    request: TransitionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Transition a ticket to a new status.
+    
+    Requires the user to have connected their JIRA account via OAuth and
+    have permission to perform the transition in JIRA.
+    """
+    if not current_user.jira_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to connect your JIRA account to change ticket status."
+        )
+    
+    if not current_user.jira_cloud_id:
+        raise HTTPException(
+            status_code=403,
+            detail="JIRA cloud site not configured. Please reconnect your JIRA account."
+        )
+    
+    try:
+        access_token = jira_oauth_service.ensure_valid_token(current_user, db)
+        jira_oauth_service.transition_issue(
+            access_token=access_token,
+            cloud_id=current_user.jira_cloud_id,
+            issue_key=ticket_key,
+            transition_id=request.transition_id
+        )
+        
+        # Clear caches for this ticket
+        with cache_lock:
+            if ticket_key in ticket_details_cache:
+                del ticket_details_cache[ticket_key]
+            # Clear list cache too since status changed
+            ticket_list_cache.clear()
+        
+        return {"success": True, "message": "Ticket status updated successfully"}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+
+
+@router.get("/{ticket_key}/assignable-users")
+async def get_assignable_users(
+    ticket_key: str,
+    query: Optional[str] = Query(None, description="Search query for user name/email"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get users that can be assigned to a ticket.
+    
+    Returns the list of users who can be assigned based on JIRA project permissions.
+    Requires the user to have connected their JIRA account via OAuth.
+    """
+    if not current_user.jira_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to connect your JIRA account to view assignable users."
+        )
+    
+    if not current_user.jira_cloud_id:
+        raise HTTPException(
+            status_code=403,
+            detail="JIRA cloud site not configured. Please reconnect your JIRA account."
+        )
+    
+    try:
+        access_token = jira_oauth_service.ensure_valid_token(current_user, db)
+        users = jira_oauth_service.get_assignable_users(
+            access_token=access_token,
+            cloud_id=current_user.jira_cloud_id,
+            issue_key=ticket_key,
+            query=query or ""
+        )
+        
+        return {"users": users}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting assignable users: {str(e)}")
+        raise HTTPException(status_code=403, detail="You don't have permission to assign users to this issue. Please check your JIRA permissions.")
+
+
+@router.put("/{ticket_key}/assignee")
+async def update_ticket_assignee(
+    ticket_key: str,
+    request: AssigneeUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the assignee of a ticket.
+    
+    Requires the user to have connected their JIRA account via OAuth and
+    have permission to assign issues in JIRA.
+    """
+    if not current_user.jira_access_token:
+        raise HTTPException(
+            status_code=403,
+            detail="You need to connect your JIRA account to change assignee."
+        )
+    
+    if not current_user.jira_cloud_id:
+        raise HTTPException(
+            status_code=403,
+            detail="JIRA cloud site not configured. Please reconnect your JIRA account."
+        )
+    
+    try:
+        access_token = jira_oauth_service.ensure_valid_token(current_user, db)
+        jira_oauth_service.update_issue_assignee(
+            access_token=access_token,
+            cloud_id=current_user.jira_cloud_id,
+            issue_key=ticket_key,
+            assignee_account_id=request.account_id
+        )
+        
+        # Clear caches for this ticket
+        with cache_lock:
+            if ticket_key in ticket_details_cache:
+                del ticket_details_cache[ticket_key]
+            # Clear list cache too since assignee changed
+            ticket_list_cache.clear()
+        
+        return {"success": True, "message": "Assignee updated successfully"}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update assignee: {str(e)}")
 
 
 @router.get("/{ticket_key}")

@@ -66,13 +66,24 @@ def create_user(
     if not user.email.endswith("@centime.com"):
         raise HTTPException(status_code=400, detail="Email must be from @centime.com domain")
     
+    # Convert role to proper enum if needed
+    role_value = user.role
+    if isinstance(role_value, str):
+        role_value = role_value.upper()
+    elif hasattr(role_value, 'value'):
+        role_value = role_value.value.upper()
+    try:
+        role_enum = UserRole(role_value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {role_value}. Valid roles are: ADMIN, TESTER, DEVELOPER")
+    
     # Create new user (unverified by default)
     hashed_password = get_password_hash(user.password)
     db_user = User(
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name,
-        role=user.role,
+        role=role_enum,
         is_email_verified=False  # Require email verification
     )
     db.add(db_user)
@@ -105,6 +116,20 @@ def update_user(
     # If password is being updated, hash it
     if 'password' in update_data and update_data['password']:
         update_data['hashed_password'] = get_password_hash(update_data.pop('password'))
+    
+    # If role is being updated, ensure it's converted to uppercase UserRole enum
+    if 'role' in update_data and update_data['role']:
+        role_value = update_data['role']
+        # Handle both string and enum inputs
+        if isinstance(role_value, str):
+            role_value = role_value.upper()
+        elif hasattr(role_value, 'value'):
+            role_value = role_value.value.upper()
+        # Convert to UserRole enum
+        try:
+            update_data['role'] = UserRole(role_value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid role: {role_value}. Valid roles are: ADMIN, TESTER, DEVELOPER")
     
     for field, value in update_data.items():
         setattr(user, field, value)

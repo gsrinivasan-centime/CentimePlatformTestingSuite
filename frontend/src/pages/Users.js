@@ -93,7 +93,7 @@ const Users = () => {
         name: user.full_name || user.name || '',
         email: user.email,
         password: '',
-        role: user.role
+        role: user.role?.toUpperCase() || 'TESTER'  // Normalize to uppercase
       });
     } else {
       // Create new user - only admins can do this
@@ -105,7 +105,7 @@ const Users = () => {
         name: '',
         email: '',
         password: '',
-        role: 'tester'
+        role: 'TESTER'
       });
     }
     setDialogOpen(true);
@@ -490,9 +490,9 @@ const Users = () => {
                 label="Role"
                 inputProps={{ readOnly: viewMode }}
               >
-                <MenuItem value="tester">Tester</MenuItem>
-                <MenuItem value="developer">Developer</MenuItem>
-                <MenuItem value="admin">Admin</MenuItem>
+                <MenuItem value="TESTER">Tester</MenuItem>
+                <MenuItem value="DEVELOPER">Developer</MenuItem>
+                <MenuItem value="ADMIN">Admin</MenuItem>
               </Select>
             </FormControl>
           </Box>

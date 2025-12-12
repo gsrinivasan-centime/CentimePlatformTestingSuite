@@ -24,6 +24,13 @@ import {
   CircularProgress,
   Snackbar,
   Tooltip,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+  TextField,
+  InputAdornment,
+  Autocomplete,
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -36,6 +43,10 @@ import {
   InsertDriveFile as FileIcon,
   Send as SendIcon,
   Link as LinkIcon,
+  ArrowDropDown as ArrowDropDownIcon,
+  Check as CheckIcon,
+  Search as SearchIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import productionTicketsAPI from '../services/productionTicketsService';
 import jiraAPI from '../services/jiraService';
@@ -45,8 +56,12 @@ import MentionInput, { parseMentions } from './MentionInput';
 const statusColors = {
   'Open': 'error',
   'In Progress': 'info',
+  'Work in progress': 'info',
+  'Work In Progress': 'info',
   'Pending Verification': 'warning',
   'Closed': 'success',
+  'Cancelled': 'default',
+  'Resolved': 'success',
 };
 
 // Format date/time
@@ -444,7 +459,7 @@ const Comment = ({ comment, onImageClick }) => {
   );
 };
 
-const TicketDetailPanel = ({ open, onClose, ticket }) => {
+const TicketDetailPanel = ({ open, onClose, ticket, onTicketUpdated }) => {
   const [details, setDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState(null);
@@ -468,6 +483,23 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
   
   // Image preview state
   const [previewImage, setPreviewImage] = useState(null);
+  
+  // Status transition state
+  const [statusMenuAnchor, setStatusMenuAnchor] = useState(null);
+  const [transitions, setTransitions] = useState([]);
+  const [transitionsLoading, setTransitionsLoading] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  
+  // Assignee edit state
+  const [assigneeMenuAnchor, setAssigneeMenuAnchor] = useState(null);
+  const [assignableUsers, setAssignableUsers] = useState([]);
+  const [assignableUsersLoading, setAssignableUsersLoading] = useState(false);
+  const [assigneeSearchQuery, setAssigneeSearchQuery] = useState('');
+  const [updatingAssignee, setUpdatingAssignee] = useState(false);
+  
+  // Success/error messages for updates
+  const [updateSuccess, setUpdateSuccess] = useState('');
+  const [updateError, setUpdateError] = useState('');
   
   // Handle image click - open in fullscreen dialog
   const handleImageClick = useCallback((imageSrc) => {
@@ -555,6 +587,124 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
       setJiraUserName(status.display_name || '');
     } catch (err) {
       setJiraConnected(false);
+    }
+  };
+
+  // Fetch available status transitions
+  const fetchTransitions = useCallback(async () => {
+    if (!ticket?.key || !jiraConnected || transitionsLoading) return;
+    
+    setTransitionsLoading(true);
+    try {
+      const result = await productionTicketsAPI.getTicketTransitions(ticket.key);
+      setTransitions(result.transitions || []);
+    } catch (err) {
+      console.error('Failed to fetch transitions:', err);
+      setTransitions([]);
+      // Only show error if not already showing one
+      if (!updateError) {
+        setUpdateError(err.response?.data?.detail || 'Failed to fetch status transitions');
+      }
+      // Close the menu on error
+      setStatusMenuAnchor(null);
+    } finally {
+      setTransitionsLoading(false);
+    }
+  }, [ticket?.key, jiraConnected, transitionsLoading, updateError]);
+
+  // Fetch assignable users
+  const fetchAssignableUsers = useCallback(async (query = '', showErrorToast = true) => {
+    if (!ticket?.key || !jiraConnected || assignableUsersLoading) return;
+    
+    setAssignableUsersLoading(true);
+    try {
+      const result = await productionTicketsAPI.getAssignableUsers(ticket.key, query);
+      setAssignableUsers(result.users || []);
+    } catch (err) {
+      console.error('Failed to fetch assignable users:', err);
+      setAssignableUsers([]);
+      // Only show error if requested and not already showing one
+      if (showErrorToast && !updateError) {
+        setUpdateError(err.response?.data?.detail || 'Failed to fetch assignable users');
+        // Close the menu on error
+        setAssigneeMenuAnchor(null);
+      }
+    } finally {
+      setAssignableUsersLoading(false);
+    }
+  }, [ticket?.key, jiraConnected, assignableUsersLoading, updateError]);
+
+  // Handle status menu open
+  const handleStatusMenuOpen = (event) => {
+    if (!jiraConnected) return;
+    setStatusMenuAnchor(event.currentTarget);
+    fetchTransitions();
+  };
+
+  // Handle status menu close
+  const handleStatusMenuClose = () => {
+    setStatusMenuAnchor(null);
+  };
+
+  // Handle status transition
+  const handleStatusChange = async (transition) => {
+    if (!ticket?.key || !transition?.id) return;
+    
+    setUpdatingStatus(true);
+    try {
+      await productionTicketsAPI.transitionTicket(ticket.key, transition.id);
+      setUpdateSuccess(`Status changed to "${transition.to.name}"`);
+      handleStatusMenuClose();
+      // Refresh details to get new status
+      await fetchDetails();
+      // Notify parent to refresh ticket list
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err) {
+      setUpdateError(err.response?.data?.detail || 'Failed to update status');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // Handle assignee menu open
+  const handleAssigneeMenuOpen = (event) => {
+    if (!jiraConnected) return;
+    setAssigneeMenuAnchor(event.currentTarget);
+    setAssigneeSearchQuery('');
+    fetchAssignableUsers();
+  };
+
+  // Handle assignee menu close
+  const handleAssigneeMenuClose = () => {
+    setAssigneeMenuAnchor(null);
+    setAssigneeSearchQuery('');
+  };
+
+  // Handle assignee search
+  const handleAssigneeSearch = (e) => {
+    const query = e.target.value;
+    setAssigneeSearchQuery(query);
+    // Don't show error toast for search queries - only show on initial open
+    fetchAssignableUsers(query, false);
+  };
+
+  // Handle assignee change
+  const handleAssigneeChange = async (user) => {
+    if (!ticket?.key) return;
+    
+    setUpdatingAssignee(true);
+    try {
+      await productionTicketsAPI.updateAssignee(ticket.key, user?.accountId || null);
+      setUpdateSuccess(user ? `Assigned to ${user.displayName}` : 'Unassigned');
+      handleAssigneeMenuClose();
+      // Refresh details to get new assignee
+      await fetchDetails();
+      // Notify parent to refresh ticket list
+      if (onTicketUpdated) onTicketUpdated();
+    } catch (err) {
+      setUpdateError(err.response?.data?.detail || 'Failed to update assignee');
+    } finally {
+      setUpdatingAssignee(false);
     }
   };
 
@@ -653,12 +803,64 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
                 </Typography>
                 <OpenInNewIcon sx={{ fontSize: 16 }} />
               </Link>
-              <Chip
-                label={details?.status || ticket.status}
-                size="small"
-                color={statusColors[details?.status || ticket.status] || 'default'}
-                sx={{ mt: 0.5 }}
-              />
+              {/* Editable Status */}
+              <Tooltip title={jiraConnected ? "Click to change status" : "Connect JIRA to change status"}>
+                <Chip
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {updatingStatus ? (
+                        <CircularProgress size={12} color="inherit" />
+                      ) : null}
+                      {details?.status || ticket.status}
+                      {jiraConnected && <ArrowDropDownIcon sx={{ fontSize: 16, ml: -0.5 }} />}
+                    </Box>
+                  }
+                  size="small"
+                  color={statusColors[details?.status || ticket.status] || 'default'}
+                  onClick={handleStatusMenuOpen}
+                  sx={{ 
+                    mt: 0.5,
+                    cursor: jiraConnected ? 'pointer' : 'default',
+                    '&:hover': jiraConnected ? { filter: 'brightness(0.9)' } : {}
+                  }}
+                />
+              </Tooltip>
+              {/* Status Menu */}
+              <Menu
+                anchorEl={statusMenuAnchor}
+                open={Boolean(statusMenuAnchor)}
+                onClose={handleStatusMenuClose}
+                PaperProps={{
+                  sx: { minWidth: 200, maxHeight: 300 }
+                }}
+              >
+                {transitionsLoading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={16} sx={{ mr: 1 }} />
+                    Loading transitions...
+                  </MenuItem>
+                ) : transitions.length === 0 ? (
+                  <MenuItem disabled>No transitions available</MenuItem>
+                ) : (
+                  transitions.map((transition) => (
+                    <MenuItem
+                      key={transition.id}
+                      onClick={() => handleStatusChange(transition)}
+                      disabled={updatingStatus}
+                    >
+                      <ListItemIcon>
+                        <Chip
+                          label={transition.to.name}
+                          size="small"
+                          color={statusColors[transition.to.name] || 'default'}
+                          sx={{ fontSize: '0.7rem', height: 20 }}
+                        />
+                      </ListItemIcon>
+                      <ListItemText primary={transition.name} />
+                    </MenuItem>
+                  ))
+                )}
+              </Menu>
             </Box>
             <IconButton onClick={onClose} size="small">
               <CloseIcon />
@@ -673,22 +875,116 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
         <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
           {/* Metadata */}
           <Stack direction="row" spacing={2} flexWrap="wrap" sx={{ mb: 2 }}>
+            {/* Editable Assignee */}
             <Box display="flex" alignItems="center" gap={0.5}>
               <PersonIcon fontSize="small" color="action" />
               <Typography variant="body2" color="text.secondary">
                 Assignee:
               </Typography>
-              <Stack direction="row" alignItems="center" spacing={0.5}>
-                {(details?.assignee_avatar || ticket.assignee_avatar) && (
-                  <Avatar 
-                    src={details?.assignee_avatar || ticket.assignee_avatar} 
-                    sx={{ width: 20, height: 20 }}
+              <Tooltip title={jiraConnected ? "Click to change assignee" : "Connect JIRA to change assignee"}>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  onClick={handleAssigneeMenuOpen}
+                  avatar={
+                    (details?.assignee_avatar || ticket.assignee_avatar) ? (
+                      <Avatar 
+                        src={details?.assignee_avatar || ticket.assignee_avatar} 
+                        sx={{ width: 20, height: 20 }}
+                      />
+                    ) : null
+                  }
+                  label={
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {updatingAssignee ? (
+                        <CircularProgress size={12} />
+                      ) : null}
+                      {details?.assignee || ticket.assignee || 'Unassigned'}
+                      {jiraConnected && <EditIcon sx={{ fontSize: 12, ml: 0.5 }} />}
+                    </Box>
+                  }
+                  sx={{ 
+                    cursor: jiraConnected ? 'pointer' : 'default',
+                    '&:hover': jiraConnected ? { bgcolor: 'action.hover' } : {}
+                  }}
+                />
+              </Tooltip>
+              {/* Assignee Menu */}
+              <Menu
+                anchorEl={assigneeMenuAnchor}
+                open={Boolean(assigneeMenuAnchor)}
+                onClose={handleAssigneeMenuClose}
+                PaperProps={{
+                  sx: { width: 280, maxHeight: 400 }
+                }}
+              >
+                <Box sx={{ p: 1 }}>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Search users..."
+                    value={assigneeSearchQuery}
+                    onChange={handleAssigneeSearch}
+                    autoFocus
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon fontSize="small" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                   />
+                </Box>
+                <Divider />
+                {/* Unassign option */}
+                <MenuItem 
+                  onClick={() => handleAssigneeChange(null)}
+                  disabled={updatingAssignee}
+                >
+                  <ListItemIcon>
+                    <Avatar sx={{ width: 24, height: 24, bgcolor: 'grey.300' }}>?</Avatar>
+                  </ListItemIcon>
+                  <ListItemText primary="Unassigned" />
+                  {!details?.assignee && !ticket.assignee && (
+                    <CheckIcon fontSize="small" color="primary" />
+                  )}
+                </MenuItem>
+                <Divider />
+                {assignableUsersLoading ? (
+                  <MenuItem disabled>
+                    <CircularProgress size={16} sx={{ mr: 1 }} />
+                    Loading users...
+                  </MenuItem>
+                ) : assignableUsers.length === 0 ? (
+                  <MenuItem disabled>No users found</MenuItem>
+                ) : (
+                  assignableUsers.map((user) => (
+                    <MenuItem
+                      key={user.accountId}
+                      onClick={() => handleAssigneeChange(user)}
+                      disabled={updatingAssignee}
+                    >
+                      <ListItemIcon>
+                        <Avatar 
+                          src={user.avatarUrl} 
+                          sx={{ width: 24, height: 24 }}
+                        >
+                          {user.displayName?.charAt(0) || '?'}
+                        </Avatar>
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={user.displayName}
+                        secondary={user.emailAddress}
+                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                      />
+                      {(details?.assignee === user.displayName || ticket.assignee === user.displayName) && (
+                        <CheckIcon fontSize="small" color="primary" />
+                      )}
+                    </MenuItem>
+                  ))
                 )}
-                <Typography variant="body2">
-                  {details?.assignee || ticket.assignee || 'Unassigned'}
-                </Typography>
-              </Stack>
+              </Menu>
             </Box>
             <Box display="flex" alignItems="center" gap={0.5}>
               <ScheduleIcon fontSize="small" color="action" />
@@ -1042,6 +1338,40 @@ const TicketDetailPanel = ({ open, onClose, ticket }) => {
         message="Comment posted successfully!"
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+      
+      {/* Update Success Snackbar */}
+      <Snackbar
+        open={Boolean(updateSuccess)}
+        autoHideDuration={3000}
+        onClose={() => setUpdateSuccess('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setUpdateSuccess('')} 
+          severity="success" 
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {updateSuccess}
+        </Alert>
+      </Snackbar>
+      
+      {/* Update Error Snackbar */}
+      <Snackbar
+        open={Boolean(updateError)}
+        autoHideDuration={5000}
+        onClose={() => setUpdateError('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setUpdateError('')} 
+          severity="error" 
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {updateError}
+        </Alert>
+      </Snackbar>
     </Drawer>
   );
 };

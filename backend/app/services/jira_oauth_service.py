@@ -438,6 +438,225 @@ class JiraOAuthService:
         db.commit()
         logger.info(f"Cleared JIRA OAuth tokens for user {user.id}")
 
+    def get_issue_transitions(
+        self,
+        access_token: str,
+        cloud_id: str,
+        issue_key: str
+    ) -> list:
+        """
+        Get available status transitions for an issue based on user's permissions
+        
+        Args:
+            access_token: Valid OAuth access token
+            cloud_id: JIRA cloud site ID
+            issue_key: Issue key (e.g., CN-1234)
+            
+        Returns:
+            List of available transitions with id, name, to status
+        """
+        url = f"{ATLASSIAN_API_URL}/ex/jira/{cloud_id}/rest/api/3/issue/{issue_key}/transitions"
+        
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        
+        permission_error_msg = "You don't have permission to view or modify the status of this issue. Please check your JIRA permissions."
+        
+        # Try to parse response as JSON
+        try:
+            response_data = response.json()
+        except Exception:
+            response_data = None
+        
+        if response.status_code in [401, 403]:
+            logger.error(f"Failed to get transitions: {response.status_code} - {response.text}")
+            raise ValueError(permission_error_msg)
+        
+        if response.status_code != 200:
+            logger.error(f"Failed to get transitions: {response.status_code} - {response.text}")
+            raise ValueError(permission_error_msg)
+        
+        # Check if response body contains error
+        if isinstance(response_data, dict):
+            error_code = response_data.get('code')
+            error_message = str(response_data.get('message', ''))
+            if error_code in [401, 403] or 'Unauthorized' in error_message or 'scope' in error_message.lower():
+                logger.error(f"Permission error in response body: {response_data}")
+                raise ValueError(permission_error_msg)
+        
+        transitions = response_data.get("transitions", []) if response_data else []
+        
+        return [
+            {
+                "id": t.get("id"),
+                "name": t.get("name"),
+                "to": {
+                    "id": t.get("to", {}).get("id"),
+                    "name": t.get("to", {}).get("name"),
+                    "statusCategory": t.get("to", {}).get("statusCategory", {}).get("name")
+                }
+            }
+            for t in transitions
+        ]
+
+    def transition_issue(
+        self,
+        access_token: str,
+        cloud_id: str,
+        issue_key: str,
+        transition_id: str
+    ) -> Dict[str, Any]:
+        """
+        Transition an issue to a new status
+        
+        Args:
+            access_token: Valid OAuth access token
+            cloud_id: JIRA cloud site ID
+            issue_key: Issue key (e.g., CN-1234)
+            transition_id: The transition ID to execute
+            
+        Returns:
+            Success response
+        """
+        url = f"{ATLASSIAN_API_URL}/ex/jira/{cloud_id}/rest/api/3/issue/{issue_key}/transitions"
+        
+        payload = {
+            "transition": {
+                "id": transition_id
+            }
+        }
+        
+        response = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        )
+        
+        if response.status_code not in [200, 204]:
+            logger.error(f"Failed to transition issue: {response.status_code} - {response.text}")
+            raise ValueError(f"Failed to transition issue: {response.text}")
+        
+        return {"success": True}
+
+    def get_assignable_users(
+        self,
+        access_token: str,
+        cloud_id: str,
+        issue_key: str,
+        query: str = ""
+    ) -> list:
+        """
+        Get users that can be assigned to an issue
+        
+        Args:
+            access_token: Valid OAuth access token
+            cloud_id: JIRA cloud site ID
+            issue_key: Issue key (e.g., CN-1234)
+            query: Optional search query for user name/email
+            
+        Returns:
+            List of assignable users
+        """
+        url = f"{ATLASSIAN_API_URL}/ex/jira/{cloud_id}/rest/api/3/user/assignable/search"
+        
+        params = {
+            "issueKey": issue_key,
+            "maxResults": 50
+        }
+        if query:
+            params["query"] = query
+        
+        response = requests.get(
+            url,
+            params=params,
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        
+        # Try to parse response as JSON
+        try:
+            response_data = response.json()
+        except Exception:
+            response_data = None
+        
+        # Check for permission errors - either by status code or response body
+        permission_error_msg = "You don't have permission to assign users to this issue. Please check your JIRA permissions."
+        
+        if response.status_code in [401, 403]:
+            logger.error(f"Failed to get assignable users: {response.status_code} - {response.text}")
+            raise ValueError(permission_error_msg)
+        
+        if response.status_code != 200:
+            logger.error(f"Failed to get assignable users: {response.status_code} - {response.text}")
+            raise ValueError(permission_error_msg)
+        
+        # Check if response body contains error (some APIs return 200 with error in body)
+        if isinstance(response_data, dict):
+            error_code = response_data.get('code')
+            error_message = str(response_data.get('message', ''))
+            if error_code in [401, 403] or 'Unauthorized' in error_message or 'scope' in error_message.lower():
+                logger.error(f"Permission error in response body: {response_data}")
+                raise ValueError(permission_error_msg)
+        
+        # Response should be a list of users
+        if not isinstance(response_data, list):
+            logger.error(f"Unexpected response format for assignable users: {response_data}")
+            raise ValueError(permission_error_msg)
+        
+        return [
+            {
+                "accountId": u.get("accountId"),
+                "displayName": u.get("displayName"),
+                "emailAddress": u.get("emailAddress"),
+                "avatarUrl": u.get("avatarUrls", {}).get("24x24")
+            }
+            for u in users
+        ]
+
+    def update_issue_assignee(
+        self,
+        access_token: str,
+        cloud_id: str,
+        issue_key: str,
+        assignee_account_id: Optional[str]
+    ) -> Dict[str, Any]:
+        """
+        Update the assignee of an issue
+        
+        Args:
+            access_token: Valid OAuth access token
+            cloud_id: JIRA cloud site ID
+            issue_key: Issue key (e.g., CN-1234)
+            assignee_account_id: Account ID of the new assignee, or None to unassign
+            
+        Returns:
+            Success response
+        """
+        url = f"{ATLASSIAN_API_URL}/ex/jira/{cloud_id}/rest/api/3/issue/{issue_key}/assignee"
+        
+        payload = {
+            "accountId": assignee_account_id
+        }
+        
+        response = requests.put(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        )
+        
+        if response.status_code not in [200, 204]:
+            logger.error(f"Failed to update assignee: {response.status_code} - {response.text}")
+            raise ValueError(f"Failed to update assignee: {response.text}")
+        
+        return {"success": True}
+
 
 # Singleton instance
 jira_oauth_service = JiraOAuthService()

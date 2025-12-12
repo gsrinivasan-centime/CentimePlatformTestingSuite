@@ -22,27 +22,19 @@ import {
   InputAdornment,
   ToggleButton,
   ToggleButtonGroup,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Avatar,
   Skeleton,
   Alert,
   Stack,
-  Button,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Search as SearchIcon,
-  BugReport as BugIcon,
-  Schedule as ScheduleIcon,
-  CheckCircle as CheckCircleIcon,
-  HourglassEmpty as HourglassIcon,
-  PlayCircle as PlayCircleIcon,
   Clear as ClearIcon,
-  Link as LinkIcon,
-  CheckCircleOutline as ConnectedIcon,
+  TaskAlt as TaskAltIcon,
+  Warning as WarningIcon,
+  AccessTime as AccessTimeIcon,
+  TrendingUp as TrendingUpIcon,
 } from '@mui/icons-material';
 import { useToast } from '../context/ToastContext';
 import productionTicketsAPI from '../services/productionTicketsService';
@@ -116,10 +108,12 @@ const ProductionTickets = () => {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [cacheInfo, setCacheInfo] = useState({ cached: false, cache_updated_at: null });
   
   // Server-side filters
   const [statusFilter, setStatusFilter] = useState('');  // Empty = all non-closed
+  // eslint-disable-next-line no-unused-vars
   const [periodFilter, setPeriodFilter] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -282,12 +276,6 @@ const ProductionTickets = () => {
     setPage(0);
   };
 
-  // Handle period filter change
-  const handlePeriodFilterChange = (event) => {
-    setPeriodFilter(event.target.value);
-    setPage(0);
-  };
-
   // Handle ticket search
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -363,6 +351,21 @@ const ProductionTickets = () => {
       t.status === 'In Progress'
     ).length;
     const pendingVerification = filteredTickets.filter(t => t.status === 'Pending Verification').length;
+    const closed = filteredTickets.filter(t => t.status === 'Closed').length;
+    const resolved = filteredTickets.filter(t => t.status === 'Resolved').length;
+    const cancelled = filteredTickets.filter(t => t.status === 'Cancelled').length;
+    const waitingForInfo = filteredTickets.filter(t => 
+      t.status?.toLowerCase().includes('waiting') && t.status?.toLowerCase().includes('external')
+    ).length;
+    
+    // Priority breakdown - map JIRA priorities to Critical/High/Medium/Low
+    const p0 = filteredTickets.filter(t => t.priority === 'Highest' || t.priority === 'Critical').length;
+    const p1 = filteredTickets.filter(t => t.priority === 'High').length;
+    const p2 = filteredTickets.filter(t => t.priority === 'Medium').length;
+    const p3 = filteredTickets.filter(t => t.priority === 'Low' || t.priority === 'Lowest').length;
+    
+    // Critical incidents (P0 + P1)
+    const criticalIncidents = p0 + p1;
     
     // Closed this month calculation
     const now = new Date();
@@ -373,46 +376,196 @@ const ProductionTickets = () => {
       return updated >= firstDayOfMonth;
     }).length;
 
-    return { open, inProgress, pendingVerification, closedThisMonth };
+    return { 
+      open, 
+      inProgress, 
+      pendingVerification, 
+      closedThisMonth, 
+      closed,
+      resolved,
+      cancelled,
+      waitingForInfo,
+      total: filteredTickets.length,
+      criticalIncidents,
+      priority: { p0, p1, p2, p3 }
+    };
   }, [filteredTickets]);
 
-  // Stats cards data - use filtered stats (defined after filteredStats)
-  const statsCards = [
-    {
-      title: 'Open',
-      count: filteredStats.open,
-      color: '#d32f2f',
-      bgColor: 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
-      icon: <BugIcon sx={{ fontSize: 40, color: '#d32f2f', opacity: 0.6 }} />,
-    },
-    {
-      title: 'Work In Progress',
-      count: filteredStats.inProgress,
-      color: '#1976d2',
-      bgColor: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
-      icon: <PlayCircleIcon sx={{ fontSize: 40, color: '#1976d2', opacity: 0.6 }} />,
-    },
-    {
-      title: 'Pending Verification',
-      count: filteredStats.pendingVerification,
-      color: '#ed6c02',
-      bgColor: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
-      icon: <HourglassIcon sx={{ fontSize: 40, color: '#ed6c02', opacity: 0.6 }} />,
-    },
-    {
-      title: 'Closed This Month',
-      count: filteredStats.closedThisMonth,
-      color: '#2e7d32',
-      bgColor: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
-      icon: <CheckCircleIcon sx={{ fontSize: 40, color: '#2e7d32', opacity: 0.6 }} />,
-    },
-  ];
+  // Donut chart component for priority with hover interactivity
+  const PriorityDonutChart = ({ stats }) => {
+    const [hoveredSegment, setHoveredSegment] = React.useState(null);
+    const total = stats.p0 + stats.p1 + stats.p2 + stats.p3 || 1;
+    const data = [
+      { label: 'Critical', value: stats.p0, color: '#ef4444' },
+      { label: 'High', value: stats.p1, color: '#f97316' },
+      { label: 'Medium', value: stats.p2, color: '#3b82f6' },
+      { label: 'Low', value: stats.p3, color: '#22c55e' },
+    ];
+    
+    let cumulativePercent = 0;
+    const size = 200;
+    const strokeWidth = 28;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 2, overflow: 'visible' }}>
+        <Box sx={{ position: 'relative', width: size + 20, height: size + 20, p: '10px', overflow: 'visible' }}>
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
+            {/* Background circle */}
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="#f3f4f6"
+              strokeWidth={strokeWidth}
+            />
+            {/* Data segments */}
+            {data.map((segment, index) => {
+              const percent = segment.value / total;
+              const strokeDasharray = `${percent * circumference} ${circumference}`;
+              const strokeDashoffset = -cumulativePercent * circumference;
+              cumulativePercent += percent;
+              const isHovered = hoveredSegment === segment.label;
+              
+              return (
+                <circle
+                  key={segment.label}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth={isHovered ? strokeWidth + 6 : strokeWidth}
+                  strokeDasharray={strokeDasharray}
+                  strokeDashoffset={strokeDashoffset}
+                  transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                  style={{ 
+                    transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                    cursor: 'pointer',
+                    opacity: hoveredSegment && !isHovered ? 0.5 : 1,
+                  }}
+                  onMouseEnter={() => setHoveredSegment(segment.label)}
+                  onMouseLeave={() => setHoveredSegment(null)}
+                />
+              );
+            })}
+          </svg>
+          {/* Center text showing hovered value */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+              pointerEvents: 'none',
+            }}
+          >
+            {hoveredSegment ? (
+              <>
+                <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                  {hoveredSegment}
+                </Typography>
+                <Typography variant="h5" fontWeight="bold" color="text.primary">
+                  {data.find(d => d.label === hoveredSegment)?.value || 0}
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                  Total
+                </Typography>
+                <Typography variant="h5" fontWeight="bold" color="text.primary">
+                  {total}
+                </Typography>
+              </>
+            )}
+          </Box>
+        </Box>
+        {/* Legend */}
+        <Box sx={{ display: 'flex', gap: 2, mt: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {data.map((item) => (
+            <Box 
+              key={item.label} 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 0.5,
+                cursor: 'pointer',
+                opacity: hoveredSegment && hoveredSegment !== item.label ? 0.5 : 1,
+                transition: 'opacity 0.2s ease',
+              }}
+              onMouseEnter={() => setHoveredSegment(item.label)}
+              onMouseLeave={() => setHoveredSegment(null)}
+            >
+              <Box sx={{ width: 12, height: 12, borderRadius: '2px', bgcolor: item.color }} />
+              <Typography variant="caption" fontWeight={500}>{item.label}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    );
+  };
+
+  // Horizontal bar chart for status
+  const StatusBarChart = ({ stats }) => {
+    const statusData = [
+      { label: 'Open', value: stats.open, color: '#ef4444', maxValue: stats.total },
+      { label: 'Work in Progress', value: stats.inProgress, color: '#3b82f6', maxValue: stats.total },
+      { label: 'Pending Verification', value: stats.pendingVerification, color: '#f59e0b', maxValue: stats.total },
+      { label: 'Waiting for External Info', value: stats.waitingForInfo, color: '#8b5cf6', maxValue: stats.total },
+      { label: 'Resolved', value: stats.resolved, color: '#22c55e', maxValue: stats.total },
+      { label: 'Closed', value: stats.closed, color: '#10b981', maxValue: stats.total },
+    ];
+    
+    const maxValue = Math.max(...statusData.map(d => d.value), 1);
+    
+    return (
+      <Box sx={{ py: 2, px: 1 }}>
+        {statusData.map((item) => (
+          <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+            <Typography 
+              variant="body2" 
+              sx={{ width: 140, flexShrink: 0, textAlign: 'right', pr: 2, color: 'text.secondary', fontSize: '0.8rem' }}
+            >
+              {item.label}
+            </Typography>
+            <Tooltip title={`${item.label}: ${item.value}`} placement="top">
+              <Box sx={{ flex: 1, position: 'relative' }}>
+                <Box
+                  sx={{
+                    height: 24,
+                    bgcolor: '#f1f5f9',
+                    borderRadius: 1,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      height: '100%',
+                      width: `${(item.value / maxValue) * 100}%`,
+                      bgcolor: item.color,
+                      borderRadius: 1,
+                      transition: 'width 0.5s ease',
+                      minWidth: item.value > 0 ? 4 : 0,
+                    }}
+                  />
+                </Box>
+              </Box>
+            </Tooltip>
+          </Box>
+        ))}
+      </Box>
+    );
+  };
 
   return (
     <>
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+      <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={3}>
         <Box>
           <Typography variant="h4" component="h1" fontWeight="bold">
             Production Tickets
@@ -422,117 +575,262 @@ const ProductionTickets = () => {
           </Typography>
         </Box>
         <Box display="flex" alignItems="center" gap={2}>
-          {/* JIRA Connection Status */}
-          {jiraConnectionStatus?.configured && (
-            <Tooltip title={
-              jiraConnectionStatus?.connected 
-                ? `Connected as ${jiraConnectionStatus.display_name || 'JIRA User'}` 
-                : 'Connect your JIRA account to post comments'
-            }>
-              <Button
-                variant={jiraConnectionStatus?.connected ? "outlined" : "contained"}
-                size="small"
-                color={jiraConnectionStatus?.connected ? "success" : "primary"}
-                startIcon={jiraConnectionStatus?.connected ? <ConnectedIcon /> : <LinkIcon />}
-                onClick={() => setJiraConnectDialogOpen(true)}
-                sx={{ textTransform: 'none' }}
-              >
-                {jiraConnectionStatus?.connected 
-                  ? (jiraConnectionStatus.display_name || 'JIRA Connected')
-                  : 'Connect JIRA'
-                }
-              </Button>
-            </Tooltip>
-          )}
-          {cacheInfo.cache_updated_at && (
-            <Chip
-              icon={<ScheduleIcon />}
-              label={`Updated ${formatRelativeTime(cacheInfo.cache_updated_at)}`}
-              size="small"
-              variant="outlined"
-              color={cacheInfo.cached ? 'default' : 'primary'}
-            />
-          )}
           <Tooltip title="Refresh (clear cache)">
             <IconButton onClick={handleRefresh} color="primary">
               <RefreshIcon />
             </IconButton>
           </Tooltip>
+          {/* JIRA Connection Status */}
+          {jiraConnectionStatus?.configured && (
+            <Tooltip title={
+              jiraConnectionStatus?.connected 
+                ? `Connected as ${jiraConnectionStatus.display_name || 'JIRA User'}` 
+                : 'Connect your JIRA account'
+            }>
+              <Chip
+                icon={jiraConnectionStatus?.connected ? <TaskAltIcon /> : <WarningIcon />}
+                label={jiraConnectionStatus?.connected 
+                  ? (jiraConnectionStatus.display_name || 'JIRA Connected')
+                  : 'JIRA Disconnected'
+                }
+                onClick={() => setJiraConnectDialogOpen(true)}
+                color={jiraConnectionStatus?.connected ? 'success' : 'default'}
+                variant={jiraConnectionStatus?.connected ? 'filled' : 'outlined'}
+                sx={{ 
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              />
+            </Tooltip>
+          )}
         </Box>
       </Box>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - New Design */}
       <Grid container spacing={2} mb={3}>
-        {statsCards.map((card) => (
-          <Grid item xs={12} sm={6} md={3} key={card.title}>
-            <Card 
-              elevation={2}
-              sx={{ 
-                position: 'relative',
-                overflow: 'hidden',
-                background: card.bgColor,
-                borderLeft: 4,
-                borderColor: card.color,
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { 
-                  transform: 'translateY(-2px)',
-                  boxShadow: 4 
-                }
-              }}
-            >
-              <CardContent sx={{ py: 2, px: 2.5, '&:last-child': { pb: 2 } }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Box>
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
-                        fontWeight: 600, 
-                        textTransform: 'uppercase', 
-                        letterSpacing: 0.5,
-                        fontSize: '0.75rem',
-                        color: 'text.secondary',
-                        mb: 0.5
-                      }}
-                    >
-                      {card.title}
+        {/* Total Tickets */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <CardContent sx={{ py: 2.5, px: 3 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Total Tickets
+                  </Typography>
+                  {loading && filteredTickets.length === 0 ? (
+                    <Skeleton variant="text" width={60} height={48} />
+                  ) : (
+                    <Typography variant="h3" fontWeight="bold" color="text.primary">
+                      {filteredStats.total}
                     </Typography>
-                    {loading && filteredTickets.length === 0 ? (
-                      <Skeleton variant="text" width={50} height={40} />
-                    ) : (
-                      <Typography 
-                        variant="h3" 
-                        fontWeight="bold" 
-                        sx={{ color: card.color, lineHeight: 1.2 }}
-                      >
-                        {card.count}
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box>
-                    {card.icon}
-                  </Box>
+                  )}
                 </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
+                <Box sx={{ 
+                  p: 1, 
+                  borderRadius: '50%', 
+                  bgcolor: 'grey.100',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <TaskAltIcon sx={{ color: 'grey.600' }} />
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Critical Incidents */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <CardContent sx={{ py: 2.5, px: 3 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Critical Incidents
+                  </Typography>
+                  {loading && filteredTickets.length === 0 ? (
+                    <Skeleton variant="text" width={60} height={48} />
+                  ) : (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="h3" fontWeight="bold" color="text.primary">
+                        {filteredStats.criticalIncidents}
+                      </Typography>
+                      {filteredStats.criticalIncidents > 0 && (
+                        <Chip 
+                          label={`Critical: ${filteredStats.priority.p0}`}
+                          size="small" 
+                          sx={{ 
+                            bgcolor: '#fef2f2', 
+                            color: '#dc2626',
+                            fontWeight: 500,
+                            fontSize: '0.7rem',
+                            height: 22,
+                          }} 
+                        />
+                      )}
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ 
+                  p: 1, 
+                  borderRadius: '50%', 
+                  bgcolor: '#fef2f2',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <WarningIcon sx={{ color: '#dc2626' }} />
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Open Tickets */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <CardContent sx={{ py: 2.5, px: 3 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Open Tickets
+                  </Typography>
+                  {loading && filteredTickets.length === 0 ? (
+                    <Skeleton variant="text" width={60} height={48} />
+                  ) : (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="h3" fontWeight="bold" color="text.primary">
+                        {filteredStats.open}
+                      </Typography>
+                      {filteredStats.total > 0 && (
+                        <Chip 
+                          label={`${Math.round((filteredStats.open / filteredStats.total) * 100)}% of total`}
+                          size="small" 
+                          sx={{ 
+                            bgcolor: '#eff6ff', 
+                            color: '#2563eb',
+                            fontWeight: 500,
+                            fontSize: '0.7rem',
+                            height: 22,
+                          }} 
+                        />
+                      )}
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ 
+                  p: 1, 
+                  borderRadius: '50%', 
+                  bgcolor: '#fef3c7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <AccessTimeIcon sx={{ color: '#d97706' }} />
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Closed This Month */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            <CardContent sx={{ py: 2.5, px: 3 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Closed This Month
+                  </Typography>
+                  {loading && filteredTickets.length === 0 ? (
+                    <Skeleton variant="text" width={60} height={48} />
+                  ) : (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Typography variant="h3" fontWeight="bold" color="text.primary">
+                        {filteredStats.closedThisMonth}
+                      </Typography>
+                      <Chip 
+                        label="This Month"
+                        size="small" 
+                        sx={{ 
+                          bgcolor: '#ecfdf5', 
+                          color: '#059669',
+                          fontWeight: 500,
+                          fontSize: '0.7rem',
+                          height: 22,
+                        }} 
+                      />
+                    </Box>
+                  )}
+                </Box>
+                <Box sx={{ 
+                  p: 1, 
+                  borderRadius: '50%', 
+                  bgcolor: '#ecfdf5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <TrendingUpIcon sx={{ color: '#059669' }} />
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Charts Row */}
+      <Grid container spacing={2} mb={3}>
+        {/* Priority Donut Chart */}
+        <Grid item xs={12} md={6}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, height: '100%', overflow: 'visible' }}>
+            <CardContent sx={{ overflow: 'visible' }}>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+                Incidents by Priority
+              </Typography>
+              {loading && filteredTickets.length === 0 ? (
+                <Box display="flex" justifyContent="center" alignItems="center" height={200}>
+                  <Skeleton variant="circular" width={150} height={150} />
+                </Box>
+              ) : (
+                <PriorityDonutChart stats={filteredStats.priority} />
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Status Bar Chart */}
+        <Grid item xs={12} md={6}>
+          <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+            <CardContent>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+                Current Ticket Status
+              </Typography>
+              {loading && filteredTickets.length === 0 ? (
+                <Box>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} variant="rectangular" height={24} sx={{ mb: 1.5, borderRadius: 1 }} />
+                  ))}
+                </Box>
+              ) : (
+                <StatusBarChart stats={filteredStats} />
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
       {/* Filters */}
       <Paper elevation={2} sx={{ p: 2, mb: 3 }}>
-        <Grid container spacing={2} alignItems="center">
+        <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
           {/* Status Filter */}
-          <Grid item xs={12} md={5}>
-            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-              Status
-            </Typography>
-            <ToggleButtonGroup
-              value={statusFilter}
-              exclusive
-              onChange={handleStatusFilterChange}
-              size="small"
-              sx={{ flexWrap: 'wrap' }}
-            >
+          <ToggleButtonGroup
+            value={statusFilter}
+            exclusive
+            onChange={handleStatusFilterChange}
+            size="small"
+          >
               <ToggleButton value="" sx={{ px: 2 }}>
                 All Active
               </ToggleButton>
@@ -549,26 +847,9 @@ const ProductionTickets = () => {
                 Closed
               </ToggleButton>
             </ToggleButtonGroup>
-          </Grid>
-
-          {/* Period Filter */}
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Time Period</InputLabel>
-              <Select
-                value={periodFilter}
-                label="Time Period"
-                onChange={handlePeriodFilterChange}
-              >
-                <MenuItem value="">All Time</MenuItem>
-                <MenuItem value="current_month">Current Month</MenuItem>
-                <MenuItem value="last_month">Last Month</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
 
           {/* Ticket Search */}
-          <Grid item xs={12} sm={6} md={4}>
+          <Box sx={{ minWidth: 280 }}>
             <form onSubmit={handleSearchSubmit}>
               <TextField
                 fullWidth
@@ -592,8 +873,8 @@ const ProductionTickets = () => {
                 }}
               />
             </form>
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
       </Paper>
 
       {/* Advanced Filters */}
@@ -776,6 +1057,7 @@ const ProductionTickets = () => {
         open={panelOpen}
         onClose={handlePanelClose}
         ticket={selectedTicket}
+        onTicketUpdated={fetchTickets}
       />
 
       {/* JIRA Connect Dialog */}

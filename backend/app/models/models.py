@@ -7,9 +7,9 @@ from pgvector.sqlalchemy import Vector
 import enum
 
 class UserRole(str, enum.Enum):
-    ADMIN = "admin"
-    TESTER = "tester"
-    DEVELOPER = "developer"
+    ADMIN = "ADMIN"
+    TESTER = "TESTER"
+    DEVELOPER = "DEVELOPER"
 
 class TestType(str, enum.Enum):
     MANUAL = "manual"

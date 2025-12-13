@@ -937,15 +937,20 @@ const ProductionTickets = () => {
 
       {/* Advanced Filters */}
       <Paper elevation={2} sx={{ p: 2, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Typography variant="subtitle2" color="text.secondary">
             Advanced Filters
           </Typography>
+        </Box>
+        
+        {/* Quick Filter Presets Bar */}
+        <Box mb={2}>
           <FilterPresets
             currentFilters={advancedFilters}
             onApplyPreset={handleApplyPreset}
           />
         </Box>
+        
         <FilterBar
           filters={advancedFilters}
           onFiltersChange={handleFiltersChange}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#36C5F0"/>
+      <stop offset="100%" style="stop-color:#2EB67D"/>
+    </linearGradient>
+  </defs>
+  <!-- Paper plane shape inspired by Slack colors -->
+  <polygon points="15,50 85,20 55,80 50,55 85,20" fill="#36C5F0"/>
+  <polygon points="15,50 50,55 55,80" fill="#2EB67D"/>
+  <polygon points="50,55 85,20 55,80" fill="#ECB22E"/>
+  <polygon points="15,50 85,20 50,55" fill="#E01E5A"/>
+</svg>

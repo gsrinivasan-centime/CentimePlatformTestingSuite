@@ -73,6 +73,11 @@ class User(Base):
     jira_account_email = Column(String, nullable=True)
     jira_display_name = Column(String, nullable=True)
     
+    # Slack OAuth fields (tokens are encrypted)
+    slack_user_access_token = Column(String, nullable=True)
+    slack_user_id = Column(String, nullable=True)
+    slack_display_name = Column(String, nullable=True)
+    
     # Relationships
     test_executions = relationship("TestExecution", back_populates="executor")
 

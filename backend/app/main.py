@@ -4,7 +4,7 @@ import asyncio
 from app.core.config import settings
 from app.core.database import engine
 from app.models import models
-from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories, step_catalog, issues, settings as app_settings, smart_search, csv_workbooks, production_tickets, jira_oauth
+from app.api import auth, test_cases, modules, sub_modules, features, releases, executions, reports, users, release_management, jira_stories, step_catalog, issues, settings as app_settings, smart_search, csv_workbooks, production_tickets, jira_oauth, slack_oauth
 from app.services.file_storage import file_storage
 
 # Create database tables
@@ -46,6 +46,7 @@ app.include_router(app_settings.router, prefix="/api/settings", tags=["Applicati
 app.include_router(smart_search.router, prefix="/api/search", tags=["Smart Search"])
 app.include_router(production_tickets.router, prefix="/api/production-tickets", tags=["Production Tickets"])
 app.include_router(jira_oauth.router, prefix="/api/jira", tags=["JIRA OAuth"])
+app.include_router(slack_oauth.router, prefix="/api/slack", tags=["Slack OAuth"])
 
 @app.on_event("startup")
 async def startup_event():

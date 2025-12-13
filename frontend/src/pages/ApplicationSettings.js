@@ -46,7 +46,10 @@ import {
   SmartToy as SmartToyIcon,
   Token as TokenIcon,
   AccessTime as AccessTimeIcon,
-  Cached as CachedIcon
+  Cached as CachedIcon,
+  Message as MessageIcon,
+  Link as LinkIcon,
+  LinkOff as LinkOffIcon
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -76,6 +79,12 @@ const ApplicationSettings = () => {
   const [minConfidence, setMinConfidence] = useState(50);
   const [cacheTTL, setCacheTTL] = useState(60);
   const [maxResults, setMaxResults] = useState(50);
+  
+  // Slack Integration state
+  const [slackStatus, setSlackStatus] = useState({ connected: false, configured: false });
+  const [slackWorkspace, setSlackWorkspace] = useState({ workspace_id: '', workspace_name: '' });
+  const [loadingSlack, setLoadingSlack] = useState(false);
+  const [savingSlackWorkspace, setSavingSlackWorkspace] = useState(false);
 
   const fetchSettings = async () => {
     try {
@@ -139,9 +148,94 @@ const ApplicationSettings = () => {
     }
   };
 
+  // Slack Integration functions
+  const fetchSlackStatus = async () => {
+    try {
+      setLoadingSlack(true);
+      const [statusRes, workspaceRes] = await Promise.all([
+        api.get('/slack/status'),
+        api.get('/slack/workspace')
+      ]);
+      setSlackStatus(statusRes.data);
+      setSlackWorkspace(workspaceRes.data);
+    } catch (err) {
+      console.error('Failed to load Slack status:', err);
+    } finally {
+      setLoadingSlack(false);
+    }
+  };
+
+  const handleSlackConnect = async () => {
+    try {
+      const response = await api.get('/slack/connect');
+      const { auth_url } = response.data;
+      
+      // Open OAuth popup
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      
+      const popup = window.open(
+        auth_url,
+        'slack-oauth',
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes`
+      );
+      
+      // Listen for OAuth callback message
+      const handleMessage = (event) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === 'SLACK_OAUTH_CALLBACK') {
+          window.removeEventListener('message', handleMessage);
+          if (event.data.success) {
+            showSnackbar(`Successfully connected to Slack as ${event.data.name || 'user'}!`, 'success');
+            fetchSlackStatus();
+          } else {
+            showSnackbar(`Slack connection failed: ${event.data.error || 'Unknown error'}`, 'error');
+          }
+        }
+      };
+      window.addEventListener('message', handleMessage);
+      
+      // Poll for popup closure
+      const pollTimer = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(pollTimer);
+          window.removeEventListener('message', handleMessage);
+          fetchSlackStatus();
+        }
+      }, 500);
+    } catch (err) {
+      showSnackbar('Failed to initiate Slack connection: ' + (err.response?.data?.detail || err.message), 'error');
+    }
+  };
+
+  const handleSlackDisconnect = async () => {
+    try {
+      await api.delete('/slack/disconnect');
+      showSnackbar('Slack account disconnected', 'success');
+      fetchSlackStatus();
+    } catch (err) {
+      showSnackbar('Failed to disconnect Slack: ' + (err.response?.data?.detail || err.message), 'error');
+    }
+  };
+
+  const handleSaveSlackWorkspace = async () => {
+    try {
+      setSavingSlackWorkspace(true);
+      await api.put('/slack/workspace', slackWorkspace);
+      showSnackbar('Slack workspace settings saved!', 'success');
+    } catch (err) {
+      showSnackbar('Failed to save Slack workspace: ' + (err.response?.data?.detail || err.message), 'error');
+    } finally {
+      setSavingSlackWorkspace(false);
+    }
+  };
+
   // Fetch settings on mount
   useEffect(() => {
     fetchSettings();
+    fetchSlackStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1001,6 +1095,173 @@ const ApplicationSettings = () => {
               </CardContent>
             </Card>
           </Grid>
+
+        {/* Slack Integration Card */}
+        <Grid item xs={12}>
+          <Card elevation={3}>
+            <CardHeader
+              avatar={<MessageIcon color="primary" />}
+              title="Slack Integration"
+              titleTypographyProps={{ variant: 'h6', fontWeight: 'bold' }}
+              action={
+                <IconButton onClick={fetchSlackStatus} disabled={loadingSlack}>
+                  <RefreshIcon />
+                </IconButton>
+              }
+            />
+            <Divider />
+            <CardContent>
+              {loadingSlack ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
+                <Grid container spacing={3}>
+                  {/* User Slack Connection */}
+                  <Grid item xs={12} md={6}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                        Your Slack Connection
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" paragraph>
+                        Connect your Slack account to send direct messages as yourself from Production Tickets.
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                        {slackStatus.connected ? (
+                          <>
+                            <CheckCircleIcon color="success" />
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body1" fontWeight="medium">
+                                Connected as {slackStatus.display_name || 'Slack User'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Slack User ID: {slackStatus.user_id}
+                              </Typography>
+                            </Box>
+                            <Button
+                              variant="outlined"
+                              color="primary"
+                              size="small"
+                              onClick={handleSlackConnect}
+                              startIcon={<RefreshIcon />}
+                            >
+                              Re-authenticate
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              size="small"
+                              onClick={handleSlackDisconnect}
+                              startIcon={<LinkOffIcon />}
+                            >
+                              Disconnect
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <WarningIcon color="warning" />
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body1" color="text.secondary">
+                                Not connected
+                              </Typography>
+                            </Box>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              onClick={handleSlackConnect}
+                              startIcon={<LinkIcon />}
+                              disabled={!slackStatus.configured}
+                            >
+                              Connect Slack
+                            </Button>
+                          </>
+                        )}
+                      </Box>
+                      
+                      {!slackStatus.configured && (
+                        <Alert severity="warning" sx={{ mt: 2 }}>
+                          Slack OAuth is not configured on the server. Contact your administrator.
+                        </Alert>
+                      )}
+                    </Paper>
+                  </Grid>
+                  
+                  {/* Workspace Settings (Super Admin Only) */}
+                  <Grid item xs={12} md={6}>
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                        Workspace Settings
+                        {!canEdit && (
+                          <Chip label="Super Admin Only" size="small" sx={{ ml: 1 }} />
+                        )}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" paragraph>
+                        Configure the Slack workspace for your organization.
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Workspace ID
+                          </Typography>
+                          <input
+                            type="text"
+                            value={slackWorkspace.workspace_id}
+                            onChange={(e) => setSlackWorkspace({ ...slackWorkspace, workspace_id: e.target.value })}
+                            disabled={!canEdit}
+                            placeholder="T0XXXXXXXXX"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #ccc',
+                              borderRadius: '4px',
+                              fontSize: '14px',
+                              marginTop: '4px'
+                            }}
+                          />
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Workspace Name
+                          </Typography>
+                          <input
+                            type="text"
+                            value={slackWorkspace.workspace_name}
+                            onChange={(e) => setSlackWorkspace({ ...slackWorkspace, workspace_name: e.target.value })}
+                            disabled={!canEdit}
+                            placeholder="My Company"
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              border: '1px solid #ccc',
+                              borderRadius: '4px',
+                              fontSize: '14px',
+                              marginTop: '4px'
+                            }}
+                          />
+                        </Box>
+                        
+                        {canEdit && (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={handleSaveSlackWorkspace}
+                            disabled={savingSlackWorkspace}
+                            startIcon={savingSlackWorkspace ? <CircularProgress size={16} /> : <SaveIcon />}
+                            sx={{ alignSelf: 'flex-start' }}
+                          >
+                            Save Workspace Settings
+                          </Button>
+                        )}
+                      </Box>
+                    </Paper>
+                  </Grid>
+                </Grid>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
 
         {/* Help Section */}
         <Grid item xs={12}>

@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # Slack Integration
     SLACK_BOT_TOKEN: str = ""  # Slack Bot token for notifications (xoxb-...)
     
+    # Slack OAuth 2.0 - for user-specific operations like sending DMs as user
+    SLACK_OAUTH_CLIENT_ID: str = ""
+    SLACK_OAUTH_CLIENT_SECRET: str = ""
+    SLACK_OAUTH_REDIRECT_URI: str = "http://localhost:8000/api/slack/callback"
+    
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     
     @property

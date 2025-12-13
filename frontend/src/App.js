@@ -24,6 +24,7 @@ import Stories from './pages/Stories';
 import Issues from './pages/Issues';
 import ProductionTickets from './pages/ProductionTickets';
 import JiraCallback from './pages/JiraCallback';
+import SlackCallback from './pages/SlackCallback';
 import ReleaseDetail from './pages/ReleaseManagement/ReleaseDetail';
 import ApplicationSettings from './pages/ApplicationSettings';
 
@@ -63,6 +64,7 @@ function AppContent() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/jira/callback" element={<JiraCallback />} />
+        <Route path="/slack/callback" element={<SlackCallback />} />
         <Route
           path="/dashboard"
           element={

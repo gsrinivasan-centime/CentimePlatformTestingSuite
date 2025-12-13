@@ -39,6 +39,11 @@ const Register = () => {
   };
 
   const validateEmail = (email) => {
+    // Check for + alias (e.g., user+tag@domain.com)
+    const localPart = email.split('@')[0];
+    if (localPart.includes('+')) {
+      return 'Email aliases with \'+\' are not allowed. Please use your primary email address.';
+    }
     if (!email.endsWith(`@${emailDomain}`)) {
       return `Email must be from ${emailDomain} domain`;
     }

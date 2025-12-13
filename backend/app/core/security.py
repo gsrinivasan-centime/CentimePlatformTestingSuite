@@ -62,3 +62,8 @@ def validate_email_domain(email: str) -> bool:
     """Validate that email belongs to allowed domain"""
     domain = email.split('@')[-1]
     return domain == settings.ALLOWED_EMAIL_DOMAIN
+
+def validate_email_no_alias(email: str) -> bool:
+    """Validate that email does not contain + alias (e.g., user+tag@domain.com)"""
+    local_part = email.split('@')[0]
+    return '+' not in local_part

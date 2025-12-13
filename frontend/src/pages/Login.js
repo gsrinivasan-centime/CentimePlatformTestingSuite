@@ -34,10 +34,27 @@ const Login = () => {
     setError('');
   };
 
+  const validateEmail = (email) => {
+    // Check for + alias (e.g., user+tag@domain.com)
+    const localPart = email.split('@')[0];
+    if (localPart.includes('+')) {
+      return 'Email aliases with \'+\' are not allowed. Please use your primary email address.';
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    // Validate email format
+    const emailError = validateEmail(formData.email);
+    if (emailError) {
+      setError(emailError);
+      setLoading(false);
+      return;
+    }
 
     const result = await login(formData.email, formData.password);
 

@@ -1,10 +1,12 @@
 /**
  * Filter Presets Component
- * Dropdown menu for built-in and user-saved filter presets with save/share functionality
+ * Horizontal bar with quick-access preset chips and save/share functionality
  */
 import React, { useState } from 'react';
 import {
+  Box,
   Button,
+  Chip,
   Menu,
   MenuItem,
   ListItemIcon,
@@ -20,16 +22,16 @@ import {
   Tooltip,
 } from '@mui/material';
 import {
-  BookmarkBorder as PresetIcon,
   Bookmark as SavedPresetIcon,
   Save as SaveIcon,
   Share as ShareIcon,
-  Delete as DeleteIcon,
   BugReport as BugIcon,
   PriorityHigh as PriorityIcon,
   Person as PersonIcon,
   PersonOff as PersonOffIcon,
   Block as BlockIcon,
+  MoreVert as MoreIcon,
+  Clear as ClearIcon,
 } from '@mui/icons-material';
 import { useToast } from '../context/ToastContext';
 import {
@@ -48,41 +50,51 @@ const PRESET_ICONS = {
   'exclude-closed': <BlockIcon fontSize="small" />,
 };
 
+// Colors for built-in presets
+const PRESET_COLORS = {
+  'active': 'primary',
+  'high-priority': 'error',
+  'assigned-only': 'success',
+  'unassigned': 'warning',
+  'exclude-closed': 'default',
+};
+
 const FilterPresets = ({
   currentFilters, // { items: [], logic: 'and' }
   onApplyPreset,
+  onClearFilters, // Optional: callback to clear all filters
 }) => {
-  const [anchorEl, setAnchorEl] = useState(null);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [userPresets, setUserPresets] = useState(() => loadPresetsFromStorage());
+  const [activePresetId, setActivePresetId] = useState(null);
   
   const { showSuccess, showError } = useToast();
-
-  const open = Boolean(anchorEl);
-
-  // Open menu
-  const handleClick = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  // Close menu
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
 
   // Apply a preset
   const handleApplyPreset = (preset) => {
     onApplyPreset(preset.filters);
-    handleClose();
-    showSuccess(`Applied preset: ${preset.name}`);
+    setActivePresetId(preset.id);
+    setMoreMenuAnchor(null);
+    showSuccess(`Applied: ${preset.name}`);
+  };
+
+  // Clear filters
+  const handleClearFilters = () => {
+    if (onClearFilters) {
+      onClearFilters();
+    } else {
+      onApplyPreset({ items: [], logic: 'and' });
+    }
+    setActivePresetId(null);
   };
 
   // Open save dialog
   const handleOpenSaveDialog = () => {
     setPresetName('');
     setSaveDialogOpen(true);
-    handleClose();
+    setMoreMenuAnchor(null);
   };
 
   // Save current filters as preset
@@ -109,7 +121,7 @@ const FilterPresets = ({
     savePresetsToStorage(updatedPresets);
     
     setSaveDialogOpen(false);
-    showSuccess(`Saved preset: ${presetName}`);
+    showSuccess(`Saved: ${presetName}`);
   };
 
   // Delete user preset
@@ -118,6 +130,9 @@ const FilterPresets = ({
     const updatedPresets = userPresets.filter(p => p.id !== presetId);
     setUserPresets(updatedPresets);
     savePresetsToStorage(updatedPresets);
+    if (activePresetId === presetId) {
+      setActivePresetId(null);
+    }
     showSuccess('Preset deleted');
   };
 
@@ -125,7 +140,7 @@ const FilterPresets = ({
   const handleShareFilters = async () => {
     if (!currentFilters?.items?.length) {
       showError('No filters to share');
-      handleClose();
+      setMoreMenuAnchor(null);
       return;
     }
 
@@ -138,97 +153,107 @@ const FilterPresets = ({
     } catch (err) {
       showError('Failed to copy URL');
     }
-    handleClose();
+    setMoreMenuAnchor(null);
   };
 
   const hasFilters = currentFilters?.items?.length > 0;
 
   return (
     <>
-      {/* Presets Button */}
-      <Button
-        variant="outlined"
-        size="small"
-        startIcon={<PresetIcon />}
-        onClick={handleClick}
-        sx={{ minWidth: 'auto' }}
-      >
-        Presets
-      </Button>
-
-      {/* Presets Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'left',
-        }}
-        PaperProps={{
-          sx: { minWidth: 220, maxWidth: 300 },
-        }}
-      >
-        {/* Built-in Presets Section */}
-        <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 0.5, display: 'block' }}>
-          Built-in Presets
+      {/* Presets Bar */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        {/* Quick Presets Label */}
+        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, fontWeight: 500 }}>
+          Quick filters:
         </Typography>
         
+        {/* Built-in Preset Chips */}
         {BUILT_IN_PRESETS.map((preset) => (
-          <MenuItem
-            key={preset.id}
-            onClick={() => handleApplyPreset(preset)}
-          >
-            <ListItemIcon>
-              {PRESET_ICONS[preset.id] || <PresetIcon fontSize="small" />}
-            </ListItemIcon>
-            <ListItemText
-              primary={preset.name}
-              secondary={preset.description}
-              secondaryTypographyProps={{ variant: 'caption' }}
+          <Tooltip key={preset.id} title={preset.description} arrow>
+            <Chip
+              icon={PRESET_ICONS[preset.id]}
+              label={preset.name}
+              size="small"
+              color={activePresetId === preset.id ? PRESET_COLORS[preset.id] : 'default'}
+              variant={activePresetId === preset.id ? 'filled' : 'outlined'}
+              onClick={() => handleApplyPreset(preset)}
+              sx={{ 
+                cursor: 'pointer',
+                '&:hover': { 
+                  backgroundColor: activePresetId === preset.id 
+                    ? undefined 
+                    : 'action.hover' 
+                },
+              }}
             />
-          </MenuItem>
+          </Tooltip>
         ))}
-
-        {/* User Presets Section */}
-        {userPresets.length > 0 && (
-          <>
-            <Divider sx={{ my: 1 }} />
-            <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 0.5, display: 'block' }}>
-              My Presets
-            </Typography>
-            
-            {userPresets.map((preset) => (
-              <MenuItem
-                key={preset.id}
-                onClick={() => handleApplyPreset(preset)}
-                sx={{ pr: 1 }}
-              >
-                <ListItemIcon>
-                  <SavedPresetIcon fontSize="small" color="primary" />
-                </ListItemIcon>
-                <ListItemText
-                  primary={preset.name}
-                  secondary={`${preset.filters?.items?.length || 0} filters`}
-                  secondaryTypographyProps={{ variant: 'caption' }}
-                />
-                <Tooltip title="Delete preset">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => handleDeletePreset(preset.id, e)}
-                    sx={{ ml: 1 }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </MenuItem>
-            ))}
-          </>
-        )}
-
-        {/* Actions Section */}
-        <Divider sx={{ my: 1 }} />
         
+        {/* Divider */}
+        {userPresets.length > 0 && (
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5, height: 24, alignSelf: 'center' }} />
+        )}
+        
+        {/* User Preset Chips */}
+        {userPresets.map((preset) => (
+          <Chip
+            key={preset.id}
+            icon={<SavedPresetIcon fontSize="small" />}
+            label={preset.name}
+            size="small"
+            color={activePresetId === preset.id ? 'primary' : 'default'}
+            variant={activePresetId === preset.id ? 'filled' : 'outlined'}
+            onClick={() => handleApplyPreset(preset)}
+            onDelete={(e) => handleDeletePreset(preset.id, e)}
+            sx={{ cursor: 'pointer' }}
+          />
+        ))}
+        
+        {/* Clear Filter Button (shown when filters active) */}
+        {hasFilters && (
+          <Chip
+            icon={<ClearIcon fontSize="small" />}
+            label="Clear"
+            size="small"
+            color="default"
+            variant="outlined"
+            onClick={handleClearFilters}
+            sx={{ 
+              cursor: 'pointer',
+              borderStyle: 'dashed',
+            }}
+          />
+        )}
+        
+        {/* More Actions Button */}
+        <Tooltip title="Save or share filters">
+          <IconButton
+            size="small"
+            onClick={(e) => setMoreMenuAnchor(e.currentTarget)}
+            sx={{ ml: 0.5 }}
+          >
+            <MoreIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* More Actions Menu */}
+      <Menu
+        anchorEl={moreMenuAnchor}
+        open={Boolean(moreMenuAnchor)}
+        onClose={() => setMoreMenuAnchor(null)}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        PaperProps={{
+          sx: { minWidth: 200 },
+        }}
+      >
         <MenuItem
           onClick={handleOpenSaveDialog}
           disabled={!hasFilters}
@@ -237,9 +262,9 @@ const FilterPresets = ({
             <SaveIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText
-            primary="Save Current as Preset"
-            secondary={hasFilters ? null : "Apply filters first"}
-            secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
+            primary="Save as Preset"
+            secondary={hasFilters ? `${currentFilters.items.length} filter(s)` : "Apply filters first"}
+            secondaryTypographyProps={{ variant: 'caption' }}
           />
         </MenuItem>
 
@@ -251,11 +276,23 @@ const FilterPresets = ({
             <ShareIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText
-            primary="Share Filters Link"
-            secondary="Copy URL to clipboard"
+            primary="Share Filters"
+            secondary="Copy link to clipboard"
             secondaryTypographyProps={{ variant: 'caption' }}
           />
         </MenuItem>
+        
+        {hasFilters && (
+          <>
+            <Divider />
+            <MenuItem onClick={handleClearFilters}>
+              <ListItemIcon>
+                <ClearIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Clear All Filters" />
+            </MenuItem>
+          </>
+        )}
       </Menu>
 
       {/* Save Preset Dialog */}
@@ -273,7 +310,7 @@ const FilterPresets = ({
             label="Preset Name"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            placeholder="e.g., My High Priority Open Tickets"
+            placeholder="e.g., My High Priority Open"
             sx={{ mt: 1 }}
             onKeyPress={(e) => {
               if (e.key === 'Enter') {
@@ -282,7 +319,7 @@ const FilterPresets = ({
             }}
           />
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            This will save {currentFilters?.items?.length || 0} filter(s) with {currentFilters?.logic?.toUpperCase() || 'AND'} logic.
+            Saving {currentFilters?.items?.length || 0} filter(s) with {currentFilters?.logic?.toUpperCase() || 'AND'} logic.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -291,8 +328,9 @@ const FilterPresets = ({
             onClick={handleSavePreset}
             variant="contained"
             disabled={!presetName.trim()}
+            startIcon={<SaveIcon />}
           >
-            Save Preset
+            Save
           </Button>
         </DialogActions>
       </Dialog>

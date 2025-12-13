@@ -231,14 +231,24 @@ const ProductionTickets = () => {
     // Save to localStorage
     saveFiltersToStorage(advancedFilters);
     
-    // Update URL
+    // Preserve ticket parameter if present (for Slack links)
+    const ticketParam = searchParams.get('ticket');
+    
+    // Update URL - preserve ticket param if present
     if (advancedFilters.items.length > 0) {
       const encoded = encodeFiltersToURL(advancedFilters);
-      setSearchParams({ filters: encoded }, { replace: true });
+      const newParams = { filters: encoded };
+      if (ticketParam) {
+        newParams.ticket = ticketParam;
+      }
+      setSearchParams(newParams, { replace: true });
     } else {
-      // Remove filters param if no filters
-      searchParams.delete('filters');
-      setSearchParams(searchParams, { replace: true });
+      // Remove filters param if no filters, but preserve ticket
+      const newParams = new URLSearchParams();
+      if (ticketParam) {
+        newParams.set('ticket', ticketParam);
+      }
+      setSearchParams(newParams, { replace: true });
     }
   }, [advancedFilters, filtersInitialized, setSearchParams, searchParams]);
 

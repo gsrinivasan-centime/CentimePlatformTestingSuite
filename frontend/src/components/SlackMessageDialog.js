@@ -7,6 +7,7 @@
  * 2. Send via bot (using bot token - message includes sender attribution)
  */
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogTitle,
@@ -32,6 +33,8 @@ import {
   Person as PersonIcon,
   SmartToy as BotIcon,
   Close as CloseIcon,
+  Settings as SettingsIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -41,6 +44,7 @@ const SlackMessageDialog = ({
   ticket = null, // Optional ticket context
   defaultRecipientEmail = null, // Pre-select recipient by email
 }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -269,8 +273,45 @@ Thanks!`);
               )}
               
               {!slackStatus.connected && (
-                <Alert severity="info" sx={{ mt: 1 }}>
-                  Connect your Slack account in Settings to send messages as yourself.
+                <Alert 
+                  severity="info" 
+                  sx={{ mt: 1 }}
+                  action={
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        color="inherit"
+                        size="small"
+                        startIcon={<LinkIcon />}
+                        onClick={async () => {
+                          try {
+                            const response = await api.get('/slack/connect');
+                            if (response.data.auth_url) {
+                              window.open(response.data.auth_url, '_blank', 'width=600,height=700');
+                            }
+                          } catch (err) {
+                            setError('Failed to initiate Slack connection');
+                          }
+                        }}
+                      >
+                        Connect Now
+                      </Button>
+                      <Button
+                        color="inherit"
+                        size="small"
+                        startIcon={<SettingsIcon />}
+                        onClick={() => {
+                          handleClose();
+                          navigate('/settings');
+                        }}
+                      >
+                        Settings
+                      </Button>
+                    </Box>
+                  }
+                >
+                  <Typography variant="body2">
+                    <strong>Tip:</strong> Connect your Slack account to send messages as yourself instead of via bot.
+                  </Typography>
                 </Alert>
               )}
             </Box>

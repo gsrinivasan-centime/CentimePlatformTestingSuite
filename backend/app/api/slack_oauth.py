@@ -4,13 +4,14 @@ Slack OAuth API Endpoints
 Handles Slack OAuth flow for user authentication and messaging.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import secrets
+import json
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -347,11 +348,30 @@ def send_slack_dm(
                     "type": "divider"
                 },
                 {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📊 <{qa_portal_ticket_url}|View {data.ticket_key} in QA Portal>  •  🎫 <{jira_ticket_url}|View {data.ticket_key} in JIRA>"
-                    }
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "📊 View in QA Portal",
+                                "emoji": True
+                            },
+                            "url": qa_portal_ticket_url,
+                            "action_id": f"open_qa_portal_{data.ticket_key}",
+                            "style": "primary"
+                        },
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "🎫 View in JIRA",
+                                "emoji": True
+                            },
+                            "url": jira_ticket_url,
+                            "action_id": f"open_jira_{data.ticket_key}"
+                        }
+                    ]
                 },
                 {
                     "type": "context",
@@ -415,3 +435,36 @@ def find_slack_user_by_email(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/interactions")
+async def handle_slack_interactions(request: Request):
+    """
+    Handle Slack interactivity events (button clicks, etc.).
+    
+    For buttons with URLs, Slack opens the URL directly.
+    We just need to acknowledge the request with 200 OK.
+    """
+    try:
+        # Slack sends interactions as form-urlencoded with payload key
+        form_data = await request.form()
+        payload_str = form_data.get("payload", "{}")
+        payload = json.loads(payload_str)
+        
+        # Log the interaction for debugging (optional)
+        action_type = payload.get("type", "unknown")
+        user = payload.get("user", {}).get("name", "unknown")
+        
+        if action_type == "block_actions":
+            actions = payload.get("actions", [])
+            for action in actions:
+                action_id = action.get("action_id", "")
+                print(f"Slack interaction: {user} clicked {action_id}")
+        
+        # For URL buttons, just acknowledge - Slack handles the URL opening
+        return Response(content="", status_code=200)
+        
+    except Exception as e:
+        print(f"Slack interaction error: {e}")
+        # Always return 200 to Slack to avoid retries
+        return Response(content="", status_code=200)

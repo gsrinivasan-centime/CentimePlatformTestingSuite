@@ -10,7 +10,8 @@ from app.core.security import (
     create_refresh_token,
     decode_access_token,
     decode_refresh_token,
-    validate_email_domain
+    validate_email_domain,
+    validate_email_no_alias
 )
 from app.core.config import settings
 from app.models.models import User, UserRole
@@ -79,6 +80,13 @@ def can_edit_settings(user: User) -> bool:
 
 @router.post("/register", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
 def register(user: UserCreate, db: Session = Depends(get_db)):
+    # Validate email does not contain + alias
+    if not validate_email_no_alias(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email aliases with '+' are not allowed. Please use your primary email address."
+        )
+    
     # Validate email domain
     if not validate_email_domain(user.email):
         raise HTTPException(
@@ -119,6 +127,13 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # Validate email does not contain + alias
+    if not validate_email_no_alias(form_data.username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email aliases with '+' are not allowed. Please use your primary email address."
+        )
+    
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(

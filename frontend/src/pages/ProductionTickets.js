@@ -41,6 +41,7 @@ import productionTicketsAPI from '../services/productionTicketsService';
 import jiraAPI from '../services/jiraService';
 import TicketDetailPanel from '../components/TicketDetailPanel.js';
 import JiraConnectDialog from '../components/JiraConnectDialog';
+import SlackMessageDialog from '../components/SlackMessageDialog';
 import ResizableTableCell from '../components/ResizableTableCell';
 import FilterBar from '../components/FilterBar';
 import FilterPresets from '../components/FilterPresets';
@@ -133,6 +134,17 @@ const ProductionTickets = () => {
   // JIRA OAuth state
   const [jiraConnectDialogOpen, setJiraConnectDialogOpen] = useState(false);
   const [jiraConnectionStatus, setJiraConnectionStatus] = useState(null);
+
+  // Slack message dialog state
+  const [slackDialogOpen, setSlackDialogOpen] = useState(false);
+  const [slackDialogTicket, setSlackDialogTicket] = useState(null);
+
+  // Handle opening Slack message dialog
+  const handleOpenSlackDialog = (e, ticket) => {
+    e.stopPropagation(); // Prevent row click
+    setSlackDialogTicket(ticket);
+    setSlackDialogOpen(true);
+  };
 
   // Check JIRA connection status on mount
   useEffect(() => {
@@ -258,6 +270,26 @@ const ProductionTickets = () => {
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
+
+  // Handle ticket URL parameter to auto-open panel (e.g., from Slack links)
+  useEffect(() => {
+    const ticketKey = searchParams.get('ticket');
+    if (ticketKey && tickets.length > 0) {
+      // Find the ticket in our list
+      const foundTicket = tickets.find(t => t.key === ticketKey);
+      if (foundTicket) {
+        setSelectedTicket(foundTicket);
+        setPanelOpen(true);
+        // Clear the ticket param from URL after opening
+        searchParams.delete('ticket');
+        setSearchParams(searchParams, { replace: true });
+      } else {
+        // Ticket not in current list, might need to search for it
+        setTicketSearch(ticketKey);
+        setSearchInput(ticketKey);
+      }
+    }
+  }, [tickets, searchParams, setSearchParams]);
 
   // Handle refresh
   const handleRefresh = async () => {
@@ -910,15 +942,16 @@ const ProductionTickets = () => {
       {/* Tickets Table */}
       <Paper elevation={2}>
         <TableContainer>
-          <Table size="small" sx={{ minWidth: 1000, tableLayout: 'fixed' }}>
+          <Table size="small" sx={{ minWidth: 1100, tableLayout: 'fixed' }}>
             <TableHead>
               <TableRow>
                 <ResizableTableCell minWidth={100} initialWidth={120} isHeader>JIRA ID</ResizableTableCell>
-                <ResizableTableCell minWidth={250} initialWidth={400} isHeader align="left">Summary</ResizableTableCell>
+                <ResizableTableCell minWidth={250} initialWidth={380} isHeader align="left">Summary</ResizableTableCell>
                 <ResizableTableCell minWidth={100} initialWidth={140} isHeader>Status</ResizableTableCell>
                 <ResizableTableCell minWidth={80} initialWidth={110} isHeader>Priority</ResizableTableCell>
                 <ResizableTableCell minWidth={120} initialWidth={160} isHeader>Assignee</ResizableTableCell>
                 <ResizableTableCell minWidth={90} initialWidth={110} isHeader>Updated</ResizableTableCell>
+                <TableCell sx={{ width: 60 }} align="center">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -932,11 +965,12 @@ const ProductionTickets = () => {
                     <TableCell><Skeleton width={60} /></TableCell>
                     <TableCell><Skeleton /></TableCell>
                     <TableCell><Skeleton width={80} /></TableCell>
+                    <TableCell><Skeleton width={30} /></TableCell>
                   </TableRow>
                 ))
               ) : paginatedTickets.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                     <Typography variant="body1" color="text.secondary">
                       No tickets found
                     </Typography>
@@ -1034,6 +1068,24 @@ const ProductionTickets = () => {
                         </Typography>
                       </Tooltip>
                     </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Send Slack Message">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => handleOpenSlackDialog(e, ticket)}
+                          sx={{ 
+                            p: 0.5,
+                            '&:hover': { bgcolor: 'rgba(54, 197, 240, 0.1)' }
+                          }}
+                        >
+                          <img 
+                            src="/icons/slack-plane.svg" 
+                            alt="Send Slack DM" 
+                            style={{ width: 28, height: 28 }} 
+                          />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -1065,6 +1117,16 @@ const ProductionTickets = () => {
         open={jiraConnectDialogOpen}
         onClose={() => setJiraConnectDialogOpen(false)}
         onConnectionChange={handleJiraConnectionChange}
+      />
+
+      {/* Slack Message Dialog */}
+      <SlackMessageDialog
+        open={slackDialogOpen}
+        onClose={() => {
+          setSlackDialogOpen(false);
+          setSlackDialogTicket(null);
+        }}
+        ticket={slackDialogTicket}
       />
     </>
   );

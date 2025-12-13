@@ -274,8 +274,8 @@ const ProductionTickets = () => {
   // Handle ticket URL parameter to auto-open panel (e.g., from Slack links)
   useEffect(() => {
     const ticketKey = searchParams.get('ticket');
-    if (ticketKey && tickets.length > 0) {
-      // Find the ticket in our list
+    if (ticketKey) {
+      // First check if ticket is already in our loaded list
       const foundTicket = tickets.find(t => t.key === ticketKey);
       if (foundTicket) {
         setSelectedTicket(foundTicket);
@@ -283,13 +283,29 @@ const ProductionTickets = () => {
         // Clear the ticket param from URL after opening
         searchParams.delete('ticket');
         setSearchParams(searchParams, { replace: true });
-      } else {
-        // Ticket not in current list, might need to search for it
-        setTicketSearch(ticketKey);
-        setSearchInput(ticketKey);
+      } else if (!loading) {
+        // Ticket not in current list, fetch it directly from API
+        const fetchTicketDirectly = async () => {
+          try {
+            const ticketData = await productionTicketsAPI.getTicket(ticketKey);
+            if (ticketData) {
+              setSelectedTicket(ticketData);
+              setPanelOpen(true);
+              // Clear the ticket param from URL after opening
+              searchParams.delete('ticket');
+              setSearchParams(searchParams, { replace: true });
+            } else {
+              showWarning(`Ticket ${ticketKey} not found`);
+            }
+          } catch (err) {
+            console.error('Failed to fetch ticket:', err);
+            showWarning(`Could not load ticket ${ticketKey}`);
+          }
+        };
+        fetchTicketDirectly();
       }
     }
-  }, [tickets, searchParams, setSearchParams]);
+  }, [tickets, searchParams, setSearchParams, loading, showWarning]);
 
   // Handle refresh
   const handleRefresh = async () => {
